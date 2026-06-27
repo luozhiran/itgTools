@@ -750,6 +750,26 @@ if (OkioFileUtils.isRegularFile("/sdcard/file.txt")) {
 }
 ```
 
+### 文件清理调度
+
+`FileCleanupManager` 用于按配置清理文件夹内容或删除目标文件，支持应用冷启动、延迟执行和指定时间执行。
+
+```kotlin
+import com.itg.itg_file.cleanup.FileCleanupManager
+
+val config = FileCleanupManager.builder()
+    .clearOnAppStart("cache", "/sdcard/MyApp/cache")
+    .clearAfterDelay("logs", "/sdcard/MyApp/logs", delayMs = 60_000)
+    .deleteAtTime("temp", "/sdcard/MyApp/temp", triggerAtMillis = System.currentTimeMillis() + 3_600_000)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    // result.success / result.message / result.deletedEntries
+}
+```
+
+回调在任务执行后返回，可以直接告诉用户是否删除成功、删除了什么、为什么失败。
+
 ---
 
 ### 6. Okio 读取 — OkioReadUtils
@@ -1493,3 +1513,356 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## 文件清理调度
+
+`FileCleanupManager` 提供按配置执行文件清理/删除的能力。
+
+支持的触发时机：
+
+- `OnAppStart`：应用启动后立即执行
+- `OnAppBackground`：应用退到后台时执行
+- `AfterDelay`：延迟一段时间后执行
+- `AtTimeMillis`：到指定时间点执行
+
+支持的动作：
+
+- `CLEAR_DIRECTORY`：清空目录内所有内容
+- `DELETE_TARGET`：直接删除目标文件或目录
+
+### 配置示例
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppBackground("cache_clean", cacheDir.absolutePath)
+    .clearAfterDays("expired_cache", expiredDir.absolutePath, days = 7)
+    .deleteAfterDelay("temp_delete", tempDir.absolutePath, delayMs = 10_000L)
+    .clearAtTime("log_rotate", logDir.absolutePath, triggerAtMillis = targetTimeMillis)
+    .build()
+```
+
+`clearAfterDays(...)` 适合“保留 N 天后清理”的场景，内部会转换成按天数的延迟调度。
+
+### 注册执行
+
+```kotlin
+FileCleanupManager.register(application, config) { result ->
+    if (!result.success) {
+        Log.w("Cleanup", result.message)
+    }
+}
+```
+
+### 回调结果
+
+`CleanupResult` 会返回：
+
+- `success`：是否执行成功
+- `deletedEntries`：删除数量
+- `existedBefore` / `existedAfter`：执行前后是否存在
+- `message`：可直接给用户展示或写日志
+
+### 兼容性说明
+
+- 依赖 `Application.ActivityLifecycleCallbacks` 的后台触发能力
+- 如果只使用启动/延迟/定时触发，可以继续调用 `register(config)`，不需要传 `Application`
+## 文件清理使用示例
+
+下面这些示例可以直接复制到业务代码里。
+
+### 1. 应用启动后立即清理缓存目录
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppStart("startup_cache", cacheDir.absolutePath)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 2. 应用退到后台时清空目录内容
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppBackground("background_cache", cacheDir.absolutePath)
+    .build()
+
+FileCleanupManager.register(application, config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 3. 延迟 10 秒后删除单个文件
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .deleteAfterDelay("temp_file", tempFile.absolutePath, delayMs = 10_000L)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 4. 7 天后清理目录，且跨重启不重置
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearAfterDays(
+        key = "expired_cache",
+        path = expiredDir.absolutePath,
+        days = 7,
+        persistAcrossRestarts = true
+    )
+    .build()
+
+FileCleanupManager.register(application, config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 5. 7 天后删除文件，但每次启动都重新计时
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .deleteAfterDays(
+        key = "expired_file",
+        path = expiredFile.absolutePath,
+        days = 7,
+        persistAcrossRestarts = false
+    )
+    .build()
+
+FileCleanupManager.register(application, config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 6. 到指定时间点执行清理
+
+```kotlin
+val triggerAtMillis = System.currentTimeMillis() + 60_000L
+
+val config = FileCleanupManager.builder()
+    .clearAtTime("scheduled_log", logDir.absolutePath, triggerAtMillis)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 7. 立即执行全部规则
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppStart("cache", cacheDir.absolutePath)
+    .deleteAfterDelay("temp", tempFile.absolutePath, delayMs = 30_000L)
+    .build()
+
+FileCleanupManager.runNow(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 8. 取消规则
+
+```kotlin
+FileCleanupManager.cancel("expired_cache")
+FileCleanupManager.cancelAll()
+```
+
+### API 总览
+
+| API | 场景 | 是否需要 `Application` | 是否跨重启 |
+|---|---|---:|---:|
+| `clearOnAppStart(...)` | 应用启动后立即清理目录内容 | 否 | 否 |
+| `deleteOnAppStart(...)` | 应用启动后立即删除目标文件/目录 | 否 | 否 |
+| `clearOnAppBackground(...)` | 应用退到后台时清理目录内容 | 是 | 否 |
+| `deleteOnAppBackground(...)` | 应用退到后台时删除目标文件/目录 | 是 | 否 |
+| `clearAfterDelay(...)` | 延迟指定毫秒后清理目录内容 | 否 | 否 |
+| `deleteAfterDelay(...)` | 延迟指定毫秒后删除目标文件/目录 | 否 | 否 |
+| `clearAfterDays(..., persistAcrossRestarts = true)` | 按天数到期后清理目录内容 | 推荐是 | 是 |
+| `deleteAfterDays(..., persistAcrossRestarts = true)` | 按天数到期后删除目标文件/目录 | 推荐是 | 是 |
+| `clearAfterDays(..., persistAcrossRestarts = false)` | 按天数延迟清理目录内容 | 推荐是 | 否 |
+| `deleteAfterDays(..., persistAcrossRestarts = false)` | 按天数延迟删除目标文件/目录 | 推荐是 | 否 |
+| `clearAtTime(...)` | 到指定时间点清理目录内容 | 否 | 否 |
+| `deleteAtTime(...)` | 到指定时间点删除目标文件/目录 | 否 | 否 |
+| `runNow(...)` | 立即执行全部已启用规则 | 否 | 否 |
+| `cancel(key)` | 取消单条已注册规则 | 否 | 否 |
+| `cancelAll()` | 取消全部已注册规则 | 否 | 否 |
+
+### 推荐使用方式
+
+- 临时任务：`clearAfterDelay(...)` / `deleteAfterDelay(...)`
+- 到期保留：`clearAfterDays(..., persistAcrossRestarts = true)` / `deleteAfterDays(..., persistAcrossRestarts = true)`
+- 需要后台触发：`clearOnAppBackground(...)` / `deleteOnAppBackground(...)`，并使用 `register(application, config)`
+- 需要固定时间执行：`clearAtTime(...)` / `deleteAtTime(...)`
+
+---
+
+## 文件清理 API 结构化说明
+
+这一节按触发方式整理，适合作为接入参考。
+
+### 1. 启动时清理
+
+适用场景：
+
+- 应用冷启动后清一次缓存
+- 启动后删除一次性临时文件
+
+示例：
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppStart("startup_cache", cacheDir.absolutePath)
+    .deleteOnAppStart("startup_temp", tempFile.absolutePath)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 2. 退到后台时清理
+
+适用场景：
+
+- 页面退出前清理缓存
+- 应用切后台时清空下载临时目录
+
+要求：
+
+- 需要传入 `Application`
+- 底层依赖 `Application.ActivityLifecycleCallbacks`
+
+示例：
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppBackground("bg_cache", cacheDir.absolutePath)
+    .deleteOnAppBackground("bg_temp", tempFile.absolutePath)
+    .build()
+
+FileCleanupManager.register(application, config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 3. 延迟触发
+
+适用场景：
+
+- 退出后延迟几秒做收尾
+- 延迟一段时间后删除临时文件
+
+示例：
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearAfterDelay("delay_cache", cacheDir.absolutePath, delayMs = 10_000L)
+    .deleteAfterDelay("delay_temp", tempFile.absolutePath, delayMs = 30_000L)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 4. 按 N 天触发
+
+适用场景：
+
+- 日志保留 7 天后清理
+- 临时目录 3 天后删除
+
+示例：
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearAfterDays(
+        key = "expired_cache",
+        path = expiredDir.absolutePath,
+        days = 7,
+        persistAcrossRestarts = true
+    )
+    .deleteAfterDays(
+        key = "expired_file",
+        path = expiredFile.absolutePath,
+        days = 7,
+        persistAcrossRestarts = false
+    )
+    .build()
+
+FileCleanupManager.register(application, config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+说明：
+
+- `persistAcrossRestarts = true`：跨重启不重置，首次注册后会持久化到期时间
+- `persistAcrossRestarts = false`：每次启动重新计时
+
+### 5. 指定时间点触发
+
+适用场景：
+
+- 到某个绝对时间点统一清理
+- 日志轮转
+
+示例：
+
+```kotlin
+val triggerAtMillis = System.currentTimeMillis() + 60_000L
+
+val config = FileCleanupManager.builder()
+    .clearAtTime("scheduled_log", logDir.absolutePath, triggerAtMillis)
+    .deleteAtTime("scheduled_file", filePath, triggerAtMillis)
+    .build()
+
+FileCleanupManager.register(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+```
+
+### 6. 立即执行与取消
+
+适用场景：
+
+- 手动触发全部规则
+- 页面销毁前取消未执行任务
+
+示例：
+
+```kotlin
+val config = FileCleanupManager.builder()
+    .clearOnAppStart("cache", cacheDir.absolutePath)
+    .deleteAfterDelay("temp", tempFile.absolutePath, delayMs = 30_000L)
+    .build()
+
+FileCleanupManager.runNow(config) { result ->
+    Log.d("Cleanup", result.message)
+}
+
+FileCleanupManager.cancel("cache")
+FileCleanupManager.cancelAll()
+```
+
+### 7. 规则选型建议
+
+| 场景 | 推荐 API |
+|---|---|
+| 启动即清理 | `clearOnAppStart(...)` / `deleteOnAppStart(...)` |
+| 切后台清理 | `clearOnAppBackground(...)` / `deleteOnAppBackground(...)` |
+| 延迟执行 | `clearAfterDelay(...)` / `deleteAfterDelay(...)` |
+| 保留 N 天后清理 | `clearAfterDays(..., persistAcrossRestarts = true)` / `deleteAfterDays(..., persistAcrossRestarts = true)` |
+| 每次启动重新计时 | `clearAfterDays(..., persistAcrossRestarts = false)` / `deleteAfterDays(..., persistAcrossRestarts = false)` |
+| 到固定时间执行 | `clearAtTime(...)` / `deleteAtTime(...)` |
+| 立即执行 | `runNow(...)` |
+| 取消任务 | `cancel(key)` / `cancelAll()` |
