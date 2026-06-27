@@ -30,3 +30,4 @@ include(":itg-encrypt")
 
 include(":outter")
 include(":itg-thread-pools")
+include(":itg-verification")

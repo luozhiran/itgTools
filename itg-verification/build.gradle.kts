@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.itg.outter"
+    namespace = "com.itg.itg_erification"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -24,15 +24,12 @@ android {
 }
 
 dependencies {
+    implementation(project(":itg-thread-pools"))
+    implementation(project(":itg-file"))
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-    api (project(":itg-file"))
-    api (project(":itg-bitmap"))
-    api (project(":itg-encrypt"))
-    api (project(":itg-thread-pools"))
-    api(project(":itg-verification"))
 }

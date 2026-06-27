@@ -1,5 +1,6 @@
 package com.itg.itg_file.core
 import com.itg.itg_thread_pools.executor.TaskExecutor
+import android.os.StatFs
 import okio.FileSystem
 import okio.IOException
 import okio.Path
@@ -333,26 +334,34 @@ object OkioFileUtils {
     /**
      * 获取指定路径所在分区的可用空间
      *
-     * @param path 路径
-     * @return 可用字节数
+     * Okio [FileSystem.metadata] 不包含文件系统级别的空间信息，
+     * 此处通过 Android [StatFs] 查询。
+     *
+     * @param path 路径（用于确定所在分区）
+     * @return 可用字节数，失败返回 -1
      */
     @JvmStatic
     fun getAvailableSpace(path: String): Long {
         return try {
-            fileSystem.metadata(path.toPath()).freeSpace ?: -1L
-        } catch (e: IOException) {
+            val stat = StatFs(path)
+            stat.availableBytes
+        } catch (e: Exception) {
             -1L
         }
     }
 
     /**
-     * 获取总空间
+     * 获取指定路径所在分区的总空间
+     *
+     * @param path 路径（用于确定所在分区）
+     * @return 总字节数，失败返回 -1
      */
     @JvmStatic
     fun getTotalSpace(path: String): Long {
         return try {
-            fileSystem.metadata(path.toPath()).totalSpace ?: -1L
-        } catch (e: IOException) {
+            val stat = StatFs(path)
+            stat.totalBytes
+        } catch (e: Exception) {
             -1L
         }
     }
