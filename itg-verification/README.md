@@ -1,6 +1,6 @@
 # ITG Verification — Android 文件验证工具库
 
-[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/android-5.0)
+[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/nougat/android-7.0)
 [![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](./LICENSE)
 
@@ -33,7 +33,7 @@ ITG Verification 是一个面向日常开发的文件验证工具库，覆盖下
 | 你想验证什么？ | 使用工具 | 跳转 |
 |---------------|---------|------|
 | 🔐 **下载的 APK 哈希是否匹配** | HashVerifier | [→](#1-哈希校验--hashverifier) |
-| 📄 **从 .md5 / .sha256 文件校验** | HashVerifier + DownloadVerifier | [→](#14-校验文件读取) |
+| 📄 **从 .md5 / .sha256 文件校验** | HashVerifier + DownloadVerifier | [→](#13-校验文件读取) |
 | 📦 **ZIP 包是否损坏** | ArchiveVerifier | [→](#3-压缩包验证--archiveverifier) |
 | 💣 **ZIP 解压前安全检查** (Zip Bomb / 路径穿越) | ArchiveVerifier | [→](#32-解压前安全检查) |
 | 🔏 **APK 签名是否有效** | ArchiveVerifier | [→](#33-apk-签名验证) |
@@ -65,6 +65,7 @@ dependencies {
 import com.itg.itg_erification.hash.HashVerifier
 import com.itg.itg_erification.download.DownloadVerifier
 import com.itg.itg_erification.archive.ArchiveVerifier
+import com.itg.itg_thread_pools.executor.TaskExecutor
 
 // 下载后验证
 val result = DownloadVerifier.verifyDownload(
@@ -412,7 +413,7 @@ val totalWaste = duplicates.sumOf { it.wastedBytes }
 println("${duplicates.size} 组重复文件，共浪费 ${totalWaste / (1024*1024)}MB")
 
 duplicates.forEach { group ->
-    println("MD5: ${group.hash.take(8)}... ×${group.files.size}")
+    println("SHA-256: ${group.hash.take(8)}... ×${group.files.size}")
     // 保留第一个，删除其余
     group.files.drop(1).forEach { duplicate ->
         java.io.File(duplicate).delete()
@@ -585,7 +586,7 @@ A: 攻击者在 ZIP 条目名中嵌入 `../`，解压时可能覆盖系统文件
 | `verifyHash(path, expected, algorithm)` / `verifyHashAsync(...)` | 通用哈希校验 |
 | `verifyCrc32(path, expected)` / `verifyCrc32Async(...)` | CRC32 校验 |
 | `batchVerify(files)` / `batchVerifyAsync(...)` | 批量校验 |
-| `batchVerifyAll(files)` | 批量全部通过？ |
+| `batchVerifyAll(files)` | 批量校验，全部通过返回 true |
 | `verifyFromMd5File(file, md5File)` | 从 .md5 文件校验 |
 | `verifyFromChecksumFile(file, checksumFile, algo)` | 从校验文件校验 |
 | `parseChecksumFile(path)` | 解析校验文件 |

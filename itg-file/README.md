@@ -1,6 +1,6 @@
 # ITG File — Android 文件处理工具库
 
-[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/android-5.0)
+[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/nougat/android-7.0)
 [![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](./LICENSE)
 
@@ -140,7 +140,7 @@ TaskExecutor.cancel(future)
 | 📋 **复制/移动** 文件或目录 | [FileUtils.copy/move](#14-复制与移动) | [OkioFileUtils.copy/move](#51-快速复制与原子移动) |
 | 📜 **列出目录** 中的所有文件 | [FileUtils.listFiles](#15-文件列表) | [OkioFileUtils.list/listRecursively](#53-目录遍历) |
 | 📖 **读取文本** (JSON/XML/CSV) | [FileReadUtils.readText](#21-读取文本) | [OkioReadUtils.readUtf8](#62-读取为字符串) |
-| 📖 **读取二进制** (图片/音视频) | [FileReadUtils.readBytes](#22-读取字节) | [OkioReadUtils.readByteString](#61-bytestring--不可变字节序列) |
+| 📖 **读取二进制** (图片/音视频) | [FileReadUtils.readBytes](#22-读取字节) | [OkioReadUtils.readByteString](#61-bytestring-不可变字节序列) |
 | 📄 **逐行读取** 大文件 (日志/CSV) | [FileReadUtils.readLinesStreaming](#23-按行读取) | [OkioReadUtils.readLinesStreaming](#67-流式按行读取) |
 | 📦 **分块读取** 超大数据 (>100MB) | [FileReadUtils.readChunks](#24-大文件分块读取) | [OkioReadUtils.readWithProgress](#65-带进度读取) |
 | ✏️ **覆盖写入** 字符串/字节 | [FileWriteUtils.writeText](#31-写入文本) | [OkioWriteUtils.writeUtf8](#72-写入与追加) |

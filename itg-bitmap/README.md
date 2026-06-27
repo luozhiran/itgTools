@@ -1,6 +1,6 @@
 # ITG Bitmap — Android 图片处理工具库
 
-[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/android-5.0)
+[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/nougat/android-7.0)
 [![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](./LICENSE)
 
@@ -890,7 +890,14 @@ val result = BitmapTransformUtils.scaleByFactor(blurred, 4.0f)
 | `toByteArray(bitmap, format, quality)` | 转换为字节数组 |
 | `isValid(bitmap)` | 检查有效性 |
 | `getByteCount(bitmap)` | 获取占用字节 |
+| `getSizeKB(bitmap)` | 获取占用 KB |
+| `getSizeMB(bitmap)` | 获取占用 MB |
+| `getAspectRatio(bitmap)` | 获取宽高比 |
+| `isSquare(bitmap)` | 是否为正方形 |
+| `isLandscape(bitmap)` | 是否横向 |
+| `isPortrait(bitmap)` | 是否纵向 |
 | `getInfo(bitmap)` | 获取可读信息 |
+| `createBitmapFromByteArray(data, opts)` | 从字节数组创建 |
 | `getPixel(bitmap, x, y)` | 获取指定像素 |
 | `setPixel(bitmap, x, y, color)` | 设置指定像素 |
 | `getPixels(bitmap)` | 批量获取像素 |
@@ -900,8 +907,12 @@ val result = BitmapTransformUtils.scaleByFactor(blurred, 4.0f)
 | 方法 | 说明 |
 |------|------|
 | `decodeFromResource(res, id, opts)` | 从资源解码 |
+| `decodeFromResource(res, id, maxW, maxH)` | 从资源解码（限制尺寸） |
 | `decodeFromFile(path, opts)` | 从文件解码 |
 | `decodeSampledBitmap(path, reqW, reqH)` | 采样解码 |
+| `decodeFromByteArray(data, opts)` | 从字节数组解码 |
+| `decodeFromByteArray(data, maxW, maxH)` | 从字节数组解码（限制尺寸） |
+| `decodeFromStream(inputStream, opts)` | 从 InputStream 解码 |
 | `decodeFromByteArray(data, opts)` | 从字节数组解码 |
 | `decodeFromUri(context, uri, opts)` | 从 URI 解码 |
 | `decodeFromUrl(url)` | 从 URL 解码 |
@@ -924,6 +935,8 @@ val result = BitmapTransformUtils.scaleByFactor(blurred, 4.0f)
 | `crop(bitmap, x, y, w, h)` | 区域裁剪 |
 | `centerCrop(bitmap, w, h)` | 居中裁剪 |
 | `fillCrop(bitmap, w, h)` | 填充裁剪 |
+| `skewX(bitmap, skewX, filter)` | X 轴倾斜 |
+| `skewY(bitmap, skewY, filter)` | Y 轴倾斜 |
 | `applyMatrix(bitmap, matrix)` | 自定义矩阵变换 |
 
 ### BitmapColorUtils (color)

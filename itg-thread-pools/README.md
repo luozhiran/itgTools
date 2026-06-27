@@ -1,6 +1,6 @@
 # ITG Thread Pools — Android 线程池工具库
 
-[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/android-5.0)
+[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/nougat/android-7.0)
 [![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](./LICENSE)
 
@@ -151,8 +151,8 @@ TaskExecutor.io {
 | ▶️ **提交任务** `io{}` / `compute{}` / `main{}` | [TaskExecutor — 语义化 API](#31-语义化-api-fire-and-forget) |
 | 🔮 **提交有返回值任务** → `Future<T>` | [TaskExecutor — 有返回值](#32-有返回值-future) |
 | ⏳ **延迟执行 / 定时任务** | [TaskExecutor — 延迟/定时](#34-延迟执行) |
-| ⏸️ **取消任务** | [TaskExecutor — 取消](#取消-1) |
-| ⏱️ **超时等待 Future 结果** | [TaskExecutor — 等待](#等待) |
+| ⏸️ **取消任务** | [TaskExecutor — 取消](#取消) |
+| ⏱️ **超时等待 Future 结果** | [TaskExecutor — 等待](#等待-1) |
 | 🎯 **按优先级执行任务** | [TaskExecutor — 优先级](#33-优先级任务) |
 | 🔁 **创建 HandlerThread** (带 Looper) | [HandlerManager — 创建获取](#22-创建和获取-handler) |
 | 📨 **发送 Message** (what/arg1/arg2/obj) | [HandlerManager — 发送 Message](#24-发送-message传统-handler-风格) |
@@ -189,11 +189,11 @@ com.itg.itg_thread_pools
 
 | 线程池 | 类型 | 适用场景 | 核心/最大线程 |
 |--------|------|----------|--------------|
-| `ioPool` | Cached | 网络请求、文件I/O、数据库 | 0 / 64 |
+| `ioPool` | Cached | 网络请求、文件I/O、数据库 | 4 / 64 |
 | `computePool` | Fixed | 图片处理、加解密、解析 | CPU数 / CPU数 |
 | `backgroundPool` | Fixed | 通用后台任务 | max(2, CPU数) |
 | `singlePool` | Single | 序列化操作、状态同步 | 1 / 1 |
-| `scheduledPool` | Scheduled | 定时任务、心跳、轮询 | 2 / 4 |
+| `scheduledPool` | Scheduled | 定时任务、心跳、轮询 | 2 / Int.MAX |
 
 ```kotlin
 // 直接使用预置线程池
@@ -326,7 +326,7 @@ HandlerManager.post("db-writer") {
 }
 
 // 延迟 500ms 执行
-HandlerManager.postDelayed("db-writer", 500) {
+HandlerManager.postDelayed("db-writer", 500L) {
     database.clearCache()
 }
 
@@ -360,7 +360,7 @@ HandlerManager.sendMessage(
 HandlerManager.sendMessageDelayed(
     name = "worker",
     what = MSG_RETRY,
-    delayMs = 5000,
+    delayMs = 5000L,
     arg1 = retryCount
 )
 
@@ -565,14 +565,14 @@ TaskExecutor.background(Priority.LOW)  { /* 低优先级 */ }
 
 ```kotlin
 // 主线程延迟 500ms 执行
-val runnable = TaskExecutor.mainDelayed(500) {
+val runnable = TaskExecutor.mainDelayed(delayMs = 500L) {
     showTooltip()
 }
 // 必要时取消
 TaskExecutor.cancelMain(runnable)
 
 // 后台延迟执行
-val future = TaskExecutor.ioDelayed(2000) {
+val future = TaskExecutor.ioDelayed(delayMs = 2000L) {
     syncToServer()
 }
 
@@ -585,16 +585,16 @@ TaskExecutor.cancel(future)
 ```kotlin
 // 心跳: 每 30 秒执行一次（从任务开始时间算）
 val heartbeat = TaskExecutor.scheduleAtFixedRate(
-    initialDelayMs = 0,
-    periodMs = 30_000
+    initialDelayMs = 0L,
+    periodMs = 30_000L
 ) {
     sendHeartbeat()
 }
 
 // 轮询: 每次执行完等待 5 秒再执行下一次
 val polling = TaskExecutor.scheduleWithFixedDelay(
-    initialDelayMs = 5000,
-    delayMs = 5000
+    initialDelayMs = 5000L,
+    delayMs = 5000L
 ) {
     checkForNewMessages()
 }
@@ -616,10 +616,10 @@ TaskExecutor.io {
 
     try {
         // 等待全部完成（超时 10 秒）
-        TaskExecutor.awaitAll(futures, timeout = 10, unit = TimeUnit.SECONDS)
+        TaskExecutor.awaitAll(futures, timeout = 10L, unit = TimeUnit.SECONDS)
 
         // 等待任意一个完成
-        val firstIndex = TaskExecutor.awaitAny(futures, timeout = 5, unit = TimeUnit.SECONDS)
+        val firstIndex = TaskExecutor.awaitAny(futures, timeout = 5L, unit = TimeUnit.SECONDS)
         Log.d("Result", "Task $firstIndex finished first")
     } catch (e: TimeoutException) {
         Log.e("Result", "Tasks timed out")
@@ -646,7 +646,7 @@ fun loadImageList(urls: List<String>, onComplete: (List<Bitmap>) -> Unit) {
 
         // 等待所有图片加载完成（最多等 30 秒）
         try {
-            TaskExecutor.awaitAll(futures, timeout = 30, unit = TimeUnit.SECONDS)
+            TaskExecutor.awaitAll(futures, timeout = 30L, unit = TimeUnit.SECONDS)
         } catch (e: TimeoutException) {
             Log.w("ImageLoader", "Some images timed out")
         }
@@ -795,7 +795,7 @@ thread {
 
 // 方案 B: runWithLooper 一站式封装
 thread {
-    ThreadUtils.runWithLooper(timeoutMs = 30_000) { handler ->
+    ThreadUtils.runWithLooper(timeoutMs = 30_000L) { handler ->
         handler.post {
             doWork()
             ThreadUtils.quitLooper()  // 完成后退出
