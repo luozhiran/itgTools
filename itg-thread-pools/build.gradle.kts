@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.itg.outter"
+    namespace = "com.itg.itg_thread_pools"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -30,8 +30,4 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-    api (project(":itg-file"))
-    api (project(":itg-bitmap"))
-    api (project(":itg-encrypt"))
-    api (project(":itg-thread-pools"))
 }
