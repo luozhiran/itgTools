@@ -1,22 +1,18 @@
 package com.itg.itg_erification.archive
 
 import android.content.Context
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import android.content.pm.Signature
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.io.File
 import java.io.FileInputStream
-import java.io.IOException
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.util.concurrent.Future
-import java.util.jar.JarFile
-import java.util.zip.ZipEntry
+import java.util.zip.CheckedInputStream
+import java.util.zip.CRC32
 import java.util.zip.ZipFile
-import java.util.zip.ZipInputStream
 
 /**
  * 压缩包/归档文件校验器
@@ -105,9 +101,15 @@ object ArchiveVerifier {
 
                     // 逐条目 CRC 校验
                     try {
-                        zip.getInputStream(entry).use { input ->
+                        val checkedInput = CheckedInputStream(zip.getInputStream(entry), CRC32())
+                        checkedInput.use { input ->
                             val buffer = ByteArray(8192)
                             while (input.read(buffer) != -1) { /* 读取以触发 CRC 计算 */ }
+                        }
+                        if (entry.crc < 0L || checkedInput.checksum.value != entry.crc) {
+                            throw java.util.zip.ZipException(
+                                "CRC mismatch: expected=${entry.crc}, actual=${checkedInput.checksum.value}"
+                            )
                         }
                         // ZipFile 内部会自动校验 CRC，读取完整则 CRC 通过
                     } catch (e: Exception) {
@@ -156,8 +158,18 @@ object ArchiveVerifier {
                 val entry = zip.getEntry(entryName)
                     ?: return ArchiveResult.fail("Entry not found: $entryName")
 
-                val actualCrc = entry.crc
-                if (actualCrc == expectedCrc) {
+                val checkedInput = CheckedInputStream(zip.getInputStream(entry), CRC32())
+                checkedInput.use { input ->
+                    val buffer = ByteArray(8192)
+                    while (input.read(buffer) != -1) { /* Read the complete entry. */ }
+                }
+                val actualCrc = checkedInput.checksum.value
+                if (actualCrc != entry.crc) {
+                    ArchiveResult.fail(
+                        "Entry data is corrupted: '$entryName'",
+                        mapOf("declaredCrc" to entry.crc, "actualCrc" to actualCrc)
+                    )
+                } else if (actualCrc == expectedCrc) {
                     ArchiveResult.pass(1, mapOf("entryName" to entryName, "crc" to actualCrc))
                 } else {
                     ArchiveResult.fail(
@@ -200,6 +212,12 @@ object ArchiveVerifier {
         checkZipSlip: Boolean = true
     ): ArchiveResult {
         if (!FileUtils.isFile(path)) return ArchiveResult.fail("File not found")
+        if (maxCompressionRatio <= 0) {
+            return ArchiveResult.fail("maxCompressionRatio must be greater than 0")
+        }
+        if (maxEntries <= 0) {
+            return ArchiveResult.fail("maxEntries must be greater than 0")
+        }
 
         return try {
             var entryCount = 0
@@ -219,9 +237,6 @@ object ArchiveVerifier {
                         )
                     }
 
-                    totalCompressed += entry.compressedSize
-                    totalUncompressed += entry.size
-
                     // Zip Slip 检测
                     if (checkZipSlip && isZipSlipPath(entry.name)) {
                         return ArchiveResult.fail(
@@ -229,19 +244,51 @@ object ArchiveVerifier {
                             mapOf("dangerousEntry" to entry.name)
                         )
                     }
+
+                    val compressedSize = entry.compressedSize
+                    val uncompressedSize = entry.size
+                    if (compressedSize < 0L || uncompressedSize < 0L) {
+                        return ArchiveResult.fail(
+                            "Unknown entry size: '${entry.name}'",
+                            mapOf("entryName" to entry.name)
+                        )
+                    }
+                    if (isCompressionRatioExceeded(
+                            uncompressedSize,
+                            compressedSize,
+                            maxCompressionRatio
+                        )) {
+                        return ArchiveResult.fail(
+                            "Compression ratio too high for '${entry.name}' (possible Zip Bomb)",
+                            mapOf(
+                                "entryName" to entry.name,
+                                "ratio" to compressionRatio(uncompressedSize, compressedSize),
+                                "maxRatio" to maxCompressionRatio
+                            )
+                        )
+                    }
+                    if (Long.MAX_VALUE - totalCompressed < compressedSize ||
+                        Long.MAX_VALUE - totalUncompressed < uncompressedSize
+                    ) {
+                        return ArchiveResult.fail("Archive size overflow (possible Zip Bomb)")
+                    }
+                    totalCompressed += compressedSize
+                    totalUncompressed += uncompressedSize
                 }
             }
 
             // 压缩比检查
-            if (totalCompressed > 0) {
-                val ratio = totalUncompressed / totalCompressed
-                if (ratio > maxCompressionRatio) {
-                    return ArchiveResult.fail(
-                        "Compression ratio too high: ${ratio}x > ${maxCompressionRatio}x (possible Zip Bomb)",
-                        mapOf("ratio" to ratio, "maxRatio" to maxCompressionRatio,
-                            "compressed" to totalCompressed, "uncompressed" to totalUncompressed)
-                    )
-                }
+            if (isCompressionRatioExceeded(
+                    totalUncompressed,
+                    totalCompressed,
+                    maxCompressionRatio
+                )) {
+                val ratio = compressionRatio(totalUncompressed, totalCompressed)
+                return ArchiveResult.fail(
+                    "Compression ratio too high: ${ratio}x > ${maxCompressionRatio}x (possible Zip Bomb)",
+                    mapOf("ratio" to ratio, "maxRatio" to maxCompressionRatio,
+                        "compressed" to totalCompressed, "uncompressed" to totalUncompressed)
+                )
             }
 
             ArchiveResult.pass(entryCount, mapOf(
@@ -331,10 +378,15 @@ object ArchiveVerifier {
 
         return try {
             val pm = context.packageManager
-            val archiveInfo = pm.getPackageArchiveInfo(
-                apkPath,
-                PackageManager.GET_SIGNATURES or PackageManager.GET_SIGNING_CERTIFICATES
-            ) ?: return ApkSignatureResult(false, reason = "Invalid APK: cannot parse package info")
+            @Suppress("DEPRECATION")
+            val flags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                PackageManager.GET_SIGNATURES
+            }
+            @Suppress("DEPRECATION")
+            val archiveInfo = pm.getPackageArchiveInfo(apkPath, flags)
+                ?: return ApkSignatureResult(false, reason = "Invalid APK: cannot parse package info")
 
             val signatures = mutableListOf<String>()
 
@@ -343,12 +395,12 @@ object ArchiveVerifier {
                 archiveInfo.signingInfo?.let { signingInfo ->
                     // 历史签名
                     signingInfo.signingCertificateHistory?.forEach { cert ->
-                        signatures.add(computeCertFingerprint(cert))
+                        signatures.add(computeCertFingerprint(cert.toByteArray()))
                     }
                     // 当前签名（可能重复，去重在外部处理）
                     if (signingInfo.hasMultipleSigners()) {
                         signingInfo.apkContentsSigners?.forEach { cert ->
-                            signatures.add(computeCertFingerprint(cert))
+                            signatures.add(computeCertFingerprint(cert.toByteArray()))
                         }
                     }
                 }
@@ -356,7 +408,7 @@ object ArchiveVerifier {
 
             // 兼容旧版
             if (signatures.isEmpty() && archiveInfo.signatures != null) {
-                archiveInfo.signatures.forEach { sig ->
+                archiveInfo.signatures?.forEach { sig ->
                     signatures.add(computeCertFingerprint(sig.toByteArray()))
                 }
             }
@@ -417,7 +469,8 @@ object ArchiveVerifier {
                         "compressedSize" to entry.compressedSize,
                         "crc" to entry.crc,
                         "isDirectory" to entry.isDirectory,
-                        "lastModifiedTime" to entry.lastModifiedTime.toMillis()
+                        // ZipEntry.getLastModifiedTime() is unavailable below Android 26.
+                        "lastModifiedTime" to entry.time
                     ))
                 }
             }
@@ -445,22 +498,39 @@ object ArchiveVerifier {
      */
     private fun isZipSlipPath(name: String): Boolean {
         // 路径穿越特征
-        if (name.contains("..")) return true
-        if (name.startsWith("/")) return true
+        if (name.isEmpty() || name.indexOf('\u0000') >= 0) return true
+        val normalized = name.replace('\\', '/')
+        if (normalized.startsWith('/')) return true
         // Windows 盘符
-        if (name.length >= 2 && name[1] == ':') return true
-        return false
+        if (normalized.length >= 2 && normalized[0].isLetter() && normalized[1] == ':') {
+            return true
+        }
+        return normalized.split('/').any { it == ".." }
+    }
+
+    private fun isCompressionRatioExceeded(
+        uncompressedSize: Long,
+        compressedSize: Long,
+        maxCompressionRatio: Int
+    ): Boolean {
+        if (uncompressedSize <= 0L) return false
+        if (compressedSize == 0L) return true
+        val quotient = uncompressedSize / compressedSize
+        return quotient > maxCompressionRatio.toLong() ||
+            (quotient == maxCompressionRatio.toLong() &&
+                uncompressedSize % compressedSize != 0L)
+    }
+
+    private fun compressionRatio(uncompressedSize: Long, compressedSize: Long): Double {
+        return if (compressedSize == 0L) Double.POSITIVE_INFINITY
+        else uncompressedSize.toDouble() / compressedSize.toDouble()
     }
 
     private fun computeCertFingerprint(certBytes: ByteArray): String {
-        return try {
-            val cert = CertificateFactory.getInstance("X.509")
-                .generateCertificate(java.io.ByteArrayInputStream(certBytes)) as X509Certificate
-            val digest = MessageDigest.getInstance("SHA-256")
-            val fingerprint = digest.digest(cert.encoded)
-            fingerprint.joinToString(":") { "%02X".format(it) }
-        } catch (e: Exception) {
-            "unknown"
-        }
+        val cert = CertificateFactory.getInstance("X.509")
+            .generateCertificate(java.io.ByteArrayInputStream(certBytes)) as X509Certificate
+        val digest = MessageDigest.getInstance("SHA-256")
+        val fingerprint = digest.digest(cert.encoded)
+        return fingerprint.joinToString(":") { "%02X".format(it) }
     }
 }
