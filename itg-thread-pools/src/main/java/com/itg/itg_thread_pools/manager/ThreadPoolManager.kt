@@ -3,11 +3,13 @@ package com.itg.itg_thread_pools.manager
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import com.itg.itg_thread_pools.executor.PrioritizedTask
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.RejectedExecutionHandler
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledThreadPoolExecutor
@@ -49,12 +51,14 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object ThreadPoolManager {
 
+    private const val DEFAULT_QUEUE_CAPACITY = 2_048
+
     private const val TAG = "ThreadPoolManager"
 
     // ==================== 线程池配置 ====================
 
     /** I/O 密集型线程池 — 核心线程数 */
-    private const val IO_CORE_SIZE = 0
+    private const val IO_CORE_SIZE = 4
 
     /** I/O 密集型线程池 — 最大线程数 */
     private const val IO_MAX_SIZE = 64
@@ -91,7 +95,7 @@ object ThreadPoolManager {
         IO_MAX_SIZE,
         IO_KEEP_ALIVE_SEC,
         TimeUnit.SECONDS,
-        SynchronousQueue<Runnable>(),
+        LinkedBlockingQueue<Runnable>(DEFAULT_QUEUE_CAPACITY),
         NamedThreadFactory("itg-io"),
         CallerRunsPolicy("itg-io")
     ).apply {
@@ -114,7 +118,7 @@ object ThreadPoolManager {
         COMPUTE_POOL_SIZE,
         0L,
         TimeUnit.MILLISECONDS,
-        LinkedBlockingQueue<Runnable>(),
+        LinkedBlockingQueue<Runnable>(DEFAULT_QUEUE_CAPACITY),
         NamedThreadFactory("itg-compute"),
         CallerRunsPolicy("itg-compute")
     )
@@ -134,7 +138,7 @@ object ThreadPoolManager {
         BACKGROUND_POOL_SIZE,
         0L,
         TimeUnit.MILLISECONDS,
-        LinkedBlockingQueue<Runnable>(),
+        LinkedBlockingQueue<Runnable>(DEFAULT_QUEUE_CAPACITY),
         NamedThreadFactory("itg-background"),
         CallerRunsPolicy("itg-background")
     )
@@ -154,9 +158,25 @@ object ThreadPoolManager {
         1,
         0L,
         TimeUnit.MILLISECONDS,
-        LinkedBlockingQueue<Runnable>(),
+        LinkedBlockingQueue<Runnable>(DEFAULT_QUEUE_CAPACITY),
         NamedThreadFactory("itg-single"),
         CallerRunsPolicy("itg-single")
+    )
+
+    internal val priorityPool: ThreadPoolExecutor = ThreadPoolExecutor(
+        BACKGROUND_POOL_SIZE,
+        BACKGROUND_POOL_SIZE,
+        0L,
+        TimeUnit.MILLISECONDS,
+        PriorityBlockingQueue<Runnable>(11) { first, second ->
+            val a = first as PrioritizedTask
+            val b = second as PrioritizedTask
+            val priorityComparison = b.priority.value.compareTo(a.priority.value)
+            if (priorityComparison != 0) priorityComparison
+            else a.sequence.compareTo(b.sequence)
+        },
+        NamedThreadFactory("itg-priority"),
+        CallerRunsPolicy("itg-priority")
     )
 
     /**
@@ -173,7 +193,11 @@ object ThreadPoolManager {
         2,
         NamedThreadFactory("itg-scheduled"),
         CallerRunsPolicy("itg-scheduled")
-    )
+    ).apply {
+        removeOnCancelPolicy = true
+        executeExistingDelayedTasksAfterShutdownPolicy = false
+        continueExistingPeriodicTasksAfterShutdownPolicy = false
+    }
 
     /**
      * 主线程 Executor
@@ -407,6 +431,7 @@ object ThreadPoolManager {
         computePool.shutdown()
         backgroundPool.shutdown()
         singlePool.shutdown()
+        priorityPool.shutdown()
         scheduledPool.shutdown()
     }
 
@@ -423,6 +448,7 @@ object ThreadPoolManager {
         remaining.addAll(computePool.shutdownNow())
         remaining.addAll(backgroundPool.shutdownNow())
         remaining.addAll(singlePool.shutdownNow())
+        remaining.addAll(priorityPool.shutdownNow())
         remaining.addAll(scheduledPool.shutdownNow())
         return remaining
     }
@@ -440,10 +466,13 @@ object ThreadPoolManager {
         timeout: Long = 30,
         unit: TimeUnit = TimeUnit.SECONDS
     ): Boolean {
-        val pools = listOf(ioPool, computePool, backgroundPool, singlePool, scheduledPool)
+        val pools = listOf(ioPool, computePool, backgroundPool, singlePool, priorityPool, scheduledPool)
+        val timeoutNanos = unit.toNanos(timeout.coerceAtLeast(0))
+        val startNanos = System.nanoTime()
         return pools.all { pool ->
             try {
-                pool.awaitTermination(timeout, unit)
+                val remaining = timeoutNanos - (System.nanoTime() - startNanos)
+                remaining > 0L && pool.awaitTermination(remaining, TimeUnit.NANOSECONDS)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 false

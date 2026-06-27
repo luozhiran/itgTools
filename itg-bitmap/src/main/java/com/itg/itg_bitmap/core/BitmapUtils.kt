@@ -131,7 +131,7 @@ object BitmapUtils {
         val qualityClamped = quality.coerceIn(0, 100)
         return try {
             ByteArrayOutputStream().use { stream ->
-                bitmap.compress(format, qualityClamped, stream)
+                if (!bitmap.compress(format, qualityClamped, stream)) return null
                 stream.toByteArray()
             }
         } catch (e: Exception) {

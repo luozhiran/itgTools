@@ -6,6 +6,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import kotlin.math.tan
 
 /**
  * 位图变换工具类
@@ -79,7 +80,7 @@ object BitmapTransformUtils {
         factor: Float,
         filter: Boolean = true
     ): Bitmap? {
-        if (factor <= 0) return null
+        if (!factor.isFinite() || factor <= 0) return null
         val newWidth = (bitmap.width * factor).toInt().coerceAtLeast(1)
         val newHeight = (bitmap.height * factor).toInt().coerceAtLeast(1)
         return scale(bitmap, newWidth, newHeight, filter)
@@ -357,8 +358,9 @@ object BitmapTransformUtils {
     @JvmStatic
     @JvmOverloads
     fun skewX(bitmap: Bitmap, skewX: Float, filter: Boolean = true): Bitmap? {
+        if (!skewX.isFinite()) return null
         val matrix = Matrix().apply {
-            postSkew(skewX.tan(), 0f)
+            postSkew(tan(skewX.toDouble()).toFloat(), 0f)
         }
         return applyMatrix(bitmap, matrix, filter)
     }
@@ -374,8 +376,9 @@ object BitmapTransformUtils {
     @JvmStatic
     @JvmOverloads
     fun skewY(bitmap: Bitmap, skewY: Float, filter: Boolean = true): Bitmap? {
+        if (!skewY.isFinite()) return null
         val matrix = Matrix().apply {
-            postSkew(0f, skewY.tan())
+            postSkew(0f, tan(skewY.toDouble()).toFloat())
         }
         return applyMatrix(bitmap, matrix, filter)
     }

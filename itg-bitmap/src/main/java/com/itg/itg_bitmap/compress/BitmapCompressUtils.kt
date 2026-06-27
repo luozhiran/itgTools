@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.itg.itg_bitmap.core.BitmapUtils
 import java.io.ByteArrayOutputStream
+import kotlin.math.sqrt
 
 /**
  * 位图压缩工具类
@@ -61,7 +62,7 @@ object BitmapCompressUtils {
         val q = quality.coerceIn(0, 100)
         return try {
             ByteArrayOutputStream().use { stream ->
-                bitmap.compress(format, q, stream)
+                if (!bitmap.compress(format, q, stream)) return null
                 stream.toByteArray()
             }
         } catch (e: Exception) {
@@ -272,11 +273,15 @@ object BitmapCompressUtils {
                 val scale = sqrt(targetBytes.toFloat() / bestResult.size.toFloat())
                     .coerceIn(0.1f, 0.9f)
                 val scaled = compressByScale(bitmap, scale) ?: return bestResult
-                val scaledResult = compressByQuality(scaled, quality, format) ?: return bestResult
-                return if (scaledResult.size.toLong() <= targetBytes) {
-                    scaledResult
-                } else {
-                    compressToTargetSize(scaled, targetBytes, format) ?: bestResult
+                try {
+                    val scaledResult = compressByQuality(scaled, quality, format) ?: return bestResult
+                    return if (scaledResult.size.toLong() <= targetBytes) {
+                        scaledResult
+                    } else {
+                        compressToTargetSize(scaled, targetBytes, format) ?: bestResult
+                    }
+                } finally {
+                    if (!scaled.isRecycled) scaled.recycle()
                 }
             }
 
@@ -353,8 +358,11 @@ object BitmapCompressUtils {
         // 先缩小尺寸
         val resized = compressBySize(bitmap, maxWidth, maxHeight) ?: return null
 
-        // 再质量压缩
-        return compressByQuality(resized, quality, format)
+        return try {
+            compressByQuality(resized, quality, format)
+        } finally {
+            if (!resized.isRecycled) resized.recycle()
+        }
     }
 
     /**
@@ -392,8 +400,12 @@ object BitmapCompressUtils {
             width > maxWidth * 2 || height > maxHeight * 2 -> {
                 // 超大图片: 先进行较大的缩放
                 val scale = minOf(maxWidth * 2f / width, maxHeight * 2f / height)
-                compressByScale(bitmap, scale)?.let {
-                    compressBySize(it, maxWidth, maxHeight)
+                compressByScale(bitmap, scale)?.let { firstPass ->
+                    try {
+                        compressBySize(firstPass, maxWidth, maxHeight)
+                    } finally {
+                        if (!firstPass.isRecycled) firstPass.recycle()
+                    }
                 }
             }
             else -> compressBySize(bitmap, maxWidth, maxHeight)
@@ -404,10 +416,14 @@ object BitmapCompressUtils {
         val result = compressByQuality(resized, quality, format)
 
         // 如果指定了文件大小限制，继续迭代
-        return if (maxSizeKB > 0 && result != null && result.size > maxSizeKB * 1024) {
-            compressToTargetSize(resized, maxSizeKB * 1024, format) ?: result
-        } else {
-            result
+        return try {
+            if (maxSizeKB > 0 && result != null && result.size > maxSizeKB * 1024) {
+                compressToTargetSize(resized, maxSizeKB * 1024, format) ?: result
+            } else {
+                result
+            }
+        } finally {
+            if (!resized.isRecycled) resized.recycle()
         }
     }
 

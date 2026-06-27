@@ -147,6 +147,7 @@ object OkioFileUtils {
         if (!exists(srcPath)) return false
 
         return try {
+            if (File(srcPath).canonicalFile == File(destPath).canonicalFile) return false
             val source = srcPath.toPath()
             val target = destPath.toPath()
             val targetFile = File(destPath)
@@ -194,6 +195,7 @@ object OkioFileUtils {
         if (!exists(srcPath)) return false
 
         return try {
+            if (File(srcPath).canonicalFile == File(destPath).canonicalFile) return true
             val source = srcPath.toPath()
             val target = destPath.toPath()
             val targetFile = File(destPath)

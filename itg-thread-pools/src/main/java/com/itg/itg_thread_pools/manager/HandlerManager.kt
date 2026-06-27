@@ -1,6 +1,5 @@
 package com.itg.itg_thread_pools.manager
 
-import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -39,17 +38,24 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object HandlerManager {
 
+    @Volatile
+    private var mainMessageCallback: Handler.Callback? = null
+
     private const val TAG = "HandlerManager"
 
     /** 主线程 Handler */
     @JvmField
-    val mainHandler: Handler = Handler(Looper.getMainLooper())
+    val mainHandler: Handler = Handler(Looper.getMainLooper()) { message ->
+        mainMessageCallback?.handleMessage(message) ?: false
+    }
 
     /** 已创建的 HandlerThread 缓存 */
     private val handlerThreads = ConcurrentHashMap<String, HandlerThread>()
 
     /** 已创建的 Handler 缓存 */
     private val handlers = ConcurrentHashMap<String, Handler>()
+
+    private val messageCallbacks = ConcurrentHashMap<String, Handler.Callback>()
 
     // ==================== HandlerThread 创建/获取 ====================
 
@@ -72,10 +78,12 @@ object HandlerManager {
      */
     @JvmStatic
     @JvmOverloads
+    @Synchronized
     fun getOrCreate(
         name: String,
         priority: Int = Process.THREAD_PRIORITY_BACKGROUND
     ): Handler {
+        require(name.isNotBlank()) { "name must not be blank" }
         // 已存在且存活，直接返回
         val existingHandler = handlers[name]
         if (existingHandler != null &&
@@ -93,12 +101,29 @@ object HandlerManager {
         val thread = HandlerThread(name, priority).apply {
             start()
         }
-        val handler = Handler(thread.looper)
+        val callback = messageCallbacks[name]
+        val handler = if (callback != null) Handler(thread.looper, callback)
+        else Handler(thread.looper)
 
         handlerThreads[name] = thread
         handlers[name] = handler
 
         return handler
+    }
+
+    @JvmStatic
+    @Synchronized
+    fun registerMessageCallback(name: String, callback: Handler.Callback): Handler {
+        require(name.isNotBlank()) { "name must not be blank" }
+        handlers.remove(name)?.removeCallbacksAndMessages(null)
+        handlerThreads.remove(name)?.let { if (it.isAlive) it.quitSafely() }
+        messageCallbacks[name] = callback
+        return getOrCreate(name)
+    }
+
+    @JvmStatic
+    fun setMainMessageCallback(callback: Handler.Callback?) {
+        mainMessageCallback = callback
     }
 
     /**
@@ -223,16 +248,6 @@ object HandlerManager {
      * HandlerManager.sendMessage("worker", MSG_SAVE_DATA)
      * ```
      */
-    @JvmStatic
-    fun sendMessage(name: String, what: Int) {
-        runCatching {
-            val handler = getOrCreate(name)
-            handler.sendEmptyMessage(what)
-        }.onFailure { e ->
-            Log.e(TAG, "sendMessage to '$name' failed", e)
-        }
-    }
-
     /**
      * 向指定线程发送带参数的 Message
      *
@@ -400,10 +415,12 @@ object HandlerManager {
      */
     @JvmStatic
     @JvmOverloads
+    @Synchronized
     fun quit(name: String, safely: Boolean = true): Boolean {
         val thread = handlerThreads.remove(name)
         val handler = handlers.remove(name)
         handler?.removeCallbacksAndMessages(null)
+        messageCallbacks.remove(name)
 
         return if (thread != null && thread.isAlive) {
             if (safely) thread.quitSafely() else thread.quit()
@@ -419,6 +436,7 @@ object HandlerManager {
      * 建议在 Application.onTerminate() 中调用。
      */
     @JvmStatic
+    @Synchronized
     fun quitAll() {
         handlerThreads.keys.forEach { name ->
             quit(name, safely = true)
@@ -478,21 +496,15 @@ object HandlerManager {
             put("threadId", thread.id)
             put("threadName", thread.name)
             put("priority", thread.priority)
-            put("looper" to (thread.looper?.toString() ?: "null"), value = TODO())
+            put("looper", thread.looper.toString())
             put("isCurrentThread", thread.id == Thread.currentThread().id)
             put("handlerExists", handler != null)
             // 消息队列信息
             thread.looper?.let { looper ->
                 put("queueIdle", looper.queue.isIdle)
-                // isIdle 需要 API 23+
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    put("queueIdle23", looper.queue.isIdle)
-                }
             }
         }
     }
-
-    fun put(key: Pair<String, String>, value: Nothing) {}
 
     /**
      * 打印所有 HandlerThread 的状态信息（用于调试）

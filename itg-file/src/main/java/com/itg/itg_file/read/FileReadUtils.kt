@@ -360,12 +360,14 @@ object FileReadUtils {
         chunkSize: Int = 64 * 1024,
         onChunk: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean
     ): Long {
+        if (chunkSize <= 0) return -1L
         if (!FileUtils.isFile(path)) return -1L
 
         return try {
             val file = File(path)
             val fileSize = file.length()
-            val totalChunks = ((fileSize + chunkSize - 1) / chunkSize).toInt()
+            val totalChunksLong = if (fileSize == 0L) 0L else ((fileSize - 1L) / chunkSize) + 1L
+            val totalChunks = totalChunksLong.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             var totalRead = 0L
 
             FileInputStream(file).use { fis ->
@@ -480,6 +482,7 @@ object FileReadUtils {
     @JvmOverloads
     fun readTailLines(path: String, numLines: Int = 10): List<String>? {
         if (!FileUtils.isFile(path)) return null
+        if (numLines <= 0) return emptyList()
         return try {
             val lines = ArrayDeque<String>(numLines)
             File(path).bufferedReader().use { reader ->
@@ -500,16 +503,19 @@ object FileReadUtils {
     // ==================== 内部方法 ====================
 
     private fun InputStream.readBytesWithLimit(maxBytes: Int): ByteArray {
+        require(maxBytes >= 0) { "maxBytes must be non-negative" }
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var totalRead = 0
-        var bytesRead: Int
-        while (read(buffer).also { bytesRead = it } != -1) {
-            val remaining = maxBytes - totalRead
-            if (remaining <= 0) break
-            val toWrite = minOf(bytesRead, remaining)
-            output.write(buffer, 0, toWrite)
-            totalRead += toWrite
+        while (true) {
+            if (totalRead == maxBytes) {
+                if (read() != -1) throw IOException("Input exceeds maxBytes=$maxBytes")
+                break
+            }
+            val bytesRead = read(buffer, 0, minOf(buffer.size, maxBytes - totalRead))
+            if (bytesRead == -1) break
+            output.write(buffer, 0, bytesRead)
+            totalRead += bytesRead
         }
         return output.toByteArray()
     }

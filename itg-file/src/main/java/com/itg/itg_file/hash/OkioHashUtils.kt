@@ -4,10 +4,10 @@ import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import okio.Buffer
 import okio.ByteString
+import okio.ByteString.Companion.encodeUtf8
 import okio.FileSystem
+import okio.ForwardingSink
 import okio.ForwardingSource
-import okio.HashingSink
-import okio.HashingSource
 import okio.IOException
 import okio.Okio
 import okio.Path.Companion.toPath
@@ -73,19 +73,20 @@ object OkioHashUtils {
 
         return try {
             val source = fileSystem.source(path.toPath())
-            val hashingSource = HashingSource(source, digest)
+            val hashingSource = DigestingSource(source, freshDigest(digest))
 
-            hashingSource.buffer().use { buffered ->
+            hashingSource.use { source ->
                 var bytesRead = 0L
-                while (!buffered.exhausted()) {
-                    val before = buffered.buffer.size
-                    buffered.skip(BUFFER_SIZE)
-                    val read = before - buffered.buffer.size
+                val buffer = Buffer()
+                while (true) {
+                    val read = source.read(buffer, BUFFER_SIZE)
+                    if (read == -1L) break
                     bytesRead += read
-                    onRead?.invoke(buffered.buffer, bytesRead)
+                    onRead?.invoke(buffer.clone(), bytesRead)
+                    buffer.clear()
                 }
             }
-            hashingSource.hash.toHexString()
+            hashingSource.hash().toHexString()
         } catch (e: IOException) {
             e.printStackTrace()
             null
@@ -144,13 +145,13 @@ object OkioHashUtils {
             file.parentFile?.mkdirs()
 
             val rawSink = fileSystem.sink(path.toPath())
-            val hashingSink = HashingSink(rawSink, digest)
+            val hashingSink = DigestingSink(rawSink, freshDigest(digest))
 
             hashingSink.buffer().use { buffered ->
                 buffered.write(data)
             }
 
-            val hash = hashingSink.hash.toHexString()
+            val hash = hashingSink.hash().toHexString()
             Pair(hash, true)
         } catch (e: IOException) {
             e.printStackTrace()
@@ -221,6 +222,7 @@ object OkioHashUtils {
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath)
+            if (srcFile.canonicalFile == destFile.canonicalFile) return Pair(null, false)
             val totalSize = srcFile.length()
 
             if (destFile.exists() && !overwrite) return Pair(null, false)
@@ -231,7 +233,7 @@ object OkioHashUtils {
 
             // 创建带哈希的 Source
             val rawSource = fileSystem.source(srcPath.toPath())
-            val hashingSource = HashingSource(rawSource, digest)
+            val hashingSource = DigestingSource(rawSource, freshDigest(digest))
 
             // 包装进度追踪
             val progressSource = object : ForwardingSource(hashingSource) {
@@ -249,12 +251,12 @@ object OkioHashUtils {
             }
 
             // 直接写入目标文件
-            fileSystem.write(destPath.toPath()) { destSink ->
-                destSink.writeAll(progressSource.buffer())
+            fileSystem.write(destPath.toPath()) {
+                progressSource.buffer().use { source -> writeAll(source) }
             }
 
             onProgress?.invoke(bytesCopied, totalSize)
-            Pair(hashingSource.hash.toHexString(), true)
+            Pair(hashingSource.hash().toHexString(), true)
         } catch (e: IOException) {
             e.printStackTrace()
             Pair(null, false)
@@ -312,6 +314,7 @@ object OkioHashUtils {
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath)
+            if (srcFile.canonicalFile == destFile.canonicalFile) return Pair(null, false)
             val totalSize = srcFile.length()
             destFile.parentFile?.mkdirs()
 
@@ -335,14 +338,16 @@ object OkioHashUtils {
 
             val rawSink = fileSystem.sink(destPath.toPath())
             val gzipSink = okio.GzipSink(rawSink)
-            val hashingSink = HashingSink(gzipSink, digest)
+            val hashingSink = DigestingSink(gzipSink, freshDigest(digest))
 
-            hashingSink.buffer().use { buffered ->
-                buffered.writeAll(progressSource.buffer())
+            progressSource.buffer().use { source ->
+                hashingSink.buffer().use { buffered ->
+                    buffered.writeAll(source)
+                }
             }
 
             onProgress?.invoke(bytesProcessed, totalSize)
-            Pair(hashingSink.hash.toHexString(), true)
+            Pair(hashingSink.hash().toHexString(), true)
         } catch (e: IOException) {
             e.printStackTrace()
             Pair(null, false)
@@ -402,11 +407,11 @@ object OkioHashUtils {
         if (!FileUtils.isFile(path)) return null
         return try {
             fileSystem.source(path.toPath()).use { source ->
-                val hashingSource = HashingSource(source, digest)
+                val hashingSource = DigestingSource(source, freshDigest(digest))
                 hashingSource.buffer().use { buffered ->
                     buffered.skip(Long.MAX_VALUE)  // 读取全部
                 }
-                hashingSource.hash.toHexString()
+                hashingSource.hash().toHexString()
             }
         } catch (e: IOException) {
             e.printStackTrace()
@@ -451,7 +456,7 @@ object OkioHashUtils {
             var lastReport = 0L
 
             val rawSource = fileSystem.source(path.toPath())
-            val hashingSource = HashingSource(rawSource, digest)
+            val hashingSource = DigestingSource(rawSource, freshDigest(digest))
             val progressSource = object : ForwardingSource(hashingSource) {
                 override fun read(sink: Buffer, byteCount: Long): Long {
                     val read = super.read(sink, byteCount)
@@ -470,7 +475,7 @@ object OkioHashUtils {
                 buffered.skip(Long.MAX_VALUE)
             }
             onProgress?.invoke(bytesProcessed, totalSize)
-            hashingSource.hash.toHexString()
+            hashingSource.hash().toHexString()
         } catch (e: IOException) {
             e.printStackTrace()
             null
@@ -504,8 +509,9 @@ object OkioHashUtils {
      */
     @JvmStatic
     fun hashByteString(data: ByteString, digest: MessageDigest): String {
-        digest.update(data.asByteBuffer())
-        return digest.digest().toHexString()
+        val localDigest = freshDigest(digest)
+        localDigest.update(data.asByteBuffer())
+        return localDigest.digest().toHexString()
     }
 
     /**
@@ -513,12 +519,47 @@ object OkioHashUtils {
      */
     @JvmStatic
     fun hashString(text: String, digest: MessageDigest): String {
-        return hashByteString(ByteString.encodeUtf8(text), digest)
+        return hashByteString(text.encodeUtf8(), digest)
     }
 
     // ==================== 内部方法 ====================
 
     private fun ByteArray.toHexString(): String {
         return joinToString("") { "%02x".format(it) }
+    }
+
+    private fun freshDigest(digest: MessageDigest): MessageDigest =
+        MessageDigest.getInstance(digest.algorithm)
+
+    private class DigestingSource(
+        delegate: Source,
+        private val digest: MessageDigest
+    ) : ForwardingSource(delegate) {
+        override fun read(sink: Buffer, byteCount: Long): Long {
+            val offset = sink.size
+            val read = super.read(sink, byteCount)
+            if (read > 0L) {
+                val copy = Buffer()
+                sink.copyTo(copy, offset, read)
+                digest.update(copy.readByteArray())
+            }
+            return read
+        }
+
+        fun hash(): ByteArray = digest.digest()
+    }
+
+    private class DigestingSink(
+        delegate: Sink,
+        private val digest: MessageDigest
+    ) : ForwardingSink(delegate) {
+        override fun write(source: Buffer, byteCount: Long) {
+            val copy = Buffer()
+            source.copyTo(copy, 0L, byteCount)
+            digest.update(copy.readByteArray())
+            super.write(source, byteCount)
+        }
+
+        fun hash(): ByteArray = digest.digest()
     }
 }

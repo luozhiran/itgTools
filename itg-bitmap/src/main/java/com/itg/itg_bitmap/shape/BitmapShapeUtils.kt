@@ -104,6 +104,7 @@ object BitmapShapeUtils {
         recycleSource: Boolean = false
     ): Bitmap? {
         if (!BitmapUtils.isValid(bitmap)) return null
+        if (borderWidth < 0) return null
 
         val size = minOf(bitmap.width, bitmap.height)
         val totalSize = size + borderWidth * 2
@@ -123,18 +124,21 @@ object BitmapShapeUtils {
             canvas.drawCircle(radius, radius, radius, borderPaint)
 
             // 绘制图片
-            val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-            }
+            val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val layer = canvas.saveLayer(
+                borderWidth.toFloat(), borderWidth.toFloat(),
+                (totalSize - borderWidth).toFloat(), (totalSize - borderWidth).toFloat(), null
+            )
             canvas.drawCircle(radius, radius, radius - borderWidth, imagePaint)
-
-            imagePaint.xfermode = null
+            imagePaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
             canvas.drawBitmap(
                 bitmap,
                 borderWidth - x,
                 borderWidth - y,
                 imagePaint
             )
+            imagePaint.xfermode = null
+            canvas.restoreToCount(layer)
 
             if (recycleSource && !bitmap.isRecycled) {
                 bitmap.recycle()
@@ -269,6 +273,7 @@ object BitmapShapeUtils {
         recycleSource: Boolean = false
     ): Bitmap? {
         if (!BitmapUtils.isValid(bitmap)) return null
+        if (borderWidth < 0) return null
 
         val totalWidth = bitmap.width + borderWidth * 2
         val totalHeight = bitmap.height + borderWidth * 2
@@ -286,19 +291,19 @@ object BitmapShapeUtils {
             canvas.drawRoundRect(borderRect, cornerRadius + borderWidth, cornerRadius + borderWidth, borderPaint)
 
             // 绘制图片区域
-            val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-            }
+            val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
             val imageRect = RectF(
                 borderWidth.toFloat(),
                 borderWidth.toFloat(),
                 (totalWidth - borderWidth).toFloat(),
                 (totalHeight - borderWidth).toFloat()
             )
+            val layer = canvas.saveLayer(imageRect, null)
             canvas.drawRoundRect(imageRect, cornerRadius, cornerRadius, imagePaint)
-
-            imagePaint.xfermode = null
+            imagePaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
             canvas.drawBitmap(bitmap, borderWidth.toFloat(), borderWidth.toFloat(), imagePaint)
+            imagePaint.xfermode = null
+            canvas.restoreToCount(layer)
 
             if (recycleSource && !bitmap.isRecycled) {
                 bitmap.recycle()

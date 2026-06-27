@@ -4,6 +4,7 @@ import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.io.File
 import java.io.FileInputStream
+import java.io.RandomAccessFile
 import java.io.IOException
 import java.util.concurrent.Future
 
@@ -179,10 +180,13 @@ object IntegrityVerifier {
         if (!FileUtils.isFile(path)) {
             return IntegrityResult.fail(listOf("exists"), mapOf("exists" to false))
         }
+        if (offset < 0 || magicBytes.isEmpty()) {
+            return IntegrityResult.fail(listOf("invalidArguments"))
+        }
 
         return try {
             val file = File(path)
-            val headerSize = offset + magicBytes.size
+            val headerSize = offset.toLong() + magicBytes.size.toLong()
             if (file.length() < headerSize) {
                 return IntegrityResult.fail(
                     listOf("headerSize"),
@@ -191,9 +195,9 @@ object IntegrityVerifier {
             }
 
             val actual = ByteArray(magicBytes.size)
-            FileInputStream(file).use { fis ->
-                fis.skip(offset.toLong())
-                fis.read(actual)
+            RandomAccessFile(file, "r").use { input ->
+                input.seek(offset.toLong())
+                input.readFully(actual)
             }
 
             val match = actual.contentEquals(magicBytes)

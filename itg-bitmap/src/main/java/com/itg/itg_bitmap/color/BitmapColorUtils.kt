@@ -6,6 +6,9 @@ import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * 位图颜色处理工具类
@@ -214,10 +217,24 @@ object BitmapColorUtils {
      */
     @JvmStatic
     fun adjustHue(bitmap: Bitmap, value: Float): Bitmap? {
-        val colorMatrix = ColorMatrix()
-        colorMatrix.setRotate(0, value)
-        colorMatrix.setRotate(1, value)
-        colorMatrix.setRotate(2, value)
+        val radians = value * PI.toFloat() / 180f
+        val cosine = cos(radians)
+        val sine = sin(radians)
+        val lumR = 0.213f
+        val lumG = 0.715f
+        val lumB = 0.072f
+        val colorMatrix = ColorMatrix(floatArrayOf(
+            lumR + cosine * (1 - lumR) + sine * -lumR,
+            lumG + cosine * -lumG + sine * -lumG,
+            lumB + cosine * -lumB + sine * (1 - lumB), 0f, 0f,
+            lumR + cosine * -lumR + sine * 0.143f,
+            lumG + cosine * (1 - lumG) + sine * 0.140f,
+            lumB + cosine * -lumB + sine * -0.283f, 0f, 0f,
+            lumR + cosine * -lumR + sine * -(1 - lumR),
+            lumG + cosine * -lumG + sine * lumG,
+            lumB + cosine * (1 - lumB) + sine * lumB, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        ))
         return applyColorMatrix(bitmap, colorMatrix)
     }
 

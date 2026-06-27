@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import com.itg.itg_bitmap.core.BitmapUtils
-import android.graphics.BlurMaskFilter
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.EmbossMaskFilter
@@ -41,6 +40,8 @@ import androidx.core.graphics.scale
 @Suppress("unused")
 object BitmapEffectUtils {
 
+    private const val MAX_CPU_EFFECT_PIXELS = 4_000_000L
+
     // ==================== 高斯模糊 ====================
 
     /**
@@ -61,26 +62,7 @@ object BitmapEffectUtils {
     fun blur(bitmap: Bitmap, radius: Int): Bitmap? {
         if (radius < 1) return BitmapUtils.copy(bitmap)
         val safeRadius = radius.coerceIn(1, 25)
-
-        return try {
-            // 使用缩放 + 高斯核卷积实现近似模糊
-            // 实际项目中建议使用 RenderScript 或 RenderEffect (API 31+)
-            val scale = maxOf(1f, safeRadius / 10f)
-            val smallWidth = (bitmap.width / scale).toInt().coerceAtLeast(1)
-            val smallHeight = (bitmap.height / scale).toInt().coerceAtLeast(1)
-
-            val small = Bitmap.createScaledBitmap(bitmap, smallWidth, smallHeight, true)
-            val maskFilter = BlurMaskFilter(safeRadius.toFloat(), BlurMaskFilter.Blur.NORMAL)
-            val paint = Paint().apply { this.maskFilter = maskFilter }
-
-            val result = Bitmap.createBitmap(small.width, small.height, Bitmap.Config.ARGB_8888)
-            Canvas(result).drawBitmap(small, 0f, 0f, paint)
-
-            Bitmap.createScaledBitmap(result, bitmap.width, bitmap.height, true)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        return stackBlur(bitmap, safeRadius)
     }
 
     /**
@@ -102,6 +84,10 @@ object BitmapEffectUtils {
         val copy = BitmapUtils.copy(bitmap) ?: return null
         val w = copy.width
         val h = copy.height
+        if (w.toLong() * h.toLong() > MAX_CPU_EFFECT_PIXELS) {
+            copy.recycle()
+            return null
+        }
         val pix = IntArray(w * h)
         copy.getPixels(pix, 0, w, 0, 0, w, h)
 
@@ -382,6 +368,7 @@ object BitmapEffectUtils {
      */
     @JvmStatic
     fun emboss(bitmap: Bitmap): Bitmap? {
+        if (!canProcess(bitmap)) return null
         return try {
             val copy = BitmapUtils.copy(bitmap) ?: return null
             val w = copy.width
@@ -435,6 +422,7 @@ object BitmapEffectUtils {
      */
     @JvmStatic
     fun edgeDetect(bitmap: Bitmap): Bitmap? {
+        if (!canProcess(bitmap)) return null
         return try {
             val copy = BitmapUtils.copy(bitmap) ?: return null
             val w = copy.width
@@ -497,6 +485,7 @@ object BitmapEffectUtils {
      */
     @JvmStatic
     fun sketch(bitmap: Bitmap): Bitmap? {
+        if (!canProcess(bitmap)) return null
         // 素描效果 = 灰度图 → 反色 → 高斯模糊 → 颜色减淡混合
         return try {
             val gray = com.itg.itg_bitmap.color.BitmapColorUtils.grayscale(bitmap) ?: return null
@@ -580,6 +569,7 @@ object BitmapEffectUtils {
     @JvmStatic
     @JvmOverloads
     fun vignette(bitmap: Bitmap, intensity: Float = 0.6f): Bitmap? {
+        if (!canProcess(bitmap)) return null
         val i = intensity.coerceIn(0f, 1f)
         return try {
             val w = bitmap.width
@@ -633,4 +623,8 @@ object BitmapEffectUtils {
             null
         }
     }
+
+    private fun canProcess(bitmap: Bitmap): Boolean =
+        BitmapUtils.isValid(bitmap) &&
+            bitmap.width.toLong() * bitmap.height.toLong() <= MAX_CPU_EFFECT_PIXELS
 }

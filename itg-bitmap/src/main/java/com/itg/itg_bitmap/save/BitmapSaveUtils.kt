@@ -73,7 +73,7 @@ object BitmapSaveUtils {
             // 确保父目录存在
             file.parentFile?.mkdirs()
             FileOutputStream(file).use { fos ->
-                bitmap.compress(format, q, fos)
+                if (!bitmap.compress(format, q, fos)) return false
                 fos.flush()
             }
             true
@@ -113,13 +113,9 @@ object BitmapSaveUtils {
         quality: Int = DEFAULT_QUALITY
     ): String? {
         if (!BitmapUtils.isValid(bitmap)) return null
+        if (!isSafeFileName(prefix)) return null
 
-        val extension = when (format) {
-            Bitmap.CompressFormat.JPEG -> ".jpg"
-            Bitmap.CompressFormat.PNG -> ".png"
-            Bitmap.CompressFormat.WEBP -> ".webp"
-            else -> ".jpg"
-        }
+        val extension = extensionFor(format)
         val timestamp = SimpleDateFormat(DATE_FORMAT, Locale.getDefault()).format(Date())
         val fileName = "${prefix}_$timestamp$extension"
         val file = File(directory, fileName)
@@ -167,12 +163,9 @@ object BitmapSaveUtils {
 
         val timestamp = SimpleDateFormat(DATE_FORMAT, Locale.getDefault()).format(Date())
         val displayName = fileName ?: "${DEFAULT_PREFIX}_$timestamp"
-        val mimeType = when (format) {
-            Bitmap.CompressFormat.JPEG -> "image/jpeg"
-            Bitmap.CompressFormat.PNG -> "image/png"
-            Bitmap.CompressFormat.WEBP -> "image/webp"
-            else -> "image/jpeg"
-        }
+        if (!isSafeFileName(displayName)) return null
+        val mimeType = mimeTypeFor(format)
+        var pendingUri: Uri? = null
 
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -188,9 +181,14 @@ object BitmapSaveUtils {
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     contentValues
                 ) ?: return null
+                pendingUri = uri
 
-                context.contentResolver.openOutputStream(uri)?.use { os ->
-                    bitmap.compress(format, q, os)
+                val output = context.contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Cannot open MediaStore output stream")
+                output.use { os ->
+                    if (!bitmap.compress(format, q, os)) {
+                        throw IOException("Bitmap compression failed")
+                    }
                 }
 
                 contentValues.clear()
@@ -203,17 +201,14 @@ object BitmapSaveUtils {
                 val picturesDir = Environment.getExternalStoragePublicDirectory(
                     Environment.DIRECTORY_PICTURES
                 )
-                val extension = when (format) {
-                    Bitmap.CompressFormat.JPEG -> ".jpg"
-                    Bitmap.CompressFormat.PNG -> ".png"
-                    Bitmap.CompressFormat.WEBP -> ".webp"
-                    else -> ".jpg"
-                }
+                val extension = extensionFor(format)
                 val file = File(picturesDir, "$displayName$extension")
                 file.parentFile?.mkdirs()
 
                 FileOutputStream(file).use { fos ->
-                    bitmap.compress(format, q, fos)
+                    if (!bitmap.compress(format, q, fos)) {
+                        throw IOException("Bitmap compression failed")
+                    }
                     fos.flush()
                 }
 
@@ -224,7 +219,8 @@ object BitmapSaveUtils {
 
                 Uri.fromFile(file)
             }
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            pendingUri?.let { context.contentResolver.delete(it, null, null) }
             e.printStackTrace()
             null
         }
@@ -257,6 +253,7 @@ object BitmapSaveUtils {
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG
     ): File? {
         if (!BitmapUtils.isValid(bitmap)) return null
+        if (!isSafeFileName(name)) return null
 
         val file = File(context.cacheDir, name)
         return if (saveToFile(bitmap, file.absolutePath, format, DEFAULT_QUALITY)) {
@@ -291,6 +288,7 @@ object BitmapSaveUtils {
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG
     ): File? {
         if (!BitmapUtils.isValid(bitmap)) return null
+        if (!isSafeFileName(name)) return null
 
         val file = File(context.filesDir, name)
         return if (saveToFile(bitmap, file.absolutePath, format, DEFAULT_QUALITY)) {
@@ -328,12 +326,7 @@ object BitmapSaveUtils {
     ): File? {
         if (!BitmapUtils.isValid(bitmap)) return null
 
-        val extension = when (format) {
-            Bitmap.CompressFormat.JPEG -> ".jpg"
-            Bitmap.CompressFormat.PNG -> ".png"
-            Bitmap.CompressFormat.WEBP -> ".webp"
-            else -> ".jpg"
-        }
+        val extension = extensionFor(format)
 
         return try {
             val file = File.createTempFile(
@@ -361,6 +354,22 @@ object BitmapSaveUtils {
      * @param extension 文件扩展名，如 "jpg", "png", "webp"
      * @return 对应的 CompressFormat，默认 JPEG
      */
+    private fun extensionFor(format: Bitmap.CompressFormat): String = when {
+        format == Bitmap.CompressFormat.PNG -> ".png"
+        format.name.startsWith("WEBP") -> ".webp"
+        else -> ".jpg"
+    }
+
+    private fun isSafeFileName(name: String): Boolean =
+        name.isNotBlank() && name != "." && name != ".." &&
+            name.indexOf('\u0000') < 0 && name == File(name).name
+
+    private fun mimeTypeFor(format: Bitmap.CompressFormat): String = when {
+        format == Bitmap.CompressFormat.PNG -> "image/png"
+        format.name.startsWith("WEBP") -> "image/webp"
+        else -> "image/jpeg"
+    }
+
     @JvmStatic
     fun formatFromExtension(extension: String): Bitmap.CompressFormat {
         return when (extension.lowercase(Locale.ROOT)) {

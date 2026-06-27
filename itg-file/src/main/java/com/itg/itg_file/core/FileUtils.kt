@@ -278,11 +278,13 @@ object FileUtils {
         if (!isFile(srcPath)) return false
 
         return try {
+            val srcFile = File(srcPath)
             val destFile = File(destPath)
+            if (srcFile.canonicalFile == destFile.canonicalFile) return false
             if (destFile.exists() && !overwrite) return false
             destFile.parentFile?.mkdirs()
 
-            FileInputStream(File(srcPath)).use { input ->
+            FileInputStream(srcFile).use { input ->
                 FileOutputStream(destFile).use { output ->
                     input.channel.use { srcChannel ->
                         output.channel.use { destChannel ->
@@ -294,6 +296,7 @@ object FileUtils {
                                     minOf(COPY_BUFFER_SIZE.toLong(), size - position),
                                     destChannel
                                 )
+                                if (transferred <= 0L) return false
                                 position += transferred
                             }
                         }
@@ -338,6 +341,7 @@ object FileUtils {
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath)
+            if (srcFile.canonicalFile == destFile.canonicalFile) return false
             if (destFile.exists() && !overwrite) return false
             destFile.parentFile?.mkdirs()
             val totalSize = srcFile.length()
@@ -408,26 +412,49 @@ object FileUtils {
     @JvmStatic
     @JvmOverloads
     fun copyDirectory(srcDir: String, destDir: String, overwrite: Boolean = true): Boolean {
+        return copyDirectoryInternal(srcDir, destDir, overwrite, mutableSetOf())
+    }
+
+    private fun copyDirectoryInternal(
+        srcDir: String,
+        destDir: String,
+        overwrite: Boolean,
+        visitedDirectories: MutableSet<String>
+    ): Boolean {
         if (!isDirectory(srcDir)) return false
+        return try {
+            val src = File(srcDir)
+            val dest = File(destDir)
+            val srcCanonical = src.canonicalFile
+            val destCanonical = dest.canonicalFile
+            if (!visitedDirectories.add(srcCanonical.path)) return false
+            if (srcCanonical == destCanonical ||
+                destCanonical.path.startsWith(
+                    srcCanonical.path.trimEnd(File.separatorChar) + File.separator
+                )
+            ) return false
+            if (!dest.exists() && !dest.mkdirs()) return false
 
-        val src = File(srcDir)
-        val dest = File(destDir)
-        if (!dest.exists() && !dest.mkdirs()) return false
-
-        var success = true
-        src.listFiles()?.forEach { child ->
-            val childDest = File(dest, child.name)
-            if (child.isDirectory) {
-                if (!copyDirectory(child.absolutePath, childDest.absolutePath, overwrite)) {
-                    success = false
+            var success = true
+            src.listFiles()?.forEach { child ->
+                val childDest = File(dest, child.name)
+                val copied = if (child.isDirectory) {
+                    copyDirectoryInternal(
+                        child.absolutePath,
+                        childDest.absolutePath,
+                        overwrite,
+                        visitedDirectories
+                    )
+                } else {
+                    copy(child.absolutePath, childDest.absolutePath, overwrite)
                 }
-            } else {
-                if (!copy(child.absolutePath, childDest.absolutePath, overwrite)) {
-                    success = false
-                }
+                if (!copied) success = false
             }
+            success
+        } catch (e: IOException) {
+            e.printStackTrace()
+            false
         }
-        return success
     }
 
     // ==================== 移动 ====================
@@ -450,6 +477,7 @@ object FileUtils {
         try {
             val src = File(srcPath)
             val dest = File(destPath)
+            if (src.canonicalFile == dest.canonicalFile) return true
 
             if (dest.exists() && !overwrite) return false
             dest.parentFile?.mkdirs()
@@ -803,6 +831,11 @@ object FileUtils {
     // ==================== 内部方法 ====================
 
     private fun deleteRecursive(file: File): Boolean {
+        try {
+            if (file.absoluteFile != file.canonicalFile) return file.delete()
+        } catch (e: IOException) {
+            return false
+        }
         if (file.isDirectory) {
             file.listFiles()?.forEach { child ->
                 if (!deleteRecursive(child)) return false

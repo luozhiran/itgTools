@@ -42,6 +42,11 @@ enum class Priority(val value: Int) {
     }
 }
 
+interface PrioritizedTask {
+    val priority: Priority
+    val sequence: Long
+}
+
 /**
  * 带优先级的 Runnable
  *
@@ -52,10 +57,10 @@ enum class Priority(val value: Int) {
  * @property runnable 被包装的 Runnable
  */
 class PriorityRunnable(
-    val priority: Priority,
-    private val sequence: Long,
+    override val priority: Priority,
+    override val sequence: Long,
     private val runnable: Runnable
-) : Runnable, Comparable<PriorityRunnable> {
+) : Runnable, Comparable<PriorityRunnable>, PrioritizedTask {
 
     override fun run() = runnable.run()
 
@@ -76,10 +81,10 @@ class PriorityRunnable(
  * 支持优先级排序的可取消异步任务。
  */
 class PriorityFutureTask<T>(
-    val priority: Priority,
-    private val sequence: Long,
+    override val priority: Priority,
+    override val sequence: Long,
     callable: Callable<T>
-) : FutureTask<T>(callable), Comparable<PriorityFutureTask<T>> {
+) : FutureTask<T>(callable), Comparable<PriorityFutureTask<T>>, PrioritizedTask {
 
     override fun compareTo(other: PriorityFutureTask<T>): Int {
         val pc = other.priority.value.compareTo(priority.value)
@@ -145,11 +150,6 @@ object TaskExecutor {
      * }
      * ```
      */
-    @JvmStatic
-    fun io(task: () -> Unit): Future<*> {
-        ThreadPoolManager.ioPool.execute(wrap(task))
-    }
-
     /**
      * 在计算线程池执行任务
      *
@@ -157,11 +157,6 @@ object TaskExecutor {
      *
      * @param task 要执行的任务
      */
-    @JvmStatic
-    fun compute(task: () -> Unit) {
-        ThreadPoolManager.computePool.execute(wrap(task))
-    }
-
     /**
      * 在后台线程池执行任务
      *
@@ -169,11 +164,6 @@ object TaskExecutor {
      *
      * @param task 要执行的任务
      */
-    @JvmStatic
-    fun background(task: () -> Unit) {
-        ThreadPoolManager.backgroundPool.execute(wrap(task))
-    }
-
     /**
      * 在单线程串行池执行任务
      *
@@ -278,7 +268,7 @@ object TaskExecutor {
      */
     @JvmStatic
     fun background(priority: Priority, task: () -> Unit) {
-        execute(ThreadPoolManager.backgroundPool, priority, task)
+        execute(ThreadPoolManager.priorityPool, priority, task)
     }
 
     /**
@@ -514,13 +504,16 @@ object TaskExecutor {
         timeout: Long = 0,
         unit: TimeUnit = TimeUnit.MILLISECONDS
     ) {
-        val deadline = if (timeout > 0) System.currentTimeMillis() + unit.toMillis(timeout) else Long.MAX_VALUE
+        val timeoutNanos = if (timeout > 0) unit.toNanos(timeout) else Long.MAX_VALUE
+        val startNanos = System.nanoTime()
         futures.forEach { future ->
-            val remaining = deadline - System.currentTimeMillis()
+            val elapsed = System.nanoTime() - startNanos
+            val remaining = if (timeoutNanos == Long.MAX_VALUE) Long.MAX_VALUE
+            else timeoutNanos - elapsed
             if (remaining <= 0) throw TimeoutException("awaitAll timed out")
             try {
-                if (remaining < Long.MAX_VALUE) {
-                    future.get(remaining, TimeUnit.MILLISECONDS)
+                if (remaining != Long.MAX_VALUE) {
+                    future.get(remaining, TimeUnit.NANOSECONDS)
                 } else {
                     future.get()
                 }
@@ -548,12 +541,19 @@ object TaskExecutor {
         timeout: Long,
         unit: TimeUnit
     ): Int {
-        val deadline = System.currentTimeMillis() + unit.toMillis(timeout)
-        while (System.currentTimeMillis() < deadline) {
+        require(timeout >= 0) { "timeout must be non-negative" }
+        val timeoutNanos = unit.toNanos(timeout)
+        val startNanos = System.nanoTime()
+        while (System.nanoTime() - startNanos < timeoutNanos) {
             futures.forEachIndexed { index, future ->
                 if (future.isDone) return index
             }
-            Thread.sleep(10)
+            try {
+                Thread.sleep(10)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw ExecutionException("Interrupted while awaiting futures", e)
+            }
         }
         throw TimeoutException("awaitAny timed out after ${unit.toMillis(timeout)}ms")
     }

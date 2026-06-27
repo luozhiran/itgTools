@@ -1,5 +1,6 @@
 package com.itg.itg_file.write
 
+import android.system.Os
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import okio.Buffer
@@ -14,7 +15,9 @@ import okio.Sink
 import okio.Timeout
 import okio.buffer
 import okio.use
+import okio.source
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.concurrent.Future
@@ -216,9 +219,9 @@ object OkioWriteUtils {
             if (file.exists() && !overwrite) return false
             file.parentFile?.mkdirs()
 
-            val source = Okio.source(inputStream).buffer()
-            fileSystem.write(path.toPath()) { sink ->
-                sink.writeAll(source)
+            val source = inputStream.source().buffer()
+            fileSystem.write(path.toPath()) {
+                writeAll(source)
             }
             true
         } catch (e: IOException) {
@@ -429,26 +432,31 @@ object OkioWriteUtils {
     @JvmStatic
     fun writeAtomic(path: String, data: ByteArray): Boolean {
         if (path.isBlank()) return false
+        var tmpFile: File? = null
         return try {
             val destFile = File(path)
             destFile.parentFile?.mkdirs()
-            val tmpFile = File.createTempFile(
-                destFile.nameWithoutExtension + "_",
+            val tempFile = File.createTempFile(
+                (destFile.nameWithoutExtension + "_").padEnd(3, '_'),
                 ".tmp",
                 destFile.parentFile
             )
+            tmpFile = tempFile
 
             // 写入临时文件
-            fileSystem.write(tmpFile.absolutePath.toPath()) {
+            fileSystem.write(tempFile.absolutePath.toPath()) {
                 write(data)
             }
 
             // 原子移动
-            fileSystem.atomicMove(tmpFile.absolutePath.toPath(), path.toPath())
+            FileOutputStream(tempFile, true).use { it.fd.sync() }
+            Os.rename(tempFile.absolutePath, destFile.absolutePath)
             true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
+        } finally {
+            tmpFile?.takeIf { it.exists() }?.delete()
         }
     }
 

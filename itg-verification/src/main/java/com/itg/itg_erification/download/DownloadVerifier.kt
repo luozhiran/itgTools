@@ -288,7 +288,7 @@ object DownloadVerifier {
         // 2. 尺寸
         if (expectedSize > 0 && actualSize != expectedSize) {
             valid = false
-            complete = actualSize < expectedSize
+            complete = false
             messages.add("Size mismatch: expected=$expectedSize, actual=$actualSize")
         }
 

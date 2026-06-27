@@ -2,6 +2,7 @@ package com.itg.itg_file.write
 
 import android.content.Context
 import android.net.Uri
+import android.system.Os
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.io.File
@@ -274,7 +275,8 @@ object FileWriteUtils {
         mimeType: String? = null
     ): Boolean {
         return try {
-            context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+            val outputStream = context.contentResolver.openOutputStream(uri, "wt") ?: return false
+            outputStream.use { output ->
                 output.write(bytes)
                 output.flush()
             }
@@ -303,7 +305,8 @@ object FileWriteUtils {
         mimeType: String? = null
     ): Boolean {
         return try {
-            context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+            val outputStream = context.contentResolver.openOutputStream(uri, "wt") ?: return false
+            outputStream.use { output ->
                 copyStream(inputStream, output)
             }
             true
@@ -345,7 +348,7 @@ object FileWriteUtils {
             val destFile = File(path)
             destFile.parentFile?.mkdirs()
             val tmpFile = File.createTempFile(
-                destFile.nameWithoutExtension + "_",
+                (destFile.nameWithoutExtension + "_").padEnd(3, '_'),
                 ".tmp",
                 destFile.parentFile
             )
@@ -354,8 +357,7 @@ object FileWriteUtils {
             tmpFile.writeText(content, charset)
 
             // 删除旧文件 → 重命名临时文件
-            if (destFile.exists()) destFile.delete()
-            val result = tmpFile.renameTo(destFile)
+            val result = replaceAtomically(tmpFile, destFile)
 
             // 清理残留临时文件
             if (!result) tmpFile.delete()
@@ -395,15 +397,14 @@ object FileWriteUtils {
             val destFile = File(path)
             destFile.parentFile?.mkdirs()
             val tmpFile = File.createTempFile(
-                destFile.nameWithoutExtension + "_",
+                (destFile.nameWithoutExtension + "_").padEnd(3, '_'),
                 ".tmp",
                 destFile.parentFile
             )
 
             tmpFile.writeBytes(bytes)
 
-            if (destFile.exists()) destFile.delete()
-            val result = tmpFile.renameTo(destFile)
+            val result = replaceAtomically(tmpFile, destFile)
             if (!result) tmpFile.delete()
             result
         } catch (e: IOException) {
@@ -501,5 +502,16 @@ object FileWriteUtils {
             onProgress?.invoke(totalWritten, -1L)
         }
         output.flush()
+    }
+
+    private fun replaceAtomically(tempFile: File, destination: File): Boolean {
+        return try {
+            FileOutputStream(tempFile, true).use { it.fd.sync() }
+            Os.rename(tempFile.absolutePath, destination.absolutePath)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 }

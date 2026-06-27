@@ -8,6 +8,7 @@ import android.net.Uri
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
+import java.net.HttpURLConnection
 import java.net.URL
 
 /**
@@ -290,17 +291,25 @@ object BitmapDecodeUtils {
      */
     @JvmStatic
     fun decodeFromUrl(url: String): Bitmap? {
+        var connection: HttpURLConnection? = null
         return try {
-            val connection = URL(url).openConnection()
+            val parsedUrl = URL(url)
+            if (parsedUrl.protocol != "http" && parsedUrl.protocol != "https") return null
+            connection = parsedUrl.openConnection() as HttpURLConnection
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.instanceFollowRedirects = true
             connection.connect()
+            if (connection.responseCode !in 200..299) return null
+            if (connection.contentLengthLong > 32L * 1024L * 1024L) return null
             connection.getInputStream().use { inputStream ->
                 BitmapFactory.decodeStream(inputStream)
             }
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        } finally {
+            connection?.disconnect()
         }
     }
 

@@ -47,9 +47,11 @@ object FileComparator {
         val added: List<String> = emptyList(),     // 仅在 dir2 中存在的文件
         val removed: List<String> = emptyList(),    // 仅在 dir1 中存在的文件
         val modified: List<String> = emptyList(),   // 两个目录都有但内容不同
-        val unchanged: List<String> = emptyList()   // 内容相同的文件
+        val unchanged: List<String> = emptyList(),  // 内容相同的文件
+        val errors: List<String> = emptyList()
     ) {
-        val hasDifference: Boolean get() = added.isNotEmpty() || removed.isNotEmpty() || modified.isNotEmpty()
+        val hasDifference: Boolean get() =
+            added.isNotEmpty() || removed.isNotEmpty() || modified.isNotEmpty() || errors.isNotEmpty()
         val totalChanged: Int get() = added.size + removed.size + modified.size
     }
 
@@ -104,7 +106,13 @@ object FileComparator {
 
                     while (fis1.read(buf1).also { bytesRead1 = it } != -1) {
                         bytesRead2 = fis2.read(buf2)
-                        if (bytesRead1 != bytesRead2 || !buf1.contentEquals(buf2)) {
+                        var equal = bytesRead1 == bytesRead2
+                        var index = 0
+                        while (equal && index < bytesRead1) {
+                            equal = buf1[index] == buf2[index]
+                            index++
+                        }
+                        if (!equal) {
                             return CompareResult.different(
                                 "Content differs at byte $offset",
                                 mapOf("diffOffset" to offset, "size" to file1.length())
@@ -226,8 +234,10 @@ object FileComparator {
         dir2: String,
         compareContent: Boolean = true
     ): DirectoryDiff {
-        val files1 = getRelativeFileMap(dir1) ?: return DirectoryDiff()
-        val files2 = getRelativeFileMap(dir2) ?: return DirectoryDiff()
+        val files1 = getRelativeFileMap(dir1)
+            ?: return DirectoryDiff(errors = listOf("Invalid directory: $dir1"))
+        val files2 = getRelativeFileMap(dir2)
+            ?: return DirectoryDiff(errors = listOf("Invalid directory: $dir2"))
 
         val added = mutableListOf<String>()
         val removed = mutableListOf<String>()
@@ -318,8 +328,8 @@ object FileComparator {
         candidateGroups.forEach { (size, paths) ->
             val byHash = mutableMapOf<String, MutableList<String>>()
             paths.forEach { path ->
-                val md5 = FileHashUtils.md5(path) ?: return@forEach
-                byHash.getOrPut(md5) { mutableListOf() }.add(path)
+                val sha256 = FileHashUtils.sha256(path) ?: return@forEach
+                byHash.getOrPut(sha256) { mutableListOf() }.add(path)
             }
             byHash.filter { it.value.size >= 2 }.forEach { (hash, files) ->
                 // 浪费的空间 = (重复份数 - 1) × 文件大小
@@ -354,8 +364,8 @@ object FileComparator {
         paths.forEach { path ->
             val size = FileUtils.getSize(path)
             if (size <= 0) return@forEach
-            val md5 = FileHashUtils.md5(path) ?: return@forEach
-            groups.getOrPut("$size:$md5") { mutableListOf() }.add(path)
+            val sha256 = FileHashUtils.sha256(path) ?: return@forEach
+            groups.getOrPut("$size:$sha256") { mutableListOf() }.add(path)
         }
 
         // 只保留有重复的组

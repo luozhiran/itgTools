@@ -450,8 +450,12 @@ object ThreadUtils {
         onIdle: (() -> Unit)? = null,
         body: (android.os.Handler) -> Unit
     ) {
+        check(Looper.myLooper() == null) {
+            "runWithLooper must be called on a thread without an existing Looper"
+        }
         prepareLooper()
-        val handler = android.os.Handler(Looper.myLooper()!!)
+        val looper = Looper.myLooper()!!
+        val handler = android.os.Handler(looper)
 
         // 可选的超时自动退出
         if (timeoutMs > 0) {
@@ -480,6 +484,7 @@ object ThreadUtils {
             body(handler)
             loop()
         } catch (e: Exception) {
+            looper.quit()
             android.util.Log.e(
                 "ThreadUtils",
                 "Error in runWithLooper on thread '${Thread.currentThread().name}'",

@@ -167,11 +167,23 @@ object HashVerifier {
     fun verifyHash(path: String, expectedHash: String, algorithm: String): HashResult {
         val algo = FileHashUtils.Algorithm.fromString(algorithm)
             ?: return HashResult(false, expectedHash, null, algorithm)
+        val normalizedExpected = expectedHash.trim()
+        val expectedLength = when (algo) {
+            FileHashUtils.Algorithm.MD5 -> 32
+            FileHashUtils.Algorithm.SHA1 -> 40
+            FileHashUtils.Algorithm.SHA256 -> 64
+            FileHashUtils.Algorithm.SHA512 -> 128
+        }
+        if (normalizedExpected.length != expectedLength ||
+            normalizedExpected.any { it.digitToIntOrNull(16) == null }
+        ) {
+            return HashResult(false, normalizedExpected, null, algo.jceName)
+        }
 
         val actual = FileHashUtils.hashFile(path, algo)
         return HashResult(
-            isValid = actual != null && actual.equals(expectedHash, ignoreCase = true),
-            expected = expectedHash,
+            isValid = actual != null && actual.equals(normalizedExpected, ignoreCase = true),
+            expected = normalizedExpected,
             actual = actual,
             algorithm = algorithm.uppercase()
         )
@@ -343,14 +355,17 @@ object HashVerifier {
     fun parseChecksumFile(checksumFile: String): String? {
         if (!FileUtils.isFile(checksumFile)) return null
         return try {
-            val line = File(checksumFile).readLines().firstOrNull { it.isNotBlank() } ?: return null
+            val line = File(checksumFile).bufferedReader().useLines { lines ->
+                lines.firstOrNull { it.isNotBlank() }
+            } ?: return null
             // 格式: HASH  FILENAME 或 HASH *FILENAME 或纯 HASH
             val trimmed = line.trim()
-            if (trimmed.contains(" ")) {
+            val hash = if (trimmed.contains(" ")) {
                 trimmed.substringBefore(" ").trim()
             } else {
                 trimmed
             }
+            hash.takeIf { it.isNotEmpty() && it.all { char -> char.digitToIntOrNull(16) != null } }
         } catch (e: Exception) {
             e.printStackTrace()
             null

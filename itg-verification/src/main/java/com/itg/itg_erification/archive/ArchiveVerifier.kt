@@ -38,6 +38,8 @@ object ArchiveVerifier {
     /** 最大条目数阈值 */
     private const val DEFAULT_MAX_ENTRIES = 100_000
 
+    private const val DEFAULT_MAX_UNCOMPRESSED_BYTES = 1_073_741_824L
+
     // ==================== 结果类型 ====================
 
     data class ArchiveResult(
@@ -85,12 +87,21 @@ object ArchiveVerifier {
      * ```
      */
     @JvmStatic
-    fun verifyZip(path: String): ArchiveResult {
+    @JvmOverloads
+    fun verifyZip(
+        path: String,
+        maxEntries: Int = DEFAULT_MAX_ENTRIES,
+        maxUncompressedBytes: Long = DEFAULT_MAX_UNCOMPRESSED_BYTES
+    ): ArchiveResult {
         if (!FileUtils.isFile(path)) return ArchiveResult.fail("File not found")
+        if (maxEntries <= 0 || maxUncompressedBytes <= 0L) {
+            return ArchiveResult.fail("Limits must be greater than 0")
+        }
 
         return try {
             var entryCount = 0
             var failedEntries = 0
+            var totalUncompressed = 0L
             val failedEntryNames = mutableListOf<String>()
 
             ZipFile(path).use { zip ->
@@ -98,13 +109,27 @@ object ArchiveVerifier {
                 while (entries.hasMoreElements()) {
                     val entry = entries.nextElement()
                     entryCount++
+                    if (entryCount > maxEntries) {
+                        return ArchiveResult.fail("Too many entries: $entryCount > $maxEntries")
+                    }
 
                     // 逐条目 CRC 校验
                     try {
                         val checkedInput = CheckedInputStream(zip.getInputStream(entry), CRC32())
                         checkedInput.use { input ->
                             val buffer = ByteArray(8192)
-                            while (input.read(buffer) != -1) { /* 读取以触发 CRC 计算 */ }
+                            var read: Int
+                            while (input.read(buffer).also { read = it } != -1) {
+                                if (Long.MAX_VALUE - totalUncompressed < read.toLong()) {
+                                    return ArchiveResult.fail("Uncompressed size overflow")
+                                }
+                                totalUncompressed += read
+                                if (totalUncompressed > maxUncompressedBytes) {
+                                    return ArchiveResult.fail(
+                                        "Uncompressed size exceeds $maxUncompressedBytes bytes"
+                                    )
+                                }
+                            }
                         }
                         if (entry.crc < 0L || checkedInput.checksum.value != entry.crc) {
                             throw java.util.zip.ZipException(
@@ -209,7 +234,8 @@ object ArchiveVerifier {
         path: String,
         maxCompressionRatio: Int = DEFAULT_MAX_COMPRESSION_RATIO,
         maxEntries: Int = DEFAULT_MAX_ENTRIES,
-        checkZipSlip: Boolean = true
+        checkZipSlip: Boolean = true,
+        maxUncompressedBytes: Long = DEFAULT_MAX_UNCOMPRESSED_BYTES
     ): ArchiveResult {
         if (!FileUtils.isFile(path)) return ArchiveResult.fail("File not found")
         if (maxCompressionRatio <= 0) {
@@ -217,6 +243,9 @@ object ArchiveVerifier {
         }
         if (maxEntries <= 0) {
             return ArchiveResult.fail("maxEntries must be greater than 0")
+        }
+        if (maxUncompressedBytes <= 0L) {
+            return ArchiveResult.fail("maxUncompressedBytes must be greater than 0")
         }
 
         return try {
@@ -274,6 +303,15 @@ object ArchiveVerifier {
                     }
                     totalCompressed += compressedSize
                     totalUncompressed += uncompressedSize
+                    if (totalUncompressed > maxUncompressedBytes) {
+                        return ArchiveResult.fail(
+                            "Uncompressed size too large: $totalUncompressed > $maxUncompressedBytes",
+                            mapOf(
+                                "uncompressed" to totalUncompressed,
+                                "maxUncompressedBytes" to maxUncompressedBytes
+                            )
+                        )
+                    }
                 }
             }
 
@@ -326,14 +364,28 @@ object ArchiveVerifier {
      * @return [ArchiveResult]
      */
     @JvmStatic
-    fun verifyGzip(path: String): ArchiveResult {
+    @JvmOverloads
+    fun verifyGzip(
+        path: String,
+        maxUncompressedBytes: Long = DEFAULT_MAX_UNCOMPRESSED_BYTES
+    ): ArchiveResult {
         if (!FileUtils.isFile(path)) return ArchiveResult.fail("File not found")
+        if (maxUncompressedBytes <= 0L) return ArchiveResult.fail("Invalid size limit")
 
         return try {
             // GZIP 文件末尾有 CRC32 和 ISIZE，解压时自动校验
             java.util.zip.GZIPInputStream(FileInputStream(path)).use { gz ->
                 val buffer = ByteArray(8192)
-                while (gz.read(buffer) != -1) { /* 全量读取以触发 CRC 校验 */ }
+                var totalRead = 0L
+                var read: Int
+                while (gz.read(buffer).also { read = it } != -1) {
+                    totalRead += read
+                    if (totalRead > maxUncompressedBytes) {
+                        return ArchiveResult.fail(
+                            "GZIP uncompressed size exceeds $maxUncompressedBytes bytes"
+                        )
+                    }
+                }
             }
             ArchiveResult.pass(1, mapOf("format" to "GZIP"))
         } catch (e: java.util.zip.ZipException) {
