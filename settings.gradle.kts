@@ -11,9 +11,11 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
-}
+// foojay 插件在受限网络/JitPack 环境无法下载 JDK，改用本地安装的 JDK。
+// 本地 JDK 路径由 gradle.properties 中的 org.gradle.java.installations.paths 指定。
+// plugins {
+//     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+// }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
