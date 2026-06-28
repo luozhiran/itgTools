@@ -32,3 +32,16 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     implementation(libs.okio)
 }
+
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                groupId = "com.github.itgtools"
+                artifactId = project.name
+                version = project.version.toString()
+                artifact("$buildDir/outputs/aar/${project.name}-release.aar")
+            }
+        }
+    }
+}

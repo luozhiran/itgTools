@@ -37,3 +37,16 @@ dependencies {
     api (project(":itg-thread-pools"))
     api(project(":itg-verification"))
 }
+
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                groupId = "com.github.itgtools"
+                artifactId = project.name
+                version = project.version.toString()
+                artifact("$buildDir/outputs/aar/${project.name}-release.aar")
+            }
+        }
+    }
+}
