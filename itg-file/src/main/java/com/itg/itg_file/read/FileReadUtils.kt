@@ -225,8 +225,9 @@ object FileReadUtils {
             File(path).bufferedReader(charset).use { reader ->
                 var line = reader.readLine()
                 while (line != null) {
-                    if (!onEachLine(line, count)) break
+                    val currentIndex = count
                     count++
+                    if (!onEachLine(line, currentIndex)) break
                     line = reader.readLine()
                 }
             }
@@ -375,7 +376,7 @@ object FileReadUtils {
                 var chunkIndex = 0
                 var bytesRead: Int
                 while (fis.read(buffer).also { bytesRead = it } != -1) {
-                    val chunk = if (bytesRead == chunkSize) buffer else buffer.copyOf(bytesRead)
+                    val chunk = buffer.copyOf(bytesRead)
                     totalRead += bytesRead
                     if (!onChunk(chunk, chunkIndex, totalChunks)) break
                     chunkIndex++
