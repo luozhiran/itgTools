@@ -1,4 +1,2 @@
 jdk:
   - openjdk17
-install:
-  - ./gradlew clean :itg-bitmap:publishToMavenLocal :itg-file:publishToMavenLocal :itg-encrypt:publishToMavenLocal :itg-thread-pools:publishToMavenLocal :itg-verification:publishToMavenLocal :outter:publishToMavenLocal
