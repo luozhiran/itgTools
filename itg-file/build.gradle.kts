@@ -25,6 +25,7 @@ android {
 
 dependencies {
     implementation(project(":itg-thread-pools"))
+    api(libs.androidx.fragment)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
