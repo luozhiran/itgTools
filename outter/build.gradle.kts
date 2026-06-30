@@ -42,6 +42,7 @@ dependencies {
     api (project(":itg-encrypt"))
     api (project(":itg-thread-pools"))
     api(project(":itg-verification"))
+    api(project(":itg-base"))
 }
 afterEvaluate {
     publishing {
