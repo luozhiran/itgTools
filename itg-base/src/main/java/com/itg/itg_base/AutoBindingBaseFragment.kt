@@ -9,7 +9,6 @@ import androidx.viewbinding.ViewBinding
 import com.example.itg_base.ability.ActivityResultAbility
 import com.example.itg_base.ability.MessageAbility
 import com.example.itg_base.ability.PermissionAbility
-import com.example.itg_base.ability.SystemBarAbility
 import com.example.itg_base.ability.UiStateAbility
 import com.example.itg_base.ability.ViewBindingAbility
 import com.example.itg_base.ability.ViewModelAbility
