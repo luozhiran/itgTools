@@ -1,4 +1,4 @@
-package com.example.itg_base
+package com.itg.itg_base
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
@@ -6,11 +6,11 @@ import androidx.viewbinding.ViewBinding
 import com.example.itg_base.ability.ActivityResultAbility
 import com.example.itg_base.ability.MessageAbility
 import com.example.itg_base.ability.PermissionAbility
-import com.example.itg_base.ability.SystemBarAbility
 import com.example.itg_base.ability.UiStateAbility
 import com.example.itg_base.ability.ViewBindingAbility
 import com.example.itg_base.ability.ViewModelAbility
 import com.example.itg_base.arch.ItgModel
+import com.itg.itg_base.ability.SystemBarAbility
 import java.lang.reflect.ParameterizedType
 
 /**
@@ -55,8 +55,8 @@ abstract class AutoBindingBaseActivity<
 
     // ==================== 能力（子类按需调用） ====================
 
-    /** 边到边 + 系统栏 insets。 */
-    protected val systemBars: SystemBarAbility by lazy { SystemBarAbility() }
+    /** 边到边 + 系统栏 insets。子类可覆写以传入自定义 [SystemBarAbility.Config]。 */
+    protected open val systemBars: SystemBarAbility by lazy { SystemBarAbility() }
 
     /** ActivityResult 启动回调。 */
     val launcher: ActivityResultAbility

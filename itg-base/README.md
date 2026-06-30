@@ -16,7 +16,7 @@
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("com.itg.itg:itg-base:1.0.0")
+    implementation("com.example.itg:itg-base:1.0.0")
 }
 ```
 
@@ -112,7 +112,9 @@ class HomeActivity : AutoBindingBaseActivity<
 
 ### SystemBarAbility
 
-边到边显示 + 系统栏 insets 处理。
+边到边显示 + 系统栏 insets 处理，通过 `Config` 支持三级定制。
+
+**零配置（默认行为）：**
 
 ```kotlin
 systemBars.useEnableEdgeToEdge()      // 开启边到边
@@ -120,7 +122,56 @@ systemBars.updateWindowInsets(this)   // 设置 insets padding
 systemBars.restorePadding(view)       // 恢复原始 padding
 ```
 
-自动保存原始 padding，insets padding 叠加在原始值之上，不会覆盖 XML 中设置的 padding。
+**Config 参数：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `edgeToEdge` | `true` | 是否开启边到边 |
+| `insetsTypes` | `systemBars()` | 处理哪些栏：`statusBars()` / `navigationBars()` / `systemBars()` / `ime()` |
+| `onApplyInsets` | `null` | null=默认叠加 padding；非 null=完全接管 insets→View 映射 |
+
+**场景一：只处理状态栏，不管导航栏：**
+
+```kotlin
+class MyActivity : AutoBindingBaseActivity<MyBinding, MyModel>() {
+    override val systemBars by lazy {
+        SystemBarAbility(
+            SystemBarAbility.Config(
+                insetsTypes = WindowInsetsCompat.Type.statusBars()
+            )
+        )
+    }
+}
+```
+
+**场景二：insets 用 margin 而非 padding：**
+
+```kotlin
+override val systemBars by lazy {
+    SystemBarAbility(
+        SystemBarAbility.Config(
+            onApplyInsets = { view, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                (view.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
+                    topMargin = bars.top
+                    bottomMargin = bars.bottom
+                }
+                insets
+            }
+        )
+    )
+}
+```
+
+**场景三：完全禁用边到边：**
+
+```kotlin
+override val systemBars by lazy {
+    SystemBarAbility(SystemBarAbility.Config(edgeToEdge = false))
+}
+```
+
+不覆写 `systemBars` 则自动使用默认配置，与之前行为完全一致。
 
 ### ViewModelAbility
 
