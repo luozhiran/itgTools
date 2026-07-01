@@ -1,4 +1,4 @@
-package com.example.itg_base.ability
+package com.itg.itg_base.ability
 
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider

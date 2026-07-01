@@ -1,4 +1,4 @@
-package com.example.itg_base.ability
+package com.itg.itg_base.ability
 
 import android.content.Intent
 import android.net.Uri

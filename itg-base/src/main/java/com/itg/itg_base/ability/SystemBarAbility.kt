@@ -7,7 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.example.itg_base.ability.LifeAbility
 
 /**
  * 边到边 + 系统栏 insets 能力。
@@ -57,6 +56,7 @@ class SystemBarAbility(
 
     private var edgeToEdgeApplied = false
     private var originalPadding: IntArray? = null
+    private var paddingViewRef: View? = null  // 关联的 View，不同 View 时重置
 
     // ==================== 公开 API ====================
 
@@ -96,6 +96,11 @@ class SystemBarAbility(
             // 默认模式：叠加到 padding
             ViewCompat.setOnApplyWindowInsetsListener(rootView) { v, insets ->
                 val bars = insets.getInsets(config.insetsTypes)
+                // 不同 View 时重新记录原始 padding
+                if (paddingViewRef !== v) {
+                    paddingViewRef = v
+                    originalPadding = null
+                }
                 val padding = originalPadding ?: intArrayOf(
                     v.paddingLeft, v.paddingTop, v.paddingRight, v.paddingBottom
                 ).also { originalPadding = it }

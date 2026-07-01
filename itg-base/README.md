@@ -193,7 +193,9 @@ val binding = bindingAbility.binding  // 类型为 VB
 
 ### UiStateAbility
 
-Loading / Empty / Error 三态管理，纯代码创建 UI，无需额外资源。
+Loading / Empty / Error 三态管理，支持 Config 一键替换或子类深度定制。
+
+**默认使用：**
 
 ```kotlin
 uiState.bind(binding.root)           // 绑定到根布局
@@ -205,9 +207,53 @@ uiState.showContent()                // 显示正常内容
 
 `AutoBindingBaseActivity` 中已自动观察 `viewModel.loading`，无需手动调用 `showLoading/hideLoading`。
 
+**Config 参数：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `loadingViewProvider` | `null` | 替换 Loading 视图，`(Context) -> View` |
+| `emptyViewProvider` | `null` | 替换空状态视图，`(Context, String) -> View` |
+| `errorViewProvider` | `null` | 替换错误视图，`(Context, String, retryAction?) -> View` |
+
+**方式一：Config（一行换 Loading 样式）：**
+
+```kotlin
+override val uiState by lazy {
+    UiStateAbility(
+        UiStateAbility.Config(
+            loadingViewProvider = { ctx ->
+                LottieAnimationView(ctx).apply {
+                    setAnimation(R.raw.loading)
+                    playAnimation()
+                }
+            }
+        )
+    )
+}
+```
+
+**方式二：子类覆写（换多个 + 加逻辑）：**
+
+```kotlin
+override val uiState by lazy {
+    object : UiStateAbility() {
+        override fun createLoadingView(ctx: Context) =
+            LottieAnimationView(ctx).apply { setAnimation(R.raw.loading); playAnimation() }
+
+        override fun createEmptyView(ctx: Context, msg: String) =
+            MyEmptyView(ctx).apply { setMessage(msg) }
+
+        override fun createErrorView(ctx: Context, msg: String, retry: (() -> Unit)?) =
+            MyErrorView(ctx).apply { setMessage(msg); setOnRetry { retry?.invoke() } }
+    }
+}
+```
+
 ### MessageAbility
 
-Toast + Snackbar，生命周期感知。
+Toast + Snackbar，生命周期感知，支持 Config 替换或子类覆写。
+
+**默认使用：**
 
 ```kotlin
 messages.toast("提示")                    // 短 Toast
@@ -218,9 +264,45 @@ messages.snackbar("已删除", "撤销") { }     // Snackbar + 操作
 
 Activity 销毁后自动忽略，不会 crash。如果 classpath 上无 Material 库，Snackbar 自动退化为 Toast。
 
+**Config 参数：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `onToast` | `null` | 替换 Toast，`(Context, String, duration) -> Unit` |
+| `onSnackbar` | `null` | 替换 Snackbar，`(View, String, actionText?, action?) -> Unit` |
+
+**方式一：Config（替换为自定义 Toast 库 / 顶部 Banner）：**
+
+```kotlin
+override val messages by lazy {
+    MessageAbility(
+        MessageAbility.Config(
+            onToast = { ctx, msg, _ -> Toasty.custom(ctx, msg, R.drawable.ic_info).show() },
+            onSnackbar = { anchor, msg, actionText, action ->
+                showTopBanner(msg, actionText, action)
+            }
+        )
+    )
+}
+```
+
+**方式二：子类覆写：**
+
+```kotlin
+override val messages by lazy {
+    object : MessageAbility() {
+        override fun showToast(context: Context, message: String, duration: Int) {
+            MyToastUtils.show(context, message)
+        }
+    }
+}
+```
+
 ### PermissionAbility
 
-运行时权限请求。
+运行时权限请求，支持 Config 处理永久拒绝场景。
+
+**默认使用：**
 
 ```kotlin
 permissions.request(Manifest.permission.CAMERA) { granted ->
@@ -234,6 +316,29 @@ permissions.requestMultiple(
 
 permissions.isGranted(Manifest.permission.CAMERA)     // 检查是否已授权
 permissions.shouldShowRationale(permission)            // 是否应展示解释
+```
+
+**Config 参数：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `onPermanentlyDenied` | `null` | 权限被永久拒绝时回调，参数为被拒绝的权限名 |
+
+**自定义：权限被永久拒绝时引导用户去设置页：**
+
+```kotlin
+override val permissions by lazy {
+    PermissionAbility(
+        PermissionAbility.Config(
+            onPermanentlyDenied = { perm ->
+                AlertDialog.Builder(this@MyActivity)
+                    .setMessage("$perm 权限已被禁用，请前往设置页开启")
+                    .setPositiveButton("去设置") { _, _ -> openAppSettings() }
+                    .show()
+            }
+        )
+    )
+}
 ```
 
 ### ActivityResultAbility
@@ -300,22 +405,30 @@ override fun observeViewModelStates() {
 }
 ```
 
-## 定制 UiState 样式
+## 自定义 Ability
 
-继承 `UiStateAbility` 覆写创建方法：
+所有需要定制的 Ability 遵循统一的三层模式：
 
-```kotlin
-class BrandUiStateAbility : UiStateAbility() {
-    override fun createLoadingView(ctx: Context): View {
-        return LottieAnimationView(ctx).apply {
-            setAnimation(R.raw.loading)  // 替换为 Lottie 动画
-            playAnimation()
-        }
-    }
-}
+```
+Level 1            Level 2               Level 3
+Config 数据类       覆写 protected open    整体替换
+──────────         ──────────────────     ────────
+一行搞定额色/样式    按需改几个方法          完全控制
+
+SystemBarAbility.Config                     override val systemBars
+MessageAbility.Config                           by lazy { MySystemBarAbility() }
+UiStateAbility.Config
+PermissionAbility.Config
 ```
 
-然后在 Activity 中用你的子类替换默认实例。
+| Ability | Config 关键参数 |
+|---------|---------------|
+| `SystemBarAbility` | `insetsTypes` / `onApplyInsets` / `edgeToEdge` |
+| `MessageAbility` | `onToast` / `onSnackbar` |
+| `UiStateAbility` | `loadingViewProvider` / `emptyViewProvider` / `errorViewProvider` |
+| `PermissionAbility` | `onPermanentlyDenied` |
+
+不覆写的默认行为不受影响，零行额外代码走默认。
 
 ## 内存泄漏防护
 

@@ -1,16 +1,19 @@
 package com.itg.itg_base
 
 import android.os.Bundle
+import android.util.Log
+import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.viewbinding.ViewBinding
-import com.example.itg_base.ability.ActivityResultAbility
-import com.example.itg_base.ability.MessageAbility
-import com.example.itg_base.ability.PermissionAbility
-import com.example.itg_base.ability.UiStateAbility
-import com.example.itg_base.ability.ViewBindingAbility
-import com.example.itg_base.ability.ViewModelAbility
+
 import com.example.itg_base.arch.ItgModel
+import com.itg.itg_base.ability.ActivityResultAbility
+import com.itg.itg_base.ability.MessageAbility
+import com.itg.itg_base.ability.PermissionAbility
 import com.itg.itg_base.ability.SystemBarAbility
+import com.itg.itg_base.ability.UiStateAbility
+import com.itg.itg_base.ability.ViewBindingAbility
+import com.itg.itg_base.ability.ViewModelAbility
 import java.lang.reflect.ParameterizedType
 
 /**
@@ -62,14 +65,16 @@ abstract class AutoBindingBaseActivity<
     val launcher: ActivityResultAbility
         get() = activityResultAbility
 
-    /** 运行时权限。 */
-    protected val permissions: PermissionAbility by lazy { PermissionAbility() }
+    /** 运行时权限。子类可覆写以传入自定义 [PermissionAbility.Config]。 */
+    protected open val permissions: PermissionAbility by lazy { PermissionAbility() }
 
-    /** Toast / Snackbar。 */
-    protected val messages: MessageAbility by lazy { MessageAbility() }
+    /** Toast / Snackbar。子类可覆写以传入自定义 [MessageAbility.Config]。 */
+    protected open val messages: MessageAbility by lazy { MessageAbility() }
 
-    /** Loading / Empty / Error 状态。 */
-    protected val uiState: UiStateAbility by lazy { UiStateAbility() }
+    /** Loading / Empty / Error 状态。子类可覆写以传入自定义 [UiStateAbility.Config]。 */
+    protected open val uiState: UiStateAbility by lazy { UiStateAbility() }
+
+    private var viewModelStatesObserved = false
 
     // ==================== 内部 Ability ====================
 
@@ -133,7 +138,12 @@ abstract class AutoBindingBaseActivity<
         uiState.inject(this)
 
         // 5. UiState 绑定到根布局
-        uiState.bind(binding.root as android.view.ViewGroup)
+        if (binding.root is ViewGroup) {
+            uiState.bind(binding.root as ViewGroup)
+        } else {
+            Log.w("AutoBindingBase", "布局根元素不是 ViewGroup，UiState 绑定跳过。" +
+                " 如果使用了 <merge> 标签请改用 ViewGroup 包裹。")
+        }
 
         // 6. 自动桥接 ViewModel 状态 → UI
         observeViewModelStates()
@@ -162,6 +172,9 @@ abstract class AutoBindingBaseActivity<
      * ```
      */
     protected open fun observeViewModelStates() {
+        if (viewModelStatesObserved) return
+        viewModelStatesObserved = true
+
         viewModel.loading.observe(this) { isLoading ->
             if (isLoading) uiState.showLoading() else uiState.showContent()
         }

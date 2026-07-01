@@ -1,6 +1,5 @@
-package com.example.itg_base.ability
+package com.itg.itg_base.ability
 
-import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,19 +9,38 @@ import androidx.core.content.ContextCompat
 /**
  * 运行时权限请求能力。
  *
- * 使用：
+ * ## 默认使用
  * ```
- * permissions.request(Manifest.permission.CAMERA) { granted ->
- *     if (granted) openCamera() else showDeniedHint()
- * }
- * permissions.requestMultiple(
- *     Manifest.permission.CAMERA,
- *     Manifest.permission.RECORD_AUDIO
- * ) { results -> ... }
+ * permissions.request(Manifest.permission.CAMERA) { granted -> ... }
+ * permissions.requestMultiple(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO) { results -> ... }
+ * permissions.isGranted(Manifest.permission.CAMERA)
+ * permissions.shouldShowRationale(Manifest.permission.CAMERA)
+ * ```
+ *
+ * ## 自定义（Config）
+ * ```
+ * PermissionAbility(
+ *     PermissionAbility.Config(
+ *         onPermanentlyDenied = { perm -> showGoToSettingsDialog(perm) }
+ *     )
+ * )
  * ```
  */
-class PermissionAbility : LifeAbility() {
+class PermissionAbility(
+    private val config: Config = Config()
+) : LifeAbility() {
 
+    /**
+     * @param onPermanentlyDenied 权限被永久拒绝时的回调（用户勾选"不再询问"后再次请求，
+     *                            系统返回 denied=true 且 shouldShowRationale=false）。
+     *                            参数为被拒绝的权限名。null = 不做特殊处理。
+     */
+    data class Config(
+        val onPermanentlyDenied: ((String) -> Unit)? = null,
+    )
+
+    /** 当前正在请求的权限（用于回调中判断永久拒绝） */
+    private var pendingPermission: String? = null
     private var singleCallback: ((Boolean) -> Unit)? = null
     private var multiCallback: ((Map<String, Boolean>) -> Unit)? = null
 
@@ -42,6 +60,13 @@ class PermissionAbility : LifeAbility() {
             val cb = singleCallback
             singleCallback = null
             cb?.invoke(granted)
+
+            // 结果回来后才判断永久拒绝（首次请求不会误判）
+            val perm = pendingPermission
+            pendingPermission = null
+            if (!granted && perm != null && !shouldShowRationale(perm)) {
+                config.onPermanentlyDenied?.invoke(perm)
+            }
         }
 
         multiLauncher = ownerActivity.registerForActivityResult(
@@ -55,17 +80,12 @@ class PermissionAbility : LifeAbility() {
 
     // ==================== 公开 API ====================
 
-    /**
-     * 请求单个权限。
-     */
     fun request(permission: String, callback: (granted: Boolean) -> Unit) {
+        pendingPermission = permission
         singleCallback = callback
         singleLauncher.launch(permission)
     }
 
-    /**
-     * 请求多个权限。
-     */
     fun requestMultiple(
         vararg permissions: String,
         callback: (results: Map<String, Boolean>) -> Unit
@@ -74,21 +94,15 @@ class PermissionAbility : LifeAbility() {
         multiLauncher.launch(permissions.toList().toTypedArray())
     }
 
-    // ==================== 工具方法 ====================
-
-    /**
-     * 检查权限是否已授予。
-     */
     fun isGranted(permission: String): Boolean {
+        if (!isActivityAlive()) return false
         return ContextCompat.checkSelfPermission(
             ownerActivity, permission
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    /**
-     * 是否应该展示权限解释说明（用户拒绝过一次但未勾选"不再询问"）。
-     */
     fun shouldShowRationale(permission: String): Boolean {
+        if (!isActivityAlive()) return false
         return ownerActivity.shouldShowRequestPermissionRationale(permission)
     }
 }

@@ -1,4 +1,4 @@
-package com.example.itg_base.ability
+package com.itg.itg_base.ability
 
 import android.view.LayoutInflater
 import androidx.appcompat.app.AppCompatActivity
@@ -27,7 +27,16 @@ class ViewBindingAbility<VB : ViewBinding>(
 
     @Suppress("UNCHECKED_CAST")
     private fun inflateBinding(activity: AppCompatActivity) {
-        val inflateMethod = bindingClass.getMethod("inflate", LayoutInflater::class.java)
+        val inflateMethod = try {
+            bindingClass.getMethod("inflate", LayoutInflater::class.java)
+        } catch (e: NoSuchMethodException) {
+            throw IllegalArgumentException(
+                "${bindingClass.name} 不是有效的 ViewBinding/DataBinding 生成类。" +
+                    "请确认该类由 Android Gradle Plugin 自动生成，" +
+                    "且 buildFeatures { viewBinding = true } 或 dataBinding = true 已开启。",
+                e
+            )
+        }
         binding = inflateMethod.invoke(null, activity.layoutInflater) as VB
         if (setContent) {
             activity.setContentView(binding.root)

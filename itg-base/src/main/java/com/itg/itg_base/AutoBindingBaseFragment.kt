@@ -1,12 +1,12 @@
-package com.example.itg_base
+package com.itg.itg_base
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.viewbinding.ViewBinding
-import com.example.itg_base.ability.ActivityResultAbility
 import com.example.itg_base.ability.MessageAbility
 import com.example.itg_base.ability.PermissionAbility
 import com.example.itg_base.ability.UiStateAbility
@@ -44,11 +44,13 @@ abstract class AutoBindingBaseFragment<
     protected lateinit var viewModel: VM
 
     /** 仅 Fragment 可用的能力（不需要 Activity 上下文）。 */
-    protected val messages: MessageAbility by lazy { MessageAbility() }
-    protected val uiState: UiStateAbility by lazy { UiStateAbility() }
+    protected open val messages: MessageAbility by lazy { MessageAbility() }
+    protected open val uiState: UiStateAbility by lazy { UiStateAbility() }
 
-    /** 需要宿主 Activity 的能力（通过 requireActivity() 注入）。 */
-    protected val permissions: PermissionAbility by lazy { PermissionAbility() }
+    /** 需要宿主 Activity 的能力（通过 requireActivity() 注入）。子类可覆写。 */
+    protected open val permissions: PermissionAbility by lazy { PermissionAbility() }
+
+    private var viewModelStatesObserved = false
 
     private val viewModelAbility: ViewModelAbility<VM> by lazy { ViewModelAbility(modelClass) }
     private val bindingAbility: ViewBindingAbility<VB> by lazy {
@@ -99,7 +101,12 @@ abstract class AutoBindingBaseFragment<
         messages.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
         uiState.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
 
-        uiState.bind(binding.root as ViewGroup)
+        if (binding.root is ViewGroup) {
+            uiState.bind(binding.root as ViewGroup)
+        } else {
+            Log.w("AutoBindingBase", "布局根元素不是 ViewGroup，UiState 绑定跳过。" +
+                " 如果使用了 <merge> 标签请改用 ViewGroup 包裹。")
+        }
 
         // 关键：使用 viewLifecycleOwner，Fragment 视图重建时自动解绑
         observeViewModelStates()
@@ -114,7 +121,9 @@ abstract class AutoBindingBaseFragment<
      * 将 ViewModel 状态自动桥接到 UI。子类可覆写以禁用或自定义。
      */
     protected open fun observeViewModelStates() {
-        // viewLifecycleOwner 确保 Fragment 视图销毁时自动移除观察者
+        if (viewModelStatesObserved) return
+        viewModelStatesObserved = true
+
         viewModel.loading.observe(viewLifecycleOwner) { isLoading ->
             if (isLoading) uiState.showLoading() else uiState.showContent()
         }
