@@ -14,14 +14,14 @@ class ViewModelAbility<T : ItgModel>(
     private val modelClass: Class<T>
 ) : LifeAbility() {
 
-    val viewModel: T by lazy { getViewModel() }
+    val viewModel: T by lazy { createViewModel() }
 
     override fun inject(activity: AppCompatActivity): ViewModelAbility<T> {
         super.inject(activity)
         return this
     }
 
-    private fun getViewModel(): T {
+    private fun createViewModel(): T {
         return ViewModelProvider(ownerActivity).get(modelClass)
     }
 }
