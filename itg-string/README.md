@@ -25,8 +25,9 @@ ITG String 是 ItgTools 项目中的字符串处理模块，提供 **URL 解析*
   - [从完整 URL 提取参数](#从完整-url-提取参数)
   - [构建查询字符串](#构建查询字符串)
   - [编码/解码](#编码解码)
-- [4. UrlIntentBuilder — URL / Map → Bundle / Intent](#4-urlintentbuilder--url--map--bundle--intent)
+- [4. UrlIntentBuilder — URL / Map → Bundle / Intent / Map](#4-urlintentbuilder--url--map--bundle--intent--map)
   - [URL 入口：创建 Bundle](#url-入口创建-bundle)
+  - [URL 入口：提取为 Map](#url-入口提取为-map)
   - [URL 入口：写入 Intent extras](#url-入口写入-intent-extras)
   - [Map 入口：单值 Map → Bundle](#map-入口单值-map--bundle)
   - [Map 入口：多值 Map → Bundle](#map-入口多值-map--bundle)
@@ -343,7 +344,7 @@ QueryParams.getParamAsync("https://example.com?q=kotlin", "q") { value -> /* ...
 
 ---
 
-## 4. UrlIntentBuilder — URL / Map → Bundle / Intent
+## 4. UrlIntentBuilder — URL / Map → Bundle / Intent / Map
 
 **包**：`com.itg.itg_string.intent`
 
@@ -397,6 +398,58 @@ val bundle = UrlIntentBuilder.toBundle(
     Charset.forName("GBK")
 )
 bundle?.getString("q")  // "中文" (而非 UTF-8 解码产生的乱码)
+```
+
+### URL 入口：提取为 Map
+
+直接从 URL 查询参数提取为 `Map`，免去手动调用 `UrlParser` + `QueryParams` 两步操作。
+
+**`toMap(url)` — 单值 Map**（每个 key 取第一个值）：
+
+```kotlin
+val map = UrlIntentBuilder.toMap("https://api.com?active=true&role=admin&tag=a&tag=b")
+// map["active"]  → "true"
+// map["role"]    → "admin"
+// map["tag"]     → "a"  (多值参数只取第一个)
+```
+
+**`toMultiMap(url)` — 多值 Map**（保留所有重复 key）：
+
+```kotlin
+val map = UrlIntentBuilder.toMultiMap("https://api.com?tag=a&tag=b&q=kotlin")
+// map["tag"]  → ["a", "b"]
+// map["q"]    → ["kotlin"]
+```
+
+**返回值语义**：
+
+| 输入 | `toMap` 返回 | `toMultiMap` 返回 |
+|---|---|---|
+| URL 含查询参数 | `Map<String, String>` | `Map<String, List<String>>` |
+| URL 无 query | 空 `Map`（非 null） | 空 `Map`（非 null） |
+| URL 为 null / 非法 | `null` | `null` |
+
+**指定字符集**：
+
+```kotlin
+val map = UrlIntentBuilder.toMap("https://s.com?q=%D6%D0%CE%C4", Charset.forName("GBK"))
+map["q"]  // "中文"
+```
+
+**实战用法**：
+
+```kotlin
+// 快速取值（toMap + Kotlin 解构）
+val params = UrlIntentBuilder.toMap(deeplinkUrl) ?: return
+val page = params["page"]?.toIntOrNull() ?: 1
+val keyword = params["q"] ?: ""
+
+// 参数校验
+if (UrlIntentBuilder.toMap(url)?.containsKey("token") == true) { /* ... */ }
+
+// 参数过滤后重建 URL
+val filtered = UrlIntentBuilder.toMultiMap(url)!!
+    .filterKeys { !it.startsWith("utm_") }
 ```
 
 ### URL 入口：写入 Intent extras
@@ -821,18 +874,25 @@ val fragment = DetailFragment().apply {
 
 ### UrlIntentBuilder
 
-**URL 入口：**
+**URL 入口 — Bundle / Map：**
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
 | `toBundle(url)` | `Bundle?` | URL 参数 → Bundle（UTF-8） |
 | `toBundle(url, charset)` | `Bundle?` | URL 参数 → Bundle（指定字符集） |
-| `toBundleAsync(url, onResult)` | `Future<*>` | 异步创建 Bundle |
-| `toBundleAsync(url, charset, onResult)` | `Future<*>` | 异步创建 Bundle（指定字符集） |
+| `toMap(url)` | `Map<String, String>?` | URL 参数 → 单值 Map（UTF-8） |
+| `toMap(url, charset)` | `Map<String, String>?` | URL 参数 → 单值 Map（指定字符集） |
+| `toMultiMap(url)` | `Map<String, List<String>>?` | URL 参数 → 多值 Map（UTF-8） |
+| `toMultiMap(url, charset)` | `Map<String, List<String>>?` | URL 参数 → 多值 Map（指定字符集） |
+| (以上各有对应 `xxxAsync` 版本) | | |
+
+**URL 入口 — Intent：**
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
 | `putQueryExtras(url, intent)` | `Intent` | 写入 Intent extras（无前缀） |
 | `putQueryExtras(url, intent, keyPrefix)` | `Intent` | 写入 Intent extras（带前缀） |
-| `putQueryExtrasAsync(url, intent, onResult)` | `Future<*>` | 异步写入 extras |
-| `putQueryExtrasAsync(url, intent, prefix, onResult)` | `Future<*>` | 异步写入 extras（带前缀） |
+| (各有对应 `xxxAsync` 版本) | | |
 
 **Map 入口 — 单值 `Map<String, String>`：**
 

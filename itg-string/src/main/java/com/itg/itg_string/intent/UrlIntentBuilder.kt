@@ -144,6 +144,104 @@ object UrlIntentBuilder {
     }
 
     // ==================================================================
+    // 功能一（URL 版）：URL 参数 → Map
+    // ==================================================================
+
+    /**
+     * 从 URL 查询参数提取为单值 [Map]（默认 UTF-8 解码）。
+     *
+     * 每个参数取第一个值；多值参数的其他值会被丢弃。
+     * 如需保留所有重复 key 的值，使用 [toMultiMap]。
+     *
+     * @param url 待解析的 URL 字符串
+     * @return 参数名 → 值的映射；URL 无 query 时返回空 Map；URL 非法或为 null 时返回 null
+     *
+     * 使用示例：
+     * ```kotlin
+     * val m = UrlIntentBuilder.toMap("https://api.com?active=true&role=admin&tag=a&tag=b")
+     * m["active"]  // "true"
+     * m["role"]    // "admin"
+     * m["tag"]     // "a"  (只取第一个值)
+     * ```
+     */
+    @JvmStatic
+    fun toMap(url: String?): Map<String, String>? = toMap(url, Charsets.UTF_8)
+
+    /**
+     * 从 URL 查询参数提取为单值 [Map]，使用指定字符集解码。
+     *
+     * @param url     待解析的 URL 字符串
+     * @param charset 解码字符集
+     * @return 参数名 → 值的映射
+     */
+    @JvmStatic
+    fun toMap(url: String?, charset: Charset): Map<String, String>? {
+        val multi = toMultiMap(url, charset) ?: return null
+        if (multi.isEmpty()) return emptyMap()
+        return multi.mapValues { it.value.first() }
+    }
+
+    /** 异步版。 */
+    @JvmStatic
+    fun toMapAsync(url: String?, onResult: (Map<String, String>?) -> Unit): Future<*> {
+        return TaskExecutor.io { onResult(toMap(url)) }
+    }
+
+    /** 异步版（指定字符集）。 */
+    @JvmStatic
+    fun toMapAsync(url: String?, charset: Charset, onResult: (Map<String, String>?) -> Unit): Future<*> {
+        return TaskExecutor.io { onResult(toMap(url, charset)) }
+    }
+
+    /**
+     * 从 URL 查询参数提取为多值 [Map]（默认 UTF-8 解码）。
+     *
+     * 每个参数对应一个值列表，保留所有重复 key。内部直接委托给 [QueryParams.parse]。
+     *
+     * @param url 待解析的 URL 字符串
+     * @return 参数名 → 值列表 的映射；URL 无 query 时返回空 Map；URL 非法或为 null 时返回 null
+     *
+     * 使用示例：
+     * ```kotlin
+     * val m = UrlIntentBuilder.toMultiMap("https://api.com?tag=a&tag=b&q=kotlin")
+     * m["tag"]  // ["a", "b"]
+     * m["q"]    // ["kotlin"]
+     * ```
+     */
+    @JvmStatic
+    fun toMultiMap(url: String?): Map<String, List<String>>? = toMultiMap(url, Charsets.UTF_8)
+
+    /**
+     * 从 URL 查询参数提取为多值 [Map]，使用指定字符集解码。
+     *
+     * @param url     待解析的 URL 字符串
+     * @param charset 解码字符集
+     * @return 参数名 → 值列表 的映射
+     */
+    @JvmStatic
+    fun toMultiMap(url: String?, charset: Charset): Map<String, List<String>>? {
+        if (url.isNullOrBlank()) return null
+        val components = UrlParser.parse(url) ?: return null
+        val queryString = components.query
+        if (queryString.isNullOrBlank()) return emptyMap()
+        return QueryParams.parse(queryString, charset)
+    }
+
+    /** 异步版。 */
+    @JvmStatic
+    fun toMultiMapAsync(url: String?, onResult: (Map<String, List<String>>?) -> Unit): Future<*> {
+        return TaskExecutor.io { onResult(toMultiMap(url)) }
+    }
+
+    /** 异步版（指定字符集）。 */
+    @JvmStatic
+    fun toMultiMapAsync(
+        url: String?, charset: Charset, onResult: (Map<String, List<String>>?) -> Unit
+    ): Future<*> {
+        return TaskExecutor.io { onResult(toMultiMap(url, charset)) }
+    }
+
+    // ==================================================================
     // 功能一（Map 版）：单值 Map → Bundle
     // ==================================================================
 
