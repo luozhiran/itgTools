@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     // id("therouter")  // 暂时移除
     // id("com.google.devtools.ksp")  // 暂时移除：与 AGP 降级相关的 KSP 版本调整中
 }
