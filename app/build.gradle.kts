@@ -1,21 +1,17 @@
 plugins {
     alias(libs.plugins.android.application)
-    id("therouter")
-    id("com.google.devtools.ksp")
+    // id("therouter")  // 暂时移除
+    // id("com.google.devtools.ksp")  // 暂时移除：与 AGP 降级相关的 KSP 版本调整中
 }
 
 android {
     namespace = "com.itg.itgtools"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.itg.itgtools"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -50,6 +46,6 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     implementation(project(":outter"))
-    implementation(libs.therouter.router)
-    ksp(libs.therouter.apt)
+    // implementation(libs.therouter.router)  // 暂时移除
+    // ksp(libs.therouter.apt)  // 暂时移除
 }
