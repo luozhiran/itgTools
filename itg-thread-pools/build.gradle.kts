@@ -5,11 +5,7 @@ plugins {
 
 android {
     namespace = "com.itg.itg_thread_pools"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 34
 
     defaultConfig {
         minSdk = 24
