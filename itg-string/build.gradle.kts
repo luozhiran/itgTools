@@ -30,6 +30,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":itg-thread-pools"))
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
