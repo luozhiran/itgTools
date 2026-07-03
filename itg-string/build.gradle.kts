@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    `maven-publish`
 }
 
 android {
@@ -20,6 +21,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
+
 }
 
 dependencies {
@@ -29,4 +36,28 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+}
+
+afterEvaluate {
+    publishing {
+        repositories {
+            maven {
+                url = uri("${buildDir}/repo")
+            }
+        }
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+                groupId = "com.itg"
+                artifactId = "itg-thread-pools"
+                version = "0.1.0"
+
+                pom {
+                    name = "ITG Net"
+                    description = "A lightweight Android networking and download library built on OkHttp."
+                    packaging = "aar"
+                }
+            }
+        }
+    }
 }
