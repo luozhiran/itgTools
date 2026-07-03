@@ -57,7 +57,7 @@ afterEvaluate {
             create<MavenPublication>("release") {
                 from(components["release"])
                 groupId = "com.itg"
-                artifactId = "itg-thread-pools"
+                artifactId = "itg-string"
                 version = "0.1.0"
 
                 pom {
