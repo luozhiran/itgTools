@@ -4,7 +4,7 @@
 [![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
 [![JDK](https://img.shields.io/badge/Engine-java.net.URI-orange.svg)](https://docs.oracle.com/javase/8/docs/api/java/net/URI.html)
 
-ITG String 是 ItgTools 项目中的字符串处理模块，提供 **URL 解析**、**查询参数处理**、**URL → Android Bundle/Intent 桥接** 三大能力。基于 `java.net.URI` 严格遵循 RFC 3986，内置非 ASCII 字符自动编码、多字符集解码、双重编码检测。所有操作同步/异步双模式，异步基于 [itg-thread-pools](../itg-thread-pools/)。
+ITG String 是 ItgTools 项目中的字符串处理模块，提供 **URL 解析**、**查询参数处理**、**URL/Map → Android Bundle/Intent 桥接** 四大能力。基于 `java.net.URI` 严格遵循 RFC 3986，内置非 ASCII 字符自动编码、多字符集解码、双重编码检测。支持 URL 和 Map 双入口，所有操作同步/异步双模式，异步基于 [itg-thread-pools](../itg-thread-pools/)。
 
 ---
 
@@ -25,10 +25,13 @@ ITG String 是 ItgTools 项目中的字符串处理模块，提供 **URL 解析*
   - [从完整 URL 提取参数](#从完整-url-提取参数)
   - [构建查询字符串](#构建查询字符串)
   - [编码/解码](#编码解码)
-- [4. UrlIntentBuilder — URL → Bundle / Intent](#4-urlintentbuilder--url--bundle--intent)
-  - [创建 Bundle](#创建-bundle)
-  - [指定字符集创建 Bundle](#指定字符集创建-bundle)
-  - [写入 Intent extras](#写入-intent-extras)
+- [4. UrlIntentBuilder — URL / Map → Bundle / Intent](#4-urlintentbuilder--url--map--bundle--intent)
+  - [URL 入口：创建 Bundle](#url-入口创建-bundle)
+  - [URL 入口：写入 Intent extras](#url-入口写入-intent-extras)
+  - [Map 入口：单值 Map → Bundle](#map-入口单值-map--bundle)
+  - [Map 入口：多值 Map → Bundle](#map-入口多值-map--bundle)
+  - [Map 入口：异构 Map → Bundle（类型感知）](#map-入口异构-map--bundle类型感知)
+  - [Map 入口：写入 Intent extras](#map-入口写入-intent-extras)
   - [key 前缀保护](#key-前缀保护)
   - [先取 Bundle 加工再注入](#先取-bundle-加工再注入)
   - [双重编码检测](#双重编码检测)
@@ -62,6 +65,14 @@ QueryParams.getParam("https://example.com/search?q=kotlin&page=1", "q")  // "kot
 
 // URL 参数 → Intent extras
 UrlIntentBuilder.putQueryExtras("https://api.com?active=true", intent)
+
+// Map → Bundle（异构类型自动感知）
+val b = UrlIntentBuilder.toBundle(mapOf<String, Any?>("id" to 12345, "active" to true))
+b.getInt("id")       // 12345
+b.getBoolean("active")  // true
+
+// Map → Intent extras（带前缀保护）
+UrlIntentBuilder.putExtras(mapOf("from" to "config"), intent, keyPrefix = "cfg_")
 ```
 
 ---
@@ -79,7 +90,7 @@ itg-string/src/main/java/com/itg/itg_string/
     └── UrlIntentBuilder.kt   ← object 工具类：URL → Bundle / Intent extras 桥接
 ```
 
-**3 个工具 object，1 个数据类，50+ 公开方法，全部 `@JvmStatic` 支持 Java 调用。**
+**3 个工具 object，1 个数据类，60+ 公开方法，全部 `@JvmStatic` 支持 Java 调用。**
 
 ---
 
@@ -332,13 +343,20 @@ QueryParams.getParamAsync("https://example.com?q=kotlin", "q") { value -> /* ...
 
 ---
 
-## 4. UrlIntentBuilder — URL → Bundle / Intent
+## 4. UrlIntentBuilder — URL / Map → Bundle / Intent
 
 **包**：`com.itg.itg_string.intent`
 
-将 URL 查询参数转换为 Android 组件可直接使用的 `Bundle` 和 `Intent` extras。内置双重编码检测和 key 前缀保护。
+提供 **两条数据入口**，汇聚到同一套 Bundle/Intent 构建引擎：
 
-### 创建 Bundle
+| 入口 | 输入 | 适用场景 |
+|---|---|---|
+| **URL 入口** | URL 字符串 → 自动解析 query 参数 | 深度链接、服务端下发的 URL |
+| **Map 入口** | `Map<String, String>` / `Map<String, List<String>>` / `Map<String, *>` | 本地配置、JSON 解析结果、程序化参数 |
+
+内置双重编码检测（URL / `Map<String, List<String>>` 入口）和 key 前缀保护（所有入口）。
+
+### URL 入口：创建 Bundle
 
 ```kotlin
 val bundle = UrlIntentBuilder.toBundle(
@@ -371,19 +389,17 @@ bundle?.getStringArrayList("tag")               // ["premium", "verified"]
 
 > 区分"合法但无参数"（空 Bundle）与"URL 非法"（null），便于调用方分别处理。
 
-### 指定字符集创建 Bundle
+**指定字符集解码**：
 
 ```kotlin
-// GBK 编码的 URL → 正确解码为中文
 val bundle = UrlIntentBuilder.toBundle(
-    "https://example.com?q=%D6%D0%CE%C4&type=%B2%E2%CA%D4",
+    "https://example.com?q=%D6%D0%CE%C4",
     Charset.forName("GBK")
 )
-bundle?.getString("q")    // "中文"
-bundle?.getString("type")  // "测试"
+bundle?.getString("q")  // "中文" (而非 UTF-8 解码产生的乱码)
 ```
 
-### 写入 Intent extras
+### URL 入口：写入 Intent extras
 
 ```kotlin
 val intent = UrlIntentBuilder.putQueryExtras(
@@ -391,10 +407,7 @@ val intent = UrlIntentBuilder.putQueryExtras(
     Intent(context, DetailActivity::class.java)
 )
 context.startActivity(intent)
-
-// DetailActivity 中:
 // intent.getStringExtra("active")  → "true"
-// intent.getStringExtra("debug")   → "1"
 ```
 
 **链式调用**：
@@ -408,50 +421,149 @@ context.startActivity(
 )
 ```
 
+### Map 入口：单值 Map → Bundle
+
+适用于 SharedPreferences、程序化配置等场景。每个 entry 写入为 `putString`。
+
+```kotlin
+val bundle = UrlIntentBuilder.toBundle(mapOf(
+    "env" to "production",
+    "timeout" to "30",
+    "debug" to "true"
+))
+bundle.getString("env")      // "production"
+bundle.getString("timeout")  // "30"
+```
+
+空 Map 返回空 Bundle（非 null）。
+
+### Map 入口：多值 Map → Bundle
+
+与 `QueryParams.parse()` 返回的 `Map<String, List<String>>` 类型一致，可直接桥接：
+
+```kotlin
+// QueryParams 输出 → toBundle 直接桥接
+val parsed = QueryParams.parse("tag=a&tag=b&q=kotlin")
+val bundle = UrlIntentBuilder.toBundle(parsed)
+
+bundle.getString("q")                // "kotlin"
+bundle.getStringArrayList("tag")     // ["a", "b"]
+```
+
+加工后再注入：
+
+```kotlin
+val params: Map<String, List<String>> = QueryParams.parse("tag=a&tag=b&q=kotlin")
+// 追加自定义参数
+val merged = params.toMutableMap()
+merged["source"] = listOf("deep_link")
+
+UrlIntentBuilder.putExtras(merged, intent, keyPrefix = "url_")
+```
+
+### Map 入口：异构 Map → Bundle（类型感知）
+
+接受 `Map<String, *>`，按实际类型自动选择最合适的 Bundle API：
+
+```kotlin
+val bundle = UrlIntentBuilder.toBundle(mapOf<String, Any?>(
+    "id" to 12345,
+    "active" to true,
+    "score" to 4.5,
+    "ratio" to 0.75f,
+    "name" to "John",
+    "tags" to listOf("premium", "verified"),
+    "ids" to listOf(1, 2, 3),
+    "ignored" to null
+))
+
+bundle.getInt("id")               // 12345
+bundle.getBoolean("active")       // true
+bundle.getDouble("score")         // 4.5
+bundle.getFloat("ratio")          // 0.75
+bundle.getString("name")          // "John"
+bundle.getStringArrayList("tags") // ["premium", "verified"]
+bundle.getIntegerArrayList("ids") // [1, 2, 3]
+bundle.containsKey("ignored")     // false  (null 被跳过)
+```
+
+**类型路由规则**：
+
+| 输入 value 类型 | Bundle API | 示例 |
+|---|---|---|
+| `String` | `putString` | `"active" → "true"` |
+| `Int` | `putInt` | `"count" → 5` |
+| `Long` | `putLong` | `"ts" → 1699000000000L` |
+| `Boolean` | `putBoolean` | `"debug" → true` |
+| `Float` | `putFloat` | `"ratio" → 0.75f` |
+| `Double` | `putDouble` | `"score" → 4.5` |
+| `List<String>` | `putStringArrayList` | `"tags" → ["a","b"]` |
+| `List<Int>` | `putIntegerArrayList` | `"ids" → [1,2,3]` |
+| `null` | **跳过**（不写入 Bundle） | — |
+| 其他类型 | `putString(key, toString())` | 退化兜底 |
+
+> Java 调用方通过 `@JvmName` 使用 `toBundleFromStringMap` / `toBundleFromListMap` / `toBundleFromWildcardMap` 等方法名避免歧义。
+
+### Map 入口：写入 Intent extras
+
+三种 Map 类型均有对应的 `putExtras` 方法，命名与 `toBundle` 对应：
+
+```kotlin
+// 单值 Map → Intent
+UrlIntentBuilder.putExtras(mapOf("key1" to "val1"), intent)
+
+// 多值 Map → Intent
+UrlIntentBuilder.putExtras(parsed, intent, keyPrefix = "url_")
+
+// 异构 Map → Intent（带前缀时保留精确类型）
+UrlIntentBuilder.putExtras(
+    mapOf<String, Any?>("count" to 10, "enabled" to true, "label" to "hello"),
+    intent,
+    keyPrefix = "cfg_"
+)
+// intent.getIntExtra("cfg_count", -1)      → 10
+// intent.getBooleanExtra("cfg_enabled")     → true
+// intent.getStringExtra("cfg_label")        → "hello"
+```
+
+> 带前缀时 `putExtras(Map<String, *>, ...)` 直接按 Map 条目逐项写入 Intent，避免 Bundle 拆包时的类型丢失。
+
 ### key 前缀保护
 
-URL 中的参数 key 可能与 Intent 已有 extras 同名。使用 `keyPrefix` 避免覆盖：
+所有入口（URL / Map）均支持 `keyPrefix` 参数，避免覆盖 Intent 已有 extras：
 
 ```kotlin
 val intent = Intent(context, DetailActivity::class.java)
 intent.putExtra("id", 12345)           // 业务已有的 extra
-intent.putExtra("active", "original")  // 业务已有的 extra
 
-UrlIntentBuilder.putQueryExtras(
-    "https://api.com?id=deep_link&active=from_url",
-    intent,
-    keyPrefix = "url_"
-)
+// URL 入口
+UrlIntentBuilder.putQueryExtras("https://api.com?id=deep_link", intent, keyPrefix = "url_")
+
+// Map 入口
+UrlIntentBuilder.putExtras(mapOf("id" to "from_map"), intent, keyPrefix = "map_")
 
 // 最终 extras:
-// "id"          → 12345         (原有值保留)
-// "active"      → "original"    (原有值保留)
-// "url_id"      → "deep_link"   (URL 参数，已加前缀)
-// "url_active"  → "from_url"    (URL 参数，已加前缀)
+// "id"      → 12345        (原有值保留)
+// "url_id"  → "deep_link"  (URL 参数)
+// "map_id"  → "from_map"   (Map 参数)
 ```
 
-不带前缀时保持向后兼容（覆盖同名 key）：
-
-```kotlin
-// 默认行为（keyPrefix = ""）
-UrlIntentBuilder.putQueryExtras("https://api.com?active=new_value", intent)
-// "active" → "new_value"  (同 key 被覆盖)
-```
+不带前缀时保持向后兼容（覆盖同名 key）。
 
 ### 先取 Bundle 加工再注入
 
 ```kotlin
-val bundle = UrlIntentBuilder.toBundle("https://api.com?q=kotlin&page=1")
-bundle?.putString("extra_key", "extra_value")         // 追加自定义参数
-bundle?.putInt("timestamp", System.currentTimeMillis())
+val bundle = UrlIntentBuilder.toBundle(mapOf("env" to "staging", "region" to "us-east-1"))
+bundle.putString("extra", "added")                     // 追加自定义参数
+bundle.putInt("timestamp", System.currentTimeMillis())
 
-intent.putExtras(bundle!!)
+intent.putExtras(bundle)
 context.startActivity(intent)
 ```
 
 ### 双重编码检测
 
-当解码后的值仍残留 `%XX` 模式时，自动输出 `Log.w` 警告，tag 为 `UrlIntentBuilder`：
+URL 入口和 `Map<String, List<String>>` 入口解码后，若值仍残留 `%XX` 模式，自动输出 `Log.w` 警告，tag 为 `UrlIntentBuilder`：
 
 ```
 W/UrlIntentBuilder: Possible double-encoding detected: key="name" value="John%20Doe"
@@ -459,15 +571,20 @@ W/UrlIntentBuilder: Possible double-encoding detected: key="name" value="John%20
     The upstream caller may have double-encoded this value or used a different charset.
 ```
 
-无需额外配置，自动生效。不影响流程，仅辅助排查。
+无需额外配置，自动生效，不影响流程。
 
 ### 异步方法
 
+所有同步方法均有 `*Async` 版本：
+
 ```kotlin
+// URL 入口异步
 UrlIntentBuilder.toBundleAsync(url) { bundle -> /* ... */ }
-UrlIntentBuilder.toBundleAsync(url, Charset.forName("GBK")) { bundle -> /* ... */ }
 UrlIntentBuilder.putQueryExtrasAsync(url, intent) { result -> /* ... */ }
-UrlIntentBuilder.putQueryExtrasAsync(url, intent, "url_") { result -> /* ... */ }
+
+// Map 入口异步
+UrlIntentBuilder.toBundleAsync(mapOf("k" to "v")) { bundle -> /* ... */ }
+UrlIntentBuilder.putExtrasAsync(mapOf("id" to 42), intent, "cfg_") { result -> /* ... */ }
 ```
 
 ---
@@ -585,6 +702,60 @@ val bundle = UrlIntentBuilder.toBundle("https://api.com?name=José&city=München
 // 全部正常解码
 ```
 
+### 场景 I：SharedPreferences → Bundle 跳转
+
+```kotlin
+// 从 SharedPreferences 读取配置，注入 Intent
+val prefs = mapOf(
+    "env" to "staging",
+    "feature_flag" to "true",
+    "timeout_ms" to "5000"
+)
+val intent = UrlIntentBuilder.putExtras(prefs, Intent(context, ConfigActivity::class.java))
+context.startActivity(intent)
+```
+
+### 场景 J：已解析参数二次加工后注入
+
+```kotlin
+// 解析深度链接，选择性保留参数并追加业务字段
+val params = QueryParams.parse("id=42&utm_source=push&internal_trace=xyz")
+val safe = params.filterKeys { !it.startsWith("internal_") }
+    .mapValues { it.value }
+    .toMutableMap()
+safe["channel"] = listOf("android")
+
+UrlIntentBuilder.putExtras(safe, intent, keyPrefix = "url_")
+// "url_id" → "42", "url_utm_source" → "push", "url_channel" → "android"
+// "internal_trace" 被过滤掉
+```
+
+### 场景 K：JSON payload → 异构 Map → Intent
+
+```kotlin
+// 推送消息携带的 JSON 转为异构 Map 注入 Intent
+val json = """{"product_id":42,"is_vip":true,"discount":0.15,"tags":["new","sale"]}"""
+val map: Map<String, *> = Gson().fromJson(json, object : TypeToken<Map<String, *>>() {}.type)
+
+val intent = UrlIntentBuilder.putExtras(map, Intent(context, ProductActivity::class.java), "json_")
+// intent.getIntExtra("json_product_id")     → 42
+// intent.getBooleanExtra("json_is_vip")     → true
+// intent.getDoubleExtra("json_discount")    → 0.15
+// intent.getStringArrayListExtra("json_tags") → ["new", "sale"]
+```
+
+### 场景 L：从配置 Map 创建 Fragment arguments
+
+```kotlin
+val fragment = DetailFragment().apply {
+    arguments = UrlIntentBuilder.toBundle(mapOf(
+        "item_id" to "42",
+        "display_mode" to "fullscreen"
+    ))
+}
+// fragment.arguments.getString("item_id") → "42"
+```
+
 ---
 
 ## 6. API 完整参考
@@ -650,6 +821,8 @@ val bundle = UrlIntentBuilder.toBundle("https://api.com?name=José&city=München
 
 ### UrlIntentBuilder
 
+**URL 入口：**
+
 | 方法 | 返回 | 说明 |
 |------|------|------|
 | `toBundle(url)` | `Bundle?` | URL 参数 → Bundle（UTF-8） |
@@ -660,6 +833,38 @@ val bundle = UrlIntentBuilder.toBundle("https://api.com?name=José&city=München
 | `putQueryExtras(url, intent, keyPrefix)` | `Intent` | 写入 Intent extras（带前缀） |
 | `putQueryExtrasAsync(url, intent, onResult)` | `Future<*>` | 异步写入 extras |
 | `putQueryExtrasAsync(url, intent, prefix, onResult)` | `Future<*>` | 异步写入 extras（带前缀） |
+
+**Map 入口 — 单值 `Map<String, String>`：**
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
+| `toBundle(params)` | `Bundle` | 单值 Map → Bundle |
+| `toBundleAsync(params, onResult)` | `Future<*>` | 异步版 |
+| `putExtras(params, intent)` | `Intent` | 写入 Intent extras（无前缀） |
+| `putExtras(params, intent, keyPrefix)` | `Intent` | 写入 Intent extras（带前缀） |
+| `putExtrasAsync(params, intent, prefix, onResult)` | `Future<*>` | 异步版 |
+
+**Map 入口 — 多值 `Map<String, List<String>>`：**
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
+| `toBundle(params)` | `Bundle` | 多值 Map → Bundle（可直接桥接 QueryParams 输出） |
+| `toBundleAsync(params, onResult)` | `Future<*>` | 异步版 |
+| `putExtras(params, intent)` | `Intent` | 写入 Intent extras（无前缀） |
+| `putExtras(params, intent, keyPrefix)` | `Intent` | 写入 Intent extras（带前缀） |
+| `putExtrasAsync(params, intent, prefix, onResult)` | `Future<*>` | 异步版 |
+
+**Map 入口 — 异构 `Map<String, *>`：**
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
+| `toBundle(params)` | `Bundle` | 异构 Map → Bundle（类型感知） |
+| `toBundleAsync(params, onResult)` | `Future<*>` | 异步版 |
+| `putExtras(params, intent)` | `Intent` | 写入 Intent extras（无前缀） |
+| `putExtras(params, intent, keyPrefix)` | `Intent` | 写入 Intent extras（带前缀） |
+| `putExtrasAsync(params, intent, prefix, onResult)` | `Future<*>` | 异步版 |
+
+> **Java 调用注意**：Kotlin 的 Map 重载在 JVM 上会擦除为相同签名。通过 `@JvmName` 提供 Java 专用方法名：`toBundleFromStringMap` / `toBundleFromListMap` / `toBundleFromWildcardMap`，`putExtrasFromStringMap` / `putExtrasFromListMap` / `putExtrasFromWildcardMap`。
 
 ---
 
@@ -704,6 +909,9 @@ UrlParser.parseAsync(url) { components ->
 | 非法 URL 格式 | `UrlParser.parse()` 返回 `null`，不抛异常 |
 | `null` / 空字符串输入 | 返回 `null` 或空集合，不抛异常 |
 | URL 解码失败 | 静默返回原始编码字符串 |
-| 无查询参数 | `toBundle()` 返回空 `Bundle`（非 null） |
+| 无查询参数 | `toBundle(url)` 返回空 `Bundle`（非 null） |
+| 空 Map 输入 | `toBundle(map)` 返回空 `Bundle`（非 null） |
+| 异构 Map 中 null 值 | 跳过不写入，其他 key 正常处理 |
+| 异构 Map 中未知类型 | `putString(key, value.toString())` 退化兜底 |
 | 双重编码 | `Log.w` 警告，继续使用解码结果 |
 ```
