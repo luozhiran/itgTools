@@ -4,6 +4,7 @@ import com.itg.itg_string.core.UrlParser
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.util.concurrent.Future
 
 /**
@@ -24,7 +25,7 @@ import java.util.concurrent.Future
 object QueryParams {
 
     /**
-     * 解析查询字符串为有序参数映射。
+     * 解析查询字符串为有序参数映射（默认 UTF-8 解码）。
      *
      * 保留参数插入顺序和重复 key。无值的 key（如 `?flag`）其 value 列表包含空字符串。
      *
@@ -39,6 +40,27 @@ object QueryParams {
      */
     @JvmStatic
     fun parse(queryString: String?): Map<String, List<String>> {
+        return parse(queryString, Charsets.UTF_8)
+    }
+
+    /**
+     * 解析查询字符串为有序参数映射，使用指定字符集解码。
+     *
+     * 适用于非 UTF-8 编码的 URL（如 GBK/GB2312、Shift_JIS、EUC-KR 等）。
+     *
+     * @param queryString 查询字符串（可带或不带前导 `?`）
+     * @param charset     解码字符集，例如 [Charsets.UTF_8]、`Charset.forName("GBK")`
+     * @return 参数名 → 值列表 的映射
+     *
+     * 使用示例：
+     * ```kotlin
+     * // GBK 编码的 URL 参数
+     * val params = QueryParams.parse("%D6%D0%CE%C4", Charset.forName("GBK"))
+     * // { "q" → ["中文"] }
+     * ```
+     */
+    @JvmStatic
+    fun parse(queryString: String?, charset: Charset): Map<String, List<String>> {
         if (queryString.isNullOrBlank()) return emptyMap()
         val query = queryString.trimStart('?').trim()
         if (query.isEmpty()) return emptyMap()
@@ -51,11 +73,11 @@ object QueryParams {
             val key: String
             val value: String
             if (eqIndex < 0) {
-                key = decode(pair)
+                key = decode(pair, charset)
                 value = ""
             } else {
-                key = decode(pair.substring(0, eqIndex))
-                value = decode(pair.substring(eqIndex + 1))
+                key = decode(pair.substring(0, eqIndex), charset)
+                value = decode(pair.substring(eqIndex + 1), charset)
             }
             result.getOrPut(key) { mutableListOf() }.add(value)
         }
@@ -195,7 +217,7 @@ object QueryParams {
     }
 
     /**
-     * URL 解码（UTF-8）。
+     * URL 解码（默认 UTF-8）。
      *
      * 使用示例：
      * ```kotlin
@@ -205,8 +227,23 @@ object QueryParams {
      */
     @JvmStatic
     fun decode(value: String): String {
+        return decode(value, Charsets.UTF_8)
+    }
+
+    /**
+     * URL 解码，使用指定字符集。
+     *
+     * 适用于非 UTF-8 编码的 percent-encoded 字符串（如 GBK/Shift_JIS）。
+     * 解码失败时静默返回原始字符串。
+     *
+     * @param value   待解码的 percent-encoded 字符串
+     * @param charset 解码字符集
+     * @return 解码后的字符串
+     */
+    @JvmStatic
+    fun decode(value: String, charset: Charset): String {
         return try {
-            URLDecoder.decode(value, "UTF-8")
+            URLDecoder.decode(value, charset.name())
         } catch (_: Exception) {
             value
         }

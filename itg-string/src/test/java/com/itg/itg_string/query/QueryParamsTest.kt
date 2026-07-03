@@ -2,6 +2,7 @@ package com.itg.itg_string.query
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.nio.charset.Charset
 
 /**
  * [QueryParams] 单元测试。
@@ -267,5 +268,48 @@ class QueryParamsTest {
         val encoded = QueryParams.encode(original)
         val decoded = QueryParams.decode(encoded)
         assertEquals(original, decoded)
+    }
+
+    // ==================== 多字符集解码 ====================
+
+    @Test
+    fun decode_utf8() {
+        // UTF-8 编码的 "中文"
+        assertEquals("中文", QueryParams.decode("%E4%B8%AD%E6%96%87"))
+    }
+
+    @Test
+    fun decode_gbk() {
+        // GBK 编码的 "中文" → %D6%D0%CE%C4
+        val decoded = QueryParams.decode("%D6%D0%CE%C4", Charset.forName("GBK"))
+        assertEquals("中文", decoded)
+    }
+
+    @Test
+    fun decode_shiftJis() {
+        // Shift_JIS 编码的 "日本語"
+        val decoded = QueryParams.decode("%93%FA%96%7B%8C%EA", Charset.forName("Shift_JIS"))
+        assertEquals("日本語", decoded)
+    }
+
+    @Test
+    fun decode_utf8Default() {
+        // 默认无 charset 参数时走 UTF-8
+        assertEquals(QueryParams.decode("%E4%B8%AD%E6%96%87"),
+                     QueryParams.decode("%E4%B8%AD%E6%96%87", Charsets.UTF_8))
+    }
+
+    @Test
+    fun parse_withCharset_gbk() {
+        val params = QueryParams.parse("q=%D6%D0%CE%C4&page=1", Charset.forName("GBK"))
+        assertEquals(listOf("中文"), params["q"])
+        assertEquals(listOf("1"), params["page"])
+    }
+
+    @Test
+    fun parse_withCharset_defaultUtf8() {
+        val paramsUtf8 = QueryParams.parse("q=%E4%B8%AD%E6%96%87")
+        val paramsExplicit = QueryParams.parse("q=%E4%B8%AD%E6%96%87", Charsets.UTF_8)
+        assertEquals(paramsUtf8["q"], paramsExplicit["q"])
     }
 }

@@ -404,4 +404,65 @@ class UrlParserTest {
         val c = UrlParser.parse("https://example.com/path?q=1#sec")
         assertEquals("https://example.com/path?q=1#sec", c.toString())
     }
+
+    // ==================== 非 ASCII 字符 sanitize ====================
+
+    @Test
+    fun parse_chineseInQuery() {
+        val c = UrlParser.parse("https://example.com/search?q=中文")
+        assertNotNull(c)
+        // query 被 sanitize 为 percent-encoded 形式，可正常解析
+        assertNotNull(c!!.query)
+        assertTrue(c.query!!.contains("%"))
+    }
+
+    @Test
+    fun parse_chineseInPath() {
+        val c = UrlParser.parse("https://example.com/路径/资源")
+        assertNotNull(c)
+        assertEquals("https", c!!.scheme)
+        assertEquals("example.com", c.host)
+        assertNotNull(c.path)
+    }
+
+    @Test
+    fun parse_emojiInQuery() {
+        val c = UrlParser.parse("https://example.com?emoji=😀")
+        assertNotNull(c)
+        assertNotNull(c!!.query)
+    }
+
+    @Test
+    fun parse_mixedAsciiAndNonAscii() {
+        val c = UrlParser.parse("https://example.com/api?name=José&city=München")
+        assertNotNull(c)
+        assertEquals("https", c!!.scheme)
+        assertEquals("example.com", c.host)
+        assertEquals("/api", c.path)
+        assertNotNull(c.query)
+    }
+
+    @Test
+    fun parse_japaneseInQuery() {
+        val c = UrlParser.parse("https://example.com?q=日本語")
+        assertNotNull(c)
+        assertNotNull(c!!.query)
+    }
+
+    @Test
+    fun parse_alreadyEncodedUnchanged() {
+        // 已经是正确的 percent-encoded 形式，sanitize 不应该二次编码
+        val c = UrlParser.parse("https://example.com?q=%E4%B8%AD%E6%96%87")
+        assertNotNull(c)
+        assertEquals("q=%E4%B8%AD%E6%96%87", c!!.query)
+    }
+
+    @Test
+    fun parse_pureAsciiUnchanged() {
+        val c = UrlParser.parse("https://example.com/path?q=kotlin&page=1#sec")
+        assertNotNull(c)
+        assertEquals("/path", c!!.path)
+        assertEquals("q=kotlin&page=1", c.query)
+        assertEquals("sec", c.fragment)
+    }
 }

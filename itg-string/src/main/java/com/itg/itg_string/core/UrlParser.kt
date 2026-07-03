@@ -3,6 +3,7 @@ package com.itg.itg_string.core
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.net.URI
 import java.net.URISyntaxException
+import java.nio.charset.Charset
 import java.util.concurrent.Future
 
 /**
@@ -61,7 +62,7 @@ object UrlParser {
     fun parse(url: String?): UrlComponents? {
         if (url.isNullOrBlank()) return null
         return try {
-            val uri = URI(url)
+            val uri = URI(sanitizeNonAscii(url))
             UrlComponents(
                 rawUrl = url,
                 scheme = uri.scheme?.lowercase(),
@@ -336,5 +337,50 @@ object UrlParser {
         val c = parse(url) ?: return null
         if (c.scheme == null || c.host == null) return null
         return "${c.scheme}://${c.host}"
+    }
+
+    // ==================== 内部工具 ====================
+
+    /**
+     * 对 URL 中非 ASCII 字符（U+0080 及以上）做 UTF-8 percent-encoding，
+     * 确保传入 [java.net.URI] 的字符串严格符合 RFC 3986。
+     *
+     * 已正确编码的序列（如 %20）不受影响，因为 '%'、'2'、'0' 均为 ASCII 字符。
+     * 正确处理 BMP 外字符（如 emoji），通过 [String.codePointAt] 按 Unicode
+     * code point 粒度编码，避免错误拆分 surrogate pair。
+     *
+     * 示例：
+     * - `"https://a.com?q=中文"` → `"https://a.com?q=%E4%B8%AD%E6%96%87"`
+     * - `"https://a.com/path/café"` → `"https://a.com/path/caf%C3%A9"`
+     * - `"https://a.com?emoji=😀"` → `"https://a.com?emoji=%F0%9F%98%80"`
+     */
+    private fun sanitizeNonAscii(url: String): String {
+        var hasNonAscii = false
+        var i = 0
+        while (i < url.length) {
+            if (url.codePointAt(i) > 127) {
+                hasNonAscii = true
+                break
+            }
+            i += Character.charCount(url.codePointAt(i))
+        }
+        if (!hasNonAscii) return url
+
+        val sb = StringBuilder(url.length + 16)
+        i = 0
+        while (i < url.length) {
+            val codePoint = url.codePointAt(i)
+            if (codePoint > 127) {
+                val chars = Character.toChars(codePoint)
+                for (byte in String(chars).toByteArray(Charsets.UTF_8)) {
+                    sb.append('%')
+                    sb.append(byte.toUByte().toString(16).uppercase().padStart(2, '0'))
+                }
+            } else {
+                sb.append(url[i])
+            }
+            i += Character.charCount(codePoint)
+        }
+        return sb.toString()
     }
 }
