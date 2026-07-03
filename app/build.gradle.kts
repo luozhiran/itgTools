@@ -49,3 +49,12 @@ dependencies {
     // implementation(libs.therouter.router)  // 暂时移除
     // ksp(libs.therouter.apt)  // 暂时移除
 }
+
+// JitPack 兼容：outter 是纯聚合模块（无 src/main 源码），其 AAR 的 classes.jar 为空，
+// AGP 8.x 的 Baseline Profile 任务 compileReleaseArtProfile 读取空 AAR 会报错。
+// 该项目不使用 Baseline Profile，禁用此任务不影响功能。
+afterEvaluate {
+    tasks.matching { it.name.contains("compileArtProfile", ignoreCase = true) }.configureEach {
+        enabled = false
+    }
+}

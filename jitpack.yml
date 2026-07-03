@@ -1,2 +1,5 @@
 jdk:
   - openjdk17
+install:
+  # 仅发布 library 模块，避免 app 模块的 assemble 任务触发 compileReleaseArtProfile 报错
+  - ./gradlew clean publishToMavenLocal -x :app:assembleRelease -x :app:assembleDebug
