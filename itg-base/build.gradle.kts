@@ -47,9 +47,9 @@ afterEvaluate {
         publications {
             create<MavenPublication>("release") {
                 from(components["release"])
-                groupId = "com.itg"
+                groupId = project.findProperty("group") as String? ?: "com.itg"
                 artifactId = "itg-base"
-                version = "0.1.0"
+                version = project.findProperty("version") as String? ?: "0.1.0"
 
                 pom {
                     name = "ITG Net"
