@@ -1,4 +1,4 @@
-package com.itg.itgtools.itgstring
+package com.itg.itgtools.pages.itgstring
 
 import android.app.Application
 import com.example.itg_base.arch.ItgModel

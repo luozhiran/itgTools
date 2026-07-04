@@ -12,7 +12,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ItgTools">
         <activity
-            android:name=".itgstring.ItgStringActivity"
+            android:name=".pages.itgstring.ItgStringActivity"
             android:exported="false" />
         <activity
             android:name=".MainActivity"
