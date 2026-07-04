@@ -27,8 +27,9 @@ class ManualTabsActivity :
                 TabItem(title = "普通 Fragment", fragmentClass = PlainDemoFragment::class.java, tag = "manual-plain"),
             ),
             config = TabConfig(
+                lazyLoadOnFirstSelect = false,
                 onPageSelected = { position, fragment ->
-                    binding.status.text = "自定义 id + XML 样式：position=$position，${fragment.javaClass.simpleName}"
+                    binding.status.text = "自定义 id + XML 样式 + 禁用懒加载：position=$position，${fragment.javaClass.simpleName}"
                 }
             ),
         )

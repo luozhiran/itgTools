@@ -25,6 +25,7 @@
 
             <Button android:id="@+id/basicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="基础 Tab / 懒加载 / 角标" />
             <Button android:id="@+id/styledTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="滚动 Tab / 完整样式" />
+            <Button android:id="@+id/advancedStyles" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="高级样式 / Drawable 指示器" />
             <Button android:id="@+id/bottomTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="底部导航四 Tab" />
             <Button android:id="@+id/customTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="完全自定义 Tab View" />
             <Button android:id="@+id/nestedTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="嵌套 TabHostFragment" />

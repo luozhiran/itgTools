@@ -56,6 +56,7 @@
 |---|---|
 | [`BasicTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/BasicTabsActivity.kt) | 标题、系统图标、arguments、懒加载、选中/取消回调、静态/动态角标、`selectTab/currentPosition/getFragmentAt`、PageTransformer |
 | [`StyledTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/StyledTabsActivity.kt) | 动态分类、滚动模式、容器背景、文字状态、固定宽度圆角指示器、间距、动画时长、Item padding/ripple |
+| [`AdvancedTabStylesActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/AdvancedTabStylesActivity.kt) | titleRes、Drawable 图标、Drawable 顶部指示器、关闭动画、ColorStateList、字体、状态背景和图标 tint |
 | [`BottomNavigationTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/BottomNavigationTabsActivity.kt) | 底部四 Tab、图标、红点、隐藏指示器、禁止滑动 |
 | [`CustomTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/CustomTabsActivity.kt) | `CustomTabViewProvider` 的创建、绑定、选中状态及自定义角标更新 |
 | [`NestedTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/NestedTabsActivity.kt) | `TabHostActivity` 内嵌 `TabHostFragment`，使用 childFragmentManager 管理二级 Tab |

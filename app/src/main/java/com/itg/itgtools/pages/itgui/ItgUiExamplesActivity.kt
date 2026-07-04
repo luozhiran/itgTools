@@ -12,6 +12,7 @@ class ItgUiExamplesActivity :
         super.onCreate(savedInstanceState)
         binding.basicTabs.opens<BasicTabsActivity>()
         binding.styledTabs.opens<StyledTabsActivity>()
+        binding.advancedStyles.opens<AdvancedTabStylesActivity>()
         binding.bottomTabs.opens<BottomNavigationTabsActivity>()
         binding.customTabs.opens<CustomTabsActivity>()
         binding.nestedTabs.opens<NestedTabsActivity>()

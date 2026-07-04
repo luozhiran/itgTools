@@ -18,6 +18,7 @@
         <activity android:name=".pages.itgui.CustomTabsActivity" android:exported="false" />
         <activity android:name=".pages.itgui.BottomNavigationTabsActivity" android:exported="false" />
         <activity android:name=".pages.itgui.StyledTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.AdvancedTabStylesActivity" android:exported="false" />
         <activity android:name=".pages.itgui.BasicTabsActivity" android:exported="false" />
         <activity android:name=".pages.itgui.ItgUiExamplesActivity" android:exported="false" />
         <activity

@@ -9,12 +9,12 @@ import com.itg.itg_ui.tab.TabItem
 import com.itg.itgtools.databinding.ActivityItgUiTabsBinding
 
 class BasicTabsActivity : TabHostActivity<ActivityItgUiTabsBinding, ItgUiDemoModel>() {
-    private var badgeCount = 3
+    private var badgeCount = 120
 
     override fun onCreateTabs(): List<TabItem<*>> = listOf(
         page("首页", "默认选中，首次可见时触发懒加载", Color.rgb(232, 245, 233), android.R.drawable.ic_menu_view),
         page("发现", "滑动或点击切换，观察生命周期日志", Color.rgb(227, 242, 253), android.R.drawable.ic_menu_search),
-        page("消息", "初始数字角标和运行时角标更新", Color.rgb(255, 243, 224), android.R.drawable.ic_dialog_email, TabBadge(count = badgeCount)),
+        page("消息", "超过 maxNumber 后显示 99+，并支持运行时更新", Color.rgb(255, 243, 224), android.R.drawable.ic_dialog_email, TabBadge(count = badgeCount, backgroundColor = 0xFF1565C0.toInt())),
         page("我的", "支持 selectTab/currentPosition/getFragmentAt", Color.rgb(243, 229, 245), android.R.drawable.ic_menu_myplaces),
     )
 
