@@ -1,6 +1,9 @@
 # itg-ui
 
-基于 `itg-base` 组合式 MVVM 架构的 **TabLayout + ViewPager2 通用框架**——将多 Tab 场景的样板代码归零，业务层仅需声明"有哪些 Tab、每个 Tab 长什么样"。
+基于 `itg-base` 组合式 MVVM 架构的通用 UI 框架，当前包含：
+
+- **TabLayout + ViewPager2**：声明式 Tab、懒加载、角标和样式管理。
+- **RecyclerView**：多 Item、ViewBinding/DataBinding、Diff/Payload、LiveData 自动提交和生命周期管理。
 
 ## 要求
 
@@ -17,10 +20,12 @@
 ```kotlin
 // build.gradle.kts
 dependencies {
-    // itg-ui 内部已传递依赖 itg-base，无需单独声明
+    // itg-ui 已传递依赖 itg-base 和 RecyclerView，无需重复声明
     implementation("com.example.itg:itg-ui:1.0.0")
 }
 ```
+
+使用 RecyclerView 的 DataBinding 自动绑定时，业务模块必须开启 `dataBinding = true`；只使用 ViewBinding DSL 时开启 `viewBinding = true` 即可。
 
 **必须开启 ViewBinding 或 DataBinding**（继承自 itg-base 的强制要求）：
 
@@ -56,6 +61,23 @@ TabHostActivity<VB, VM>                    TabHostFragment<VB, VM>
     ├── onTabFirstVisible()  ← 懒加载       │
     ├── onTabSelected()      ← 可见回调     │
     └── onTabUnselected()    ← 不可见回调    │
+```
+
+RecyclerView 框架采用“不可变 UI Item + Renderer 注册表 + ListAdapter”结构：
+
+```
+ItgListItem
+    │ 按实际 Class 匹配（O(1)，不反射创建 View）
+    ▼
+ItemRendererRegistry
+    ├── ViewBindingRenderer  ← 类型安全绑定 Lambda
+    └── DataBindingRenderer  ← 自动设置 item/actions/lifecycleOwner
+    ▼
+ItgRecyclerAdapter           ← ListAdapter + DiffUtil + stableId + Payload
+    ▼
+RecyclerViewAbility          ← LayoutManager、LiveData、viewLifecycleOwner
+    ▼
+RecyclerController           ← submitList / clear / scrollToPosition
 ```
 
 ## 快速开始
@@ -139,6 +161,145 @@ class MainActivity : TabHostActivity<ActivityMainBinding, MainModel>() {
 ### 4. 完成
 
 不需要手写 Adapter、TabLayoutMediator、Fragment 实例化、生命周期管理——全部自动完成。
+
+---
+
+## RecyclerView 框架
+
+### 1. 定义列表 UI Item 和事件
+
+列表数据实现 `ItgListItem`。`stableId` 必须在整个列表中全局唯一，并在该条目生命周期内保持不变：
+
+```kotlin
+data class UserRow(
+    override val stableId: Long,
+    val name: String,
+) : ItgListItem
+
+data class BannerRow(
+    override val stableId: Long,
+    val imageUrl: String,
+) : ItgListItem
+
+interface FeedActions {
+    fun onUserClick(id: Long)
+    fun onBannerClick(id: Long)
+}
+```
+
+推荐使用不可变 `data class` 作为 UI Item。默认内容 Diff 直接使用 `equals()`，不需要业务层重复编写比较代码。
+
+### 2. ViewBinding 多 Item
+
+```kotlin
+val adapter = itgRecyclerAdapter<FeedActions>(actions = this) {
+    viewBinding<UserRow, ItemUserBinding, FeedActions>(
+        inflate = ItemUserBinding::inflate,
+    ) { item, actions ->
+        name.text = item.name
+        root.setOnClickListener { actions.onUserClick(item.stableId) }
+    }
+
+    viewBinding<BannerRow, ItemBannerBinding, FeedActions>(
+        inflate = ItemBannerBinding::inflate,
+    ) { item, actions ->
+        image.load(item.imageUrl)
+        root.setOnClickListener { actions.onBannerClick(item.stableId) }
+    }
+}
+```
+
+框架根据 Item 的实际类型从注册表中 O(1) 查找 Renderer，并自动分配无冲突的 `viewType`。重复注册或提交未注册类型时会立即抛出包含类型名的异常。
+
+### 3. DataBinding 自动绑定
+
+Item XML 使用 `<layout>` 并声明变量：
+
+```xml
+<layout>
+    <data>
+        <variable name="item" type="com.example.UserRow" />
+        <variable name="actions" type="com.example.FeedActions" />
+    </data>
+
+    <!-- Item 布局 -->
+</layout>
+```
+
+Adapter 只需声明布局和变量 ID：
+
+```kotlin
+val adapter = itgRecyclerAdapter<FeedActions>(actions = this) {
+    dataBinding<UserRow, FeedActions>(
+        layoutId = R.layout.item_user,
+        itemVariableId = BR.item,
+        actionsVariableId = BR.actions,
+    )
+}
+```
+
+框架会自动设置 `item`、`actions`、`lifecycleOwner` 并调用 `executePendingBindings()`。变量不存在时会立即报告具体 Binding 类和变量 ID。
+
+### 4. 绑定生命周期和数据
+
+```kotlin
+private val recyclerAbility = RecyclerViewAbility(
+    RecyclerConfig(
+        hasFixedSize = true,
+        itemViewCacheSize = 8,
+    )
+)
+
+override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    super.onViewCreated(view, savedInstanceState)
+
+    val controller = recyclerAbility.bind(
+        recyclerView = binding.recyclerView,
+        lifecycleOwner = viewLifecycleOwner,
+        adapter = adapter,
+    )
+
+    // LiveData<List<ItgListItem>> 自动提交
+    recyclerAbility.observeItems(viewModel.rows)
+
+    // 也可以手动提交不可变列表
+    controller.submitList(rows)
+}
+```
+
+Fragment 必须传 `viewLifecycleOwner`。Owner 销毁时会自动移除 LiveData Observer、清空 RecyclerView Adapter 引用和 DataBinding lifecycleOwner，无需手动 `unbind()`。
+
+### 5. Diff、Payload 和稳定 ID
+
+- 相同类型且 `stableId` 相同：视为同一个 Item。
+- 默认使用 data class `equals()` 判断内容是否变化。
+- 不同 Item 类型即使 ID 相同也不是同一个 Item，但提交列表仍禁止任何重复 ID。
+- Adapter 使用 `AsyncListDiffer` 在后台计算差异，并启用 `PREVENT_WHEN_EMPTY` 状态恢复策略。
+- 提交时会复制列表，避免业务层后续修改集合破坏 Diff。
+
+局部刷新示例：
+
+```kotlin
+viewBinding<UserRow, ItemUserBinding, FeedActions>(
+    inflate = ItemUserBinding::inflate,
+    getChangePayload = { old, new ->
+        if (old.name != new.name) "name" else null
+    },
+    bindPayload = { binding, item, _, payloads ->
+        if ("name" in payloads) {
+            binding.name.text = item.name
+            true // 已完成局部绑定
+        } else {
+            false // 回退到完整绑定
+        }
+    },
+) { item, actions ->
+    name.text = item.name
+    root.setOnClickListener { actions.onUserClick(item.stableId) }
+}
+```
+
+更完整的说明参见 [RECYCLER.md](RECYCLER.md)。
 
 ---
 
@@ -644,6 +805,19 @@ class SimpleFragment : AutoBindingBaseFragment<FragmentSimpleBinding, SimpleMode
 
 > **`bind()` 调用限制**：重复调用 `bind()` 会抛出 `IllegalStateException`。如需切换 Tab 列表，先调用 `unbind()` 再 `bind()`。
 
+### RecyclerView 框架公开入口：
+
+| 入口 | 说明 |
+|------|------|
+| `itgRecyclerAdapter(actions) { ... }` | 创建多 Item Adapter 并注册 Renderer |
+| `viewBinding<I, VB, A>(...)` | 注册类型安全的 ViewBinding Item |
+| `dataBinding<I, A>(...)` | 注册自动变量绑定的 DataBinding Item |
+| `RecyclerViewAbility.bind(...)` | 配置 RecyclerView 并绑定 LifecycleOwner |
+| `RecyclerViewAbility.observeItems(liveData)` | 生命周期安全地自动提交列表 |
+| `RecyclerController.submitList(items)` | 校验 stableId 后提交不可变列表快照 |
+| `RecyclerController.clear()` | 清空列表 |
+| `RecyclerController.scrollToPosition(...)` | 普通或平滑滚动到指定位置 |
+
 ---
 
 ## XML 样式 vs Kotlin 样式
@@ -742,7 +916,7 @@ class MyActivity : TabHostActivity<ActivityMainBinding, MainModel>() {
 
 ### Q: 如何在 Activity 启动时不立即加载任何 Tab？
 
-将 `TabConfig.defaultPosition` 设为所有 Tab 之外的值，然后在合适的时机手动调用 `tabViewPager.selectTab(0)`。但通常建议使用 `onTabFirstVisible()` 懒加载机制，让每个 Fragment 各自决定何时加载。
+ViewPager2 始终需要一个有效的当前页面，`defaultPosition` 也必须位于 Tab 范围内，不能配置为越界值。应使用 `onTabFirstVisible()` 将数据请求延迟到页面首次选中；如果需要更晚加载，再由业务状态控制该回调中的实际请求时机。
 
 ### Q: 如何禁用某个 Tab？
 
