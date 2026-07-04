@@ -46,7 +46,11 @@ data class TabIndicatorStyle(
 
     /** 指示器切换动画时长（ms），默认 300ms */
     val animationDurationMs: Int = 300,
-    /** 动画插值器（null = Material 默认 LinearOutSlowInInterpolator） */
+    /**
+     * Material 1.10 不提供运行时替换内部时间插值器的公开 API，此字段仅保留源码兼容性。
+     * 请通过主题属性 `motionEasingEmphasizedInterpolator` 配置 TabLayout 的时间插值器。
+     */
+    @Deprecated("请通过 Material 主题的 motionEasingEmphasizedInterpolator 配置")
     val animationInterpolator: Interpolator? = null,
     /** 是否启用指示器切换动画（默认 true） */
     val animationEnabled: Boolean = true,

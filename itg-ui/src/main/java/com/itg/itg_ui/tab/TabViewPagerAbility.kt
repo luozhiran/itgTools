@@ -326,55 +326,39 @@ open class TabViewPagerAbility : LifeAbility() {
     // ==================== 样式应用：指示器 ====================
 
     private fun applyIndicatorStyle(tabLayout: TabLayout, indicator: TabIndicatorStyle) {
-        // 自定义 Drawable 优先
-        if (indicator.drawable != null) {
-            tabLayout.setSelectedTabIndicator(indicator.drawable)
-        } else {
-            val resolvedColor = indicator.color
-                ?: getColorAttr(com.google.android.material.R.attr.colorPrimary)
-            val cornerRadius = indicator.cornerRadiusDp ?: 0f
-            if (cornerRadius > 0f) {
-                val shapeDrawable = MaterialShapeDrawable(
-                    ShapeAppearanceModel.builder()
-                        .setAllCornerSizes(cornerRadius * tabLayout.context.resources.displayMetrics.density)
-                        .build()
-                ).apply {
-                    fillColor = ColorStateList.valueOf(resolvedColor)
-                    setTint(resolvedColor)
-                }
-                tabLayout.setSelectedTabIndicator(shapeDrawable)
-            } else {
-                tabLayout.setSelectedTabIndicatorColor(resolvedColor)
-            }
+        val resolvedColor = indicator.color
+            ?: getColorAttr(com.google.android.material.R.attr.colorPrimary)
+        val baseDrawable = indicator.drawable?.mutate() ?: MaterialShapeDrawable(
+            ShapeAppearanceModel.builder()
+                .setAllCornerSizes(dp2px(indicator.cornerRadiusDp ?: 0f))
+                .build()
+        ).apply {
+            fillColor = ColorStateList.valueOf(resolvedColor)
+            setTint(resolvedColor)
         }
-        // 高度
-        indicator.heightDp?.let {
-            tabLayout.setSelectedTabIndicatorHeight(dp2pxInt(it))
-        }
-        // 宽度（固定宽度模式）—— 非公开 API，通过反射设置
-        indicator.widthDp?.let {
-            applyIndicatorWidth(tabLayout, dp2pxInt(it))
-        }
-        // 水平内边距 —— 非公开 API，通过反射设置
-        indicator.horizontalPaddingDp?.let {
-            applyIndicatorHorizontalPadding(tabLayout, dp2pxInt(it))
-        }
+        val heightPx = indicator.heightDp?.let(::dp2pxInt)
+            ?: baseDrawable.intrinsicHeight.takeIf { it >= 0 }
+            ?: dp2pxInt(2)
+
+        // Material 公开 API负责动画外边界；Drawable 稳定地处理固定宽度、内边距和文字距离。
+        tabLayout.setSelectedTabIndicatorColor(Color.TRANSPARENT)
+        tabLayout.setSelectedTabIndicator(
+            StyledTabIndicatorDrawable(
+                delegate = baseDrawable,
+                tabLayout = tabLayout,
+                widthPx = indicator.widthDp?.let(::dp2pxInt),
+                horizontalPaddingPx = indicator.horizontalPaddingDp?.let(::dp2pxInt) ?: 0,
+                heightPx = heightPx,
+                distanceFromTextPx = indicator.distanceFromTextDp?.let(::dp2pxInt),
+            )
+        )
         // 重力
         tabLayout.setSelectedTabIndicatorGravity(indicator.gravity)
-        // 与文字间距 —— 非公开 API，通过反射设置
-        indicator.distanceFromTextDp?.let {
-            applyIndicatorDistanceFromText(tabLayout, dp2pxInt(it))
-        }
         // 动画
         if (indicator.animationEnabled) {
             @Suppress("DEPRECATION")
             tabLayout.tabIndicatorAnimationMode = TabLayout.INDICATOR_ANIMATION_MODE_LINEAR
-            // 动画时长和插值器：优先通过公开 API（Material 1.4+），
-            // 不存在则通过反射设置（低版本 Material 无公开 API）
             applyIndicatorAnimationDuration(tabLayout, indicator.animationDurationMs)
-            indicator.animationInterpolator?.let {
-                applyIndicatorInterpolator(tabLayout, it)
-            }
         } else {
             applyIndicatorAnimationDuration(tabLayout, 0)
         }
@@ -589,111 +573,24 @@ open class TabViewPagerAbility : LifeAbility() {
         return ColorDrawable(value)
     }
 
-    /**
-     * 获取 TabLayout 内部的 SlidingTabIndicator（私有内部类实例）。
-     * Material 将指示器相关字段（宽度/内边距/间距）都放在该类中，TabLayout 自身不暴露。
-     * 返回 null 表示未找到（可能因版本差异）。
-     */
-    private fun findSlidingIndicator(tabLayout: TabLayout): View? {
-        for (i in 0 until tabLayout.childCount) {
-            val child = tabLayout.getChildAt(i)
-            if (child.javaClass.simpleName == "SlidingTabIndicator") {
-                return child
-            }
-        }
-        return null
-    }
-
-    /**
-     * 设置指示器固定宽度，通过反射（Material 未提供公开 setter）。
-     * 字段位于 SlidingTabIndicator 内部类，非 TabLayout 自身。
-     */
-    private fun applyIndicatorWidth(tabLayout: TabLayout, widthPx: Int) {
-        val indicator = findSlidingIndicator(tabLayout) ?: return
-        try {
-            val field = indicator.javaClass.getDeclaredField("indicatorWidth")
-            field.isAccessible = true
-            field.setInt(indicator, widthPx)
-        } catch (_: Exception) {
-            // 反射失败则忽略（使用默认宽度）
-        }
-    }
-
-    /**
-     * 设置指示器水平内边距，通过反射（Material 未提供公开 setter）。
-     * 字段位于 SlidingTabIndicator 内部类。
-     */
-    private fun applyIndicatorHorizontalPadding(tabLayout: TabLayout, paddingPx: Int) {
-        val indicator = findSlidingIndicator(tabLayout) ?: return
-        try {
-            val field = indicator.javaClass.getDeclaredField("indicatorPadding")
-            field.isAccessible = true
-            field.setInt(indicator, paddingPx)
-        } catch (_: Exception) {
-            // 反射失败则忽略
-        }
-    }
-
-    /**
-     * 设置指示器与文字间距，通过反射（Material 未提供公开 setter）。
-     * 字段位于 SlidingTabIndicator 内部类。
-     */
-    private fun applyIndicatorDistanceFromText(tabLayout: TabLayout, distancePx: Int) {
-        val indicator = findSlidingIndicator(tabLayout) ?: return
-        try {
-            val field = indicator.javaClass.getDeclaredField("indicatorDistanceFromText")
-            field.isAccessible = true
-            field.setInt(indicator, distancePx)
-        } catch (_: Exception) {
-            // 反射失败则忽略（使用默认间距）
-        }
-    }
-
     // ==================== 工具方法（动画） ====================
 
     /**
-     * 设置指示器动画时长，优先使用公开 API，不存在则反射（兼容低版本 Material）。
+     * Material 1.10 没有运行时动画时长 setter；字段已确认存在并缓存，避免重复查找。
      */
     private fun applyIndicatorAnimationDuration(tabLayout: TabLayout, durationMs: Int) {
-        // 尝试公开 API：TabLayout.setTabIndicatorAnimationDuration()（Material 1.4+ 存在）
-        try {
-            val setter = TabLayout::class.java.getMethod(
-                "setTabIndicatorAnimationDuration", Int::class.java
-            )
-            setter.invoke(tabLayout, durationMs)
-            return
-        } catch (_: NoSuchMethodException) {
-            // 公开 API 不存在，回退到反射私有字段
-        }
-        // 反射私有字段（Material < 1.4）
-        try {
-            val field = TabLayout::class.java.getDeclaredField("tabIndicatorAnimationDuration")
-            field.isAccessible = true
-            field.setInt(tabLayout, durationMs)
-        } catch (_: Exception) {
-            // 反射失败，使用默认时长（不影响功能）
+        tabIndicatorAnimationDurationField?.let { field ->
+            runCatching { field.setInt(tabLayout, durationMs) }
         }
     }
 
-    /**
-     * 设置指示器动画插值器，优先使用公开 API，不存在则反射。
-     */
-    private fun applyIndicatorInterpolator(tabLayout: TabLayout, interpolator: android.view.animation.Interpolator) {
-        try {
-            val setter = TabLayout::class.java.getMethod(
-                "setTabIndicatorInterpolator", android.view.animation.Interpolator::class.java
-            )
-            setter.invoke(tabLayout, interpolator)
-            return
-        } catch (_: NoSuchMethodException) {
-            // 公开 API 不存在，回退到反射
-        }
-        try {
-            val field = TabLayout::class.java.getDeclaredField("tabIndicatorInterpolator")
-            field.isAccessible = true
-            field.set(tabLayout, interpolator)
-        } catch (_: Exception) {
-            // 反射失败，使用默认插值器
+    private companion object {
+        val tabIndicatorAnimationDurationField by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            runCatching {
+                TabLayout::class.java.getDeclaredField("tabIndicatorAnimationDuration").apply {
+                    isAccessible = true
+                }
+            }.getOrNull()
         }
     }
 
