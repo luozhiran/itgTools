@@ -12,6 +12,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ItgTools">
         <activity
+            android:name=".itgstring.ItgStringActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
