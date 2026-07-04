@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TabLayout + ViewPager2 standard view IDs for TabHostActivity/TabHostFragment -->
+    <item type="id" name="tabLayout" />
+    <item type="id" name="viewPager" />
+</resources>
