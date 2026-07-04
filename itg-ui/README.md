@@ -8,6 +8,7 @@
 ## 索引
 
 - [要求](#要求)
+- [App 可运行示例](#app-可运行示例)
 - [依赖](#依赖)
 - [架构](#架构)
 - [快速开始 (Tab)](#快速开始)
@@ -46,6 +47,23 @@
 - [三级定制模式](#三级定制模式)
 - [常见问题](#常见问题)
 - [许可](#许可)
+
+## App 可运行示例
+
+示例入口为 [`ItgUiExamplesActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/ItgUiExamplesActivity.kt)。运行 `app` 后，在首页点击“打开 itg-ui 示例”即可逐项进入：
+
+| 示例 Activity | 覆盖场景 |
+|---|---|
+| [`BasicTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/BasicTabsActivity.kt) | 标题、系统图标、arguments、懒加载、选中/取消回调、静态/动态角标、`selectTab/currentPosition/getFragmentAt`、PageTransformer |
+| [`StyledTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/StyledTabsActivity.kt) | 动态分类、滚动模式、容器背景、文字状态、固定宽度圆角指示器、间距、动画时长、Item padding/ripple |
+| [`BottomNavigationTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/BottomNavigationTabsActivity.kt) | 底部四 Tab、图标、红点、隐藏指示器、禁止滑动 |
+| [`CustomTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/CustomTabsActivity.kt) | `CustomTabViewProvider` 的创建、绑定、选中状态及自定义角标更新 |
+| [`NestedTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/NestedTabsActivity.kt) | `TabHostActivity` 内嵌 `TabHostFragment`，使用 childFragmentManager 管理二级 Tab |
+| [`DynamicTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/DynamicTabsActivity.kt) | 登录态动态 Tab、过滤禁用、`unbind()` 后重新 `bind()` |
+| [`ManualTabsActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/ManualTabsActivity.kt) | 不继承 TabHostActivity、手动 Ability、自定义 View ID、XML 样式、普通 Fragment、L3 Ability 子类 |
+| [`RecyclerDemoActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/RecyclerDemoActivity.kt) | ViewBinding/DataBinding 混合多 Item、统一 actions、LiveData 自动提交、Diff/Payload、新增与清空 |
+
+公共 Tab 页面实现位于 [`DemoPageFragment.kt`](../app/src/main/java/com/itg/itgtools/pages/itgui/DemoPageFragment.kt)，布局位于 [`app/src/main/res/layout`](../app/src/main/res/layout)。所有 Activity 已在 App Manifest 注册，可独立启动。
 
 ## 要求
 

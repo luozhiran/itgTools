@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "path": "itg/string/activity",
+    "className": "com.itg.itgtools.pages.itgstring.ItgStringActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  },
+  {
+    "path": "main/home/activity",
+    "className": "com.itg.itgtools.MainActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  }
+]
