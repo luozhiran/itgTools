@@ -41,10 +41,12 @@ TabHostActivity<VB, VM>                    TabHostFragment<VB, VM>
 ├── viewModel: VM   ← 自动创建              ├── viewModel: VM   ← 自动创建
 │                                           │
 ├── tabViewPager: TabViewPagerAbility       ├── tabViewPager: TabViewPagerAbility
-│   ├── bind(...) / unbind()                │   └── 同上（可覆写 createTabViewPager()）
-│   ├── selectTab(pos)                      │
+│   ├── bind(...) / unbind()                │   └── 同上（onDestroyView 自动 unbind）
+│   ├── selectTab(pos)                      │     可覆写 createTabViewPager()
 │   ├── updateBadge(pos, badge)             │
 │   └── getFragmentAt(pos)                  │
+│   （内部：StyledTabIndicatorDrawable）     │
+│   处理指示器宽度/内边距/间距（零反射）      │
 │                                           │
 ├── 自动继承 itg-base 全部 Ability：         ├── 自动继承 itg-base 全部 Ability：
 │   systemBars / messages / permissions     │   messages / permissions / uiState
@@ -182,15 +184,17 @@ class CategoryActivity : TabHostActivity<ActivityCategoryBinding, CategoryModel>
 override fun onCreateTabConfig() = TabConfig(
     tabMode = TabLayout.MODE_SCROLLABLE,  // MODE_FIXED / MODE_SCROLLABLE
     tabGravity = TabLayout.GRAVITY_FILL,  // GRAVITY_FILL / GRAVITY_CENTER
-    defaultPosition = 0,                  // 默认选中
+    defaultPosition = 0,                  // 默认选中（必须在 tabs.indices 范围内）
     swipeable = true,                     // 是否可滑动切换
-    offscreenPageLimit = 2,               // 离屏保留页数
+    offscreenPageLimit = 2,               // 离屏保留页数（≥1 或 OFFSCREEN_PAGE_LIMIT_DEFAULT）
     autoTitle = true,                     // 是否自动设置 Tab 标题
     lazyLoadOnFirstSelect = true,         // 首次选中时是否触发 onTabFirstVisible
     style = ...,                          // 视觉样式（见下方）
     onPageSelected = { pos, fragment -> },// 页面切换回调（额外逻辑，可见性回调已自动处理）
 )
 ```
+
+> **验证**：`defaultPosition` 超出范围会抛 `IllegalArgumentException`；`offscreenPageLimit` 必须 ≥1 或用 `OFFSCREEN_PAGE_LIMIT_DEFAULT`。`tabMode` / `tabGravity` 在 `bind()` 时自动应用到 TabLayout，无需在 XML 中设置。
 
 > **`lazyLoadOnFirstSelect`**：设为 `false` 时禁用懒加载机制，`onTabFirstVisible()` 不会被自动触发。**注意**：此时 `onTabSelected()` 仍然会在首次选中和后续每次选中时触发。适合所有 Tab 可以在创建时立即加载数据的场景。
 
@@ -376,6 +380,8 @@ abstract class BaseTabFragment<VB : ViewBinding, VM : ItgModel>
 }
 ```
 
+> **`onDestroyView` 行为**：当 Fragment 视图销毁时，如果该 Tab 当前处于选中状态，会自动调用 `onTabUnselected()` + 重置 `isTabVisible = false`，确保资源正确释放。
+
 ### 典型实现
 
 ```kotlin
@@ -432,9 +438,11 @@ data class TabBadge(
     val count: Int = 0,          // 角标数字（≤0 配合 showAsDot 展示纯红点）
     val showAsDot: Boolean = false, // 纯红点模式
     val backgroundColor: Int? = null, // 背景色（null = Material 红色）
-    val maxNumber: Int = 99,      // 最大显示数字，超过显示 "99+"
+    val maxNumber: Int = 99,      // 最大显示数字，超过显示 "99+"（必须 > 0）
 )
 ```
+
+> **注意**：`maxNumber` 必须 > 0，传入 0 或负数会抛出 `IllegalArgumentException`。
 
 ### 动态角标（运行时更新）
 
@@ -575,6 +583,13 @@ class MyCustomActivity : SomeOtherBaseActivity() {
             config = TabConfig(),
         )
     }
+
+    override fun onDestroy() {
+        // LifeAbility 会在 onDestroy 时自动调用 unbind()，
+        // 但显式调用可确保在 super.onDestroy() 前完成清理。
+        tabViewPager.unbind()
+        super.onDestroy()
+    }
 }
 ```
 
@@ -678,9 +693,12 @@ class MyActivity : TabHostActivity<ActivityMyBinding, MyModel>() {
 | LifeAbility 自动解绑 | `onDestroy` → `unbind()` 自动 detach TabLayoutMediator、移除 PageChangeCallback |
 | Event 一次性消费 | Tab 切换事件配置变更后不重复触发 |
 | viewLifecycleOwner | Fragment 视图重建时自动解绑 LiveData 观察者 |
-| WeakReference 缓存 | `GenericTabAdapter` 内部使用 `WeakReference<Fragment>` 缓存，不阻止 FragmentManager 回收 |
+| WeakReference 缓存 | `GenericTabAdapter` 使用 `WeakReference<Fragment>` 缓存 + `findFragmentByTag` 回退查找已恢复 Fragment |
 | post Runnable 清理 | `TabHostActivity.onDestroy` / `TabHostFragment.onDestroyView` 中取消待执行的 bind Runnable |
 | config 引用释放 | `unbind()` 时重置 `config = TabConfig()`，解除 `customTabViewProvider` 隐式 Activity 引用 |
+| Fragment 主动解绑 | `TabHostFragment.onDestroyView` 主动调用 `tabViewPager.unbind()`，不等 Activity destroy |
+| Adapter 置空 | `unbind()` 设置 `viewPager.adapter = null`，避免 Fragment View 销毁后 Adapter 残留引用 |
+| FragmentLifecycleCallbacks | `unbind()` 中 `unregisterFragmentLifecycleCallbacks()`，清理延迟分派监听 |
 
 ---
 
@@ -796,7 +814,7 @@ class MainActivity : TabHostActivity<ActivityMainBinding, MainModel>() {
 
 ### Q: 不用反射能实例化 Fragment 吗？
 
-当前 `GenericTabAdapter` 内部使用 `Class.newInstance()` 反射实例化 Fragment，这与 itg-base 的 `ViewBindingAbility` 反射 inflate 风格一致。Fragment 必须提供无参构造器——这是 Android Fragment 的标准要求。
+`GenericTabAdapter` 内部使用 `FragmentManager.fragmentFactory.instantiate()` 创建 Fragment 实例——这是 AndroidX 推荐的方式，与 `Class.newInstance()` 反射不同，支持 `FragmentFactory` 自定义注入。Fragment 仍须提供无参构造器（Android Fragment 标准要求）。
 
 ---
 
