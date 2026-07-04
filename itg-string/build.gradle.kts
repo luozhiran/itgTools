@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.itg.itg_bitmap"
+    namespace = "com.itg.itg_string"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -15,11 +15,16 @@ android {
         minSdk = 24
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles("consumer-rules.pro")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
     }
 
     publishing {
@@ -31,8 +36,12 @@ android {
 }
 
 dependencies {
+    implementation(project(":itg-thread-pools"))
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.material)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }
@@ -48,7 +57,7 @@ afterEvaluate {
             create<MavenPublication>("release") {
                 from(components["release"])
                 groupId = "com.itg"
-                artifactId = "itg-bitmap"
+                artifactId = "itg-string"
                 version = "0.1.0"
 
                 pom {

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.itg.itg_bitmap"
+    namespace = "com.itg.itg_base"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -15,7 +15,6 @@ android {
         minSdk = 24
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles("consumer-rules.pro")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -27,11 +26,16 @@ android {
             withSourcesJar()
         }
     }
+    buildFeatures {
+        dataBinding = true
+    }
 
 }
 
 dependencies {
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
+    compileOnly(libs.material)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
@@ -48,7 +52,7 @@ afterEvaluate {
             create<MavenPublication>("release") {
                 from(components["release"])
                 groupId = "com.itg"
-                artifactId = "itg-bitmap"
+                artifactId = "itg-base"
                 version = "0.1.0"
 
                 pom {

@@ -1,0 +1,15 @@
+# ==================== itg-base R8/ProGuard Rules ====================
+
+# ViewBinding inflate 静态方法被 ViewBindingAbility 反射调用
+-keepclassmembers class * implements androidx.viewbinding.ViewBinding {
+    public static ** inflate(android.view.LayoutInflater);
+}
+
+# ItgModel 子类可能被 ViewModelAbility 反射实例化
+-keepclassmembers class * extends com.itg.itg_base.arch.ItgModel {
+    public <init>(android.app.Application);
+}
+
+# 保留泛型签名（AutoBindingBaseActivity 双泛型推导依赖）
+-keepattributes Signature
+-keepattributes *Annotation*

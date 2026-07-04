@@ -22,6 +22,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
 }
 
 dependencies {
@@ -31,14 +36,26 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
 }
 
+
 afterEvaluate {
     publishing {
+        repositories {
+            maven {
+                url = uri("${buildDir}/repo")
+            }
+        }
         publications {
             create<MavenPublication>("release") {
-                groupId = "com.github.itgtools"
-                artifactId = project.name
-                version = project.version.toString()
-                artifact("$buildDir/outputs/aar/${project.name}-release.aar")
+                from(components["release"])
+                groupId = "com.itg"
+                artifactId = "itg-encrypt"
+                version = "0.1.0"
+
+                pom {
+                    name = "ITG Net"
+                    description = "A lightweight Android networking and download library built on OkHttp."
+                    packaging = "aar"
+                }
             }
         }
     }
