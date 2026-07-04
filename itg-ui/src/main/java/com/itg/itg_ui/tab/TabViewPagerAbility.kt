@@ -6,13 +6,17 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.TextView
 import androidx.annotation.ColorInt
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.LifecycleOwner
 import androidx.viewpager2.widget.ViewPager2
+import com.google.android.material.badge.BadgeDrawable
 import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.tabs.TabLayout
@@ -22,6 +26,7 @@ import com.itg.itg_ui.tab.style.TabIndicatorStyle
 import com.itg.itg_ui.tab.style.TabItemStyle
 import com.itg.itg_ui.tab.style.TabStyle
 import com.itg.itg_ui.tab.style.TabTextStyle
+import java.lang.ref.WeakReference
 
 /**
  * TabLayout + ViewPager2 绑定能力，继承 [LifeAbility] 获得生命周期感知。
@@ -57,17 +62,40 @@ open class TabViewPagerAbility : LifeAbility() {
     private var tabLayout: TabLayout? = null
     private var viewPager: ViewPager2? = null
 
-    /** 标记每个 position 是否是首次被创建/选中 */
-    private val positionFirstTime = mutableSetOf<Int>()
-
     /** 上次选中的 position，用于分发页面切换时的取消选中事件 */
     private var lastSelectedPosition = -1
+
+    /** 已分发选中事件的 Fragment View，避免同一 View 被重复通知。 */
+    private var selectedFragmentView: WeakReference<View>? = null
+
+    private var fragmentManager: FragmentManager? = null
 
     /** 防止 [bind] 被重复调用 */
     private var isBound = false
 
     /** 初始页面回调的延迟 Runnable，用于 unbind 时取消 */
     private var initialPageRunnable: Runnable? = null
+
+    private val fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+        override fun onFragmentViewCreated(
+            fm: FragmentManager,
+            fragment: Fragment,
+            view: View,
+            savedInstanceState: Bundle?,
+        ) {
+            if (fm !== fragmentManager) return
+            val position = adapter?.getPosition(fragment) ?: return
+            if (position != lastSelectedPosition || position != viewPager?.currentItem) return
+
+            // FragmentStateAdapter may create the selected Fragment after onPageSelected().
+            // Post once so Fragment.onViewCreated() completes before business callbacks run.
+            view.post {
+                if (position == lastSelectedPosition && position == viewPager?.currentItem) {
+                    dispatchSelectedFragment(position)
+                }
+            }
+        }
+    }
 
     // ==================== 绑定入口 ====================
 
@@ -90,11 +118,20 @@ open class TabViewPagerAbility : LifeAbility() {
         check(!isBound) {
             "TabViewPagerAbility.bind() 已调用过。如需重新绑定 Tab 列表，请先调用 unbind()，或创建新的 TabViewPagerAbility 实例。"
         }
-        check(::ownerActivity.isInitialized) {
-            "TabViewPagerAbility 未注入生命周期。请在 bind() 前调用 inject(activity)。"
+        check(isActivityAlive()) {
+            "TabViewPagerAbility 未注入生命周期或宿主 Activity 已销毁。请在 bind() 前调用 inject(activity)。"
         }
         require(tabs.isNotEmpty()) {
             "tabs 列表不能为空，至少需要一个 Tab。"
+        }
+        require(config.defaultPosition in tabs.indices) {
+            "defaultPosition=${config.defaultPosition} 超出 Tab 范围 0..${tabs.lastIndex}。"
+        }
+        require(
+            config.offscreenPageLimit == ViewPager2.OFFSCREEN_PAGE_LIMIT_DEFAULT ||
+                config.offscreenPageLimit >= 1
+        ) {
+            "offscreenPageLimit 必须为 ViewPager2.OFFSCREEN_PAGE_LIMIT_DEFAULT(-1) 或大于等于 1。"
         }
         isBound = true
 
@@ -114,10 +151,15 @@ open class TabViewPagerAbility : LifeAbility() {
         } else {
             activity.supportFragmentManager
         }
-        adapter = GenericTabAdapter(activity, fm, activity.lifecycle, tabs)
+        fragmentManager = fm
+        fm.registerFragmentLifecycleCallbacks(fragmentLifecycleCallbacks, false)
+        val adapterLifecycle = hostFragment?.viewLifecycleOwner?.lifecycle ?: activity.lifecycle
+        adapter = GenericTabAdapter(activity, fm, adapterLifecycle, tabs)
         viewPager.adapter = adapter
         viewPager.isUserInputEnabled = config.swipeable
         viewPager.offscreenPageLimit = config.offscreenPageLimit
+        tabLayout.tabMode = config.tabMode
+        tabLayout.tabGravity = config.tabGravity
 
         // 3. 注册页面切换回调（必须在 setCurrentItem 之前，确保能收到回调）
         viewPager.registerOnPageChangeCallback(pageChangeCallback)
@@ -126,7 +168,7 @@ open class TabViewPagerAbility : LifeAbility() {
         //    当 defaultPosition != currentItem（即 != 0）时，setCurrentItem 会触发
         //    onPageSelected 回调，从而自动完成首次选中逻辑。
         //    当 defaultPosition == 0 时，ViewPager2 已在该位置，需在步骤 7 手动触发。
-        if (config.defaultPosition in tabs.indices && config.defaultPosition != viewPager.currentItem) {
+        if (config.defaultPosition != viewPager.currentItem) {
             viewPager.setCurrentItem(config.defaultPosition, false)
         }
 
@@ -141,15 +183,18 @@ open class TabViewPagerAbility : LifeAbility() {
             configureTabIcon(tab, item)
             // 应用 TabItemStyle 到每个 tab
             config.style?.itemStyle?.let { applyItemStyle(tab, it) }
-            // 角标
-            item.badge?.let { applyBadge(tab, it) }
             // 自定义 Tab View（优先级最高，会覆盖 itemStyle 的大部分效果）
-            config.style?.customTabViewProvider?.let { provider ->
+            val customProvider = config.style?.customTabViewProvider
+            if (customProvider != null) {
+                val provider = customProvider
                 val customView = provider.createView(
                     LayoutInflater.from(tabLayout.context), tabLayout, position, item
                 )
                 provider.bindView(customView, position, item)
                 tab.customView = customView
+                provider.onBadgeChanged(customView, item.badge)
+            } else {
+                item.badge?.let { applyBadge(tab, it) }
             }
         }
         mediator.attach()
@@ -167,8 +212,8 @@ open class TabViewPagerAbility : LifeAbility() {
         if (lastSelectedPosition < 0) {
             val initialPos = viewPager.currentItem
             if (initialPos in tabs.indices) {
-                positionFirstTime.add(initialPos)
                 initialPageRunnable = Runnable {
+                    initialPageRunnable = null
                     dispatchPageSelected(initialPos)
                 }
                 tabLayout.post(initialPageRunnable)
@@ -180,6 +225,10 @@ open class TabViewPagerAbility : LifeAbility() {
 
     /** 切换到指定 Tab */
     fun selectTab(position: Int, smoothScroll: Boolean = true) {
+        check(isBound) { "请先调用 bind() 再切换 Tab。" }
+        require(position in tabs.indices) {
+            "position=$position 超出 Tab 范围 0..${tabs.lastIndex}。"
+        }
         viewPager?.setCurrentItem(position, smoothScroll)
     }
 
@@ -189,14 +238,15 @@ open class TabViewPagerAbility : LifeAbility() {
     /** 动态更新角标。传 [badge] 为 null 时清除角标 */
     fun updateBadge(position: Int, badge: TabBadge?) {
         val tab = tabLayout?.getTabAt(position) ?: return
+        val customProvider = config.style?.customTabViewProvider
+        if (customProvider != null) {
+            tab.customView?.let { customProvider.onBadgeChanged(it, badge) }
+            return
+        }
         if (badge != null) {
             applyBadge(tab, badge)
         } else {
             tab.removeBadge()
-        }
-        // 通知自定义 Tab View
-        config.style?.customTabViewProvider?.let { provider ->
-            tab.customView?.let { provider.onBadgeChanged(it, badge) }
         }
     }
 
@@ -218,7 +268,7 @@ open class TabViewPagerAbility : LifeAbility() {
      * 提取为独立方法以便在 bind() 中手动触发初始回调。
      */
     private fun dispatchPageSelected(position: Int) {
-        val isFirstTime = positionFirstTime.add(position)
+        if (position !in tabs.indices) return
 
         // 通知旧页面：Tab 取消选中
         if (lastSelectedPosition >= 0 && lastSelectedPosition < tabs.size && lastSelectedPosition != position) {
@@ -226,23 +276,29 @@ open class TabViewPagerAbility : LifeAbility() {
                 ?.onTabUnselectedInternal()
             notifyCustomViewSelection(lastSelectedPosition, selected = false)
             updateTextSizeForPosition(lastSelectedPosition, selected = false)
+            selectedFragmentView = null
         }
 
-        // 通知新页面：Tab 选中
-        val fragment = adapter?.getFragmentAt(position)
-        if (fragment is BaseTabFragment<*, *>) {
-            fragment.onTabSelectedInternal(
-                firstTime = isFirstTime && config.lazyLoadOnFirstSelect
-            )
-        }
+        lastSelectedPosition = position
+
+        // 通知新页面：Tab 选中。Fragment View 尚未创建时由 lifecycle callback 补发。
+        dispatchSelectedFragment(position)
         notifyCustomViewSelection(position, selected = true)
         updateTextSizeForPosition(position, selected = true)
+    }
 
-        // 业务层回调
-        fragment?.let { config.onPageSelected?.invoke(position, it) }
+    private fun dispatchSelectedFragment(position: Int) {
+        val fragment = adapter?.getFragmentAt(position) ?: return
+        val fragmentView = fragment.view ?: return
+        if (selectedFragmentView?.get() === fragmentView) return
 
-        // 更新 lastSelectedPosition
-        lastSelectedPosition = position
+        selectedFragmentView = WeakReference(fragmentView)
+        if (fragment is BaseTabFragment<*, *>) {
+            fragment.onTabSelectedInternal(
+                allowFirstVisible = config.lazyLoadOnFirstSelect,
+            )
+        }
+        config.onPageSelected?.invoke(position, fragment)
     }
 
     // ==================== 样式应用：容器级 ====================
@@ -262,13 +318,9 @@ open class TabViewPagerAbility : LifeAbility() {
         style.tabElevationDp?.let {
             tabLayout.elevation = dp2px(it)
         }
-        // 分割线
-        style.tabDividerDrawable?.let { divider ->
-            tabLayout.setDividerDrawable(divider)
-            style.tabDividerPaddingDp?.let { padding ->
-                tabLayout.dividerPadding = dp2pxInt(padding)
-            }
-        }
+        // 分割线：TabLayout 继承 HorizontalScrollView，不提供原生分割线 API。
+        // 如需 Tab 间分割线，请使用 CustomTabViewProvider 在自定义布局中加入分割线元素。
+        // TabStyle.tabDividerDrawable 和 tabDividerPaddingDp 字段保留以供未来扩展使用。
     }
 
     // ==================== 样式应用：指示器 ====================
@@ -299,19 +351,19 @@ open class TabViewPagerAbility : LifeAbility() {
         indicator.heightDp?.let {
             tabLayout.setSelectedTabIndicatorHeight(dp2pxInt(it))
         }
-        // 宽度（固定宽度模式）
+        // 宽度（固定宽度模式）—— 非公开 API，通过反射设置
         indicator.widthDp?.let {
-            tabLayout.setSelectedTabIndicatorWidth(dp2pxInt(it))
+            applyIndicatorWidth(tabLayout, dp2pxInt(it))
         }
-        // 水平内边距
+        // 水平内边距 —— 非公开 API，通过反射设置
         indicator.horizontalPaddingDp?.let {
-            tabLayout.setSelectedTabIndicatorPadding(dp2pxInt(it))
+            applyIndicatorHorizontalPadding(tabLayout, dp2pxInt(it))
         }
         // 重力
         tabLayout.setSelectedTabIndicatorGravity(indicator.gravity)
-        // 与文字间距
+        // 与文字间距 —— 非公开 API，通过反射设置
         indicator.distanceFromTextDp?.let {
-            tabLayout.selectedTabIndicatorDistanceFromText = dp2pxInt(it)
+            applyIndicatorDistanceFromText(tabLayout, dp2pxInt(it))
         }
         // 动画
         if (indicator.animationEnabled) {
@@ -323,6 +375,8 @@ open class TabViewPagerAbility : LifeAbility() {
             indicator.animationInterpolator?.let {
                 applyIndicatorInterpolator(tabLayout, it)
             }
+        } else {
+            applyIndicatorAnimationDuration(tabLayout, 0)
         }
     }
 
@@ -380,8 +434,7 @@ open class TabViewPagerAbility : LifeAbility() {
         }
         // 默认 TabView 中查找 TextView
         val tabView = tab.view
-        if (tabView is TextView) return tabView
-        if (tabView is android.view.ViewGroup && tabView.childCount > 0) {
+        if (tabView.childCount > 0) {
             for (i in 0 until tabView.childCount) {
                 val child = tabView.getChildAt(i)
                 if (child is TextView) return child
@@ -489,7 +542,8 @@ open class TabViewPagerAbility : LifeAbility() {
     // ==================== 图标配置 ====================
 
     private fun configureTabIcon(tab: TabLayout.Tab, item: TabItem<*>) {
-        val icon = item.icon ?: item.iconRes?.let { tab.view.context.getDrawable(it) }
+        val icon = (item.icon
+            ?: item.iconRes?.let { AppCompatResources.getDrawable(tab.view.context, it) })?.mutate()
         if (icon != null) {
             tab.setIcon(icon)
         }
@@ -498,15 +552,18 @@ open class TabViewPagerAbility : LifeAbility() {
     // ==================== 角标 ====================
 
     private fun applyBadge(tab: TabLayout.Tab, badge: TabBadge) {
+        // Recreate the drawable so nullable style properties restore Material defaults on update.
+        tab.removeBadge()
+        if (!badge.showAsDot && badge.count <= 0) return
         val badgeDrawable = tab.orCreateBadge
-        if (badge.showAsDot || badge.count <= 0) {
+        if (badge.showAsDot) {
             badgeDrawable.isVisible = true
             badgeDrawable.clearNumber()
-        } else {
-            badgeDrawable.number = badge.count.coerceAtMost(badge.maxNumber)
-            // maxCharacterCount: Material BadgeDrawable 需要 ≥ 显示数字的位数 + "99+"后缀
-            // 公式：maxNumber 的位数 + 1（"+"号），如 maxNumber=99 → "99+" → 3 字符
-            badgeDrawable.maxCharacterCount = badge.maxNumber.toString().length + 1
+        } else if (badge.count > 0) {
+            // maxNumber 支持任意上限；直接保留实际 count，超限时 BadgeDrawable 才会显示 "+"。
+            badgeDrawable.maxCharacterCount = BadgeDrawable.BADGE_CONTENT_NOT_TRUNCATED
+            badgeDrawable.maxNumber = badge.maxNumber
+            badgeDrawable.number = badge.count
             badgeDrawable.isVisible = true
         }
         badge.backgroundColor?.let { badgeDrawable.backgroundColor = it }
@@ -524,12 +581,72 @@ open class TabViewPagerAbility : LifeAbility() {
         val isResourceId = (value ushr 24) in setOf(0x7F, 0x01, 0x02)
         if (isResourceId) {
             return try {
-                view.context.getDrawable(value) ?: ColorDrawable(value)
+                AppCompatResources.getDrawable(view.context, value) ?: ColorDrawable(value)
             } catch (_: android.content.res.Resources.NotFoundException) {
                 ColorDrawable(value)
             }
         }
         return ColorDrawable(value)
+    }
+
+    /**
+     * 获取 TabLayout 内部的 SlidingTabIndicator（私有内部类实例）。
+     * Material 将指示器相关字段（宽度/内边距/间距）都放在该类中，TabLayout 自身不暴露。
+     * 返回 null 表示未找到（可能因版本差异）。
+     */
+    private fun findSlidingIndicator(tabLayout: TabLayout): View? {
+        for (i in 0 until tabLayout.childCount) {
+            val child = tabLayout.getChildAt(i)
+            if (child.javaClass.simpleName == "SlidingTabIndicator") {
+                return child
+            }
+        }
+        return null
+    }
+
+    /**
+     * 设置指示器固定宽度，通过反射（Material 未提供公开 setter）。
+     * 字段位于 SlidingTabIndicator 内部类，非 TabLayout 自身。
+     */
+    private fun applyIndicatorWidth(tabLayout: TabLayout, widthPx: Int) {
+        val indicator = findSlidingIndicator(tabLayout) ?: return
+        try {
+            val field = indicator.javaClass.getDeclaredField("indicatorWidth")
+            field.isAccessible = true
+            field.setInt(indicator, widthPx)
+        } catch (_: Exception) {
+            // 反射失败则忽略（使用默认宽度）
+        }
+    }
+
+    /**
+     * 设置指示器水平内边距，通过反射（Material 未提供公开 setter）。
+     * 字段位于 SlidingTabIndicator 内部类。
+     */
+    private fun applyIndicatorHorizontalPadding(tabLayout: TabLayout, paddingPx: Int) {
+        val indicator = findSlidingIndicator(tabLayout) ?: return
+        try {
+            val field = indicator.javaClass.getDeclaredField("indicatorPadding")
+            field.isAccessible = true
+            field.setInt(indicator, paddingPx)
+        } catch (_: Exception) {
+            // 反射失败则忽略
+        }
+    }
+
+    /**
+     * 设置指示器与文字间距，通过反射（Material 未提供公开 setter）。
+     * 字段位于 SlidingTabIndicator 内部类。
+     */
+    private fun applyIndicatorDistanceFromText(tabLayout: TabLayout, distancePx: Int) {
+        val indicator = findSlidingIndicator(tabLayout) ?: return
+        try {
+            val field = indicator.javaClass.getDeclaredField("indicatorDistanceFromText")
+            field.isAccessible = true
+            field.setInt(indicator, distancePx)
+        } catch (_: Exception) {
+            // 反射失败则忽略（使用默认间距）
+        }
     }
 
     // ==================== 工具方法（动画） ====================
@@ -609,7 +726,8 @@ open class TabViewPagerAbility : LifeAbility() {
      * 调用后可重新调用 [bind] 进行新的绑定。
      */
     open fun unbind() {
-        viewPager?.let { vp ->
+        val boundViewPager = viewPager
+        boundViewPager?.let { vp ->
             try {
                 vp.unregisterOnPageChangeCallback(pageChangeCallback)
             } catch (_: Exception) {
@@ -621,14 +739,18 @@ open class TabViewPagerAbility : LifeAbility() {
         initialPageRunnable = null
         tabMediator?.detach()
         tabMediator = null
+        fragmentManager?.unregisterFragmentLifecycleCallbacks(fragmentLifecycleCallbacks)
+        fragmentManager = null
+        // ViewPager2 otherwise keeps the adapter (and its FragmentManager/tabs) after Fragment View teardown.
+        boundViewPager?.adapter = null
         adapter = null
         tabLayout = null
         viewPager = null
         // 释放 config（可能持有 customTabViewProvider → 匿名类 → Activity 引用）
         config = TabConfig()
         tabs = emptyList()
-        positionFirstTime.clear()
         lastSelectedPosition = -1
+        selectedFragmentView = null
         isBound = false
     }
 

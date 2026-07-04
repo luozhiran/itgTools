@@ -104,8 +104,12 @@ abstract class TabHostActivity<VB : ViewBinding, VM : ItgModel>
         // post 到下一帧：确保 DataBinding 布局已完成，避免 findViewById 返回 null
         bindRunnable = Runnable {
             tabViewPager.bind(
-                tabLayout = findViewById(tabLayoutId),
-                viewPager = findViewById(viewPagerId),
+                tabLayout = requireNotNull(findViewById(tabLayoutId)) {
+                    "布局中未找到 tabLayoutId=$tabLayoutId 对应的 TabLayout。"
+                },
+                viewPager = requireNotNull(findViewById(viewPagerId)) {
+                    "布局中未找到 viewPagerId=$viewPagerId 对应的 ViewPager2。"
+                },
                 tabs = tabs,
                 config = onCreateTabConfig(),
             )

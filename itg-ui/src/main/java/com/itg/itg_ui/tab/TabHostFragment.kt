@@ -72,8 +72,12 @@ abstract class TabHostFragment<VB : ViewBinding, VM : ItgModel>
 
         bindRunnable = Runnable {
             tabViewPager.bind(
-                tabLayout = view.findViewById(tabLayoutId),
-                viewPager = view.findViewById(viewPagerId),
+                tabLayout = requireNotNull(view.findViewById(tabLayoutId)) {
+                    "布局中未找到 tabLayoutId=$tabLayoutId 对应的 TabLayout。"
+                },
+                viewPager = requireNotNull(view.findViewById(viewPagerId)) {
+                    "布局中未找到 viewPagerId=$viewPagerId 对应的 ViewPager2。"
+                },
                 tabs = tabs,
                 hostFragment = this,
                 config = onCreateTabConfig(),
@@ -86,6 +90,8 @@ abstract class TabHostFragment<VB : ViewBinding, VM : ItgModel>
         // 取消尚未执行的 bind Runnable，避免 Fragment 销毁后持有引用
         bindRunnable?.let { view?.removeCallbacks(it) }
         bindRunnable = null
+        // Ability 观察的是 Activity 生命周期；Fragment 的 View 会更早销毁，必须主动解绑。
+        tabViewPager.unbind()
         super.onDestroyView()
     }
 }

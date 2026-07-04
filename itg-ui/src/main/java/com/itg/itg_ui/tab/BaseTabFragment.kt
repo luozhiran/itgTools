@@ -42,17 +42,15 @@ abstract class BaseTabFragment<VB : ViewBinding, VM : ItgModel>
     /**
      * Tab 被选中时调用（由 [TabViewPagerAbility] 分发）。
      *
-     * @param firstTime 是否是该 Fragment 实例第一次被选中
+     * @param allowFirstVisible 是否允许触发首次可见回调
      */
-    internal fun onTabSelectedInternal(firstTime: Boolean) {
+    internal fun onTabSelectedInternal(allowFirstVisible: Boolean) {
         isTabVisible = true
         onTabSelected()
 
-        if (firstTime || !firstVisibleHandled) {
-            if (!firstVisibleHandled) {
-                firstVisibleHandled = true
-                onTabFirstVisible()
-            }
+        if (allowFirstVisible && !firstVisibleHandled) {
+            firstVisibleHandled = true
+            onTabFirstVisible()
         }
     }
 
@@ -94,6 +92,10 @@ abstract class BaseTabFragment<VB : ViewBinding, VM : ItgModel>
     }
 
     override fun onDestroyView() {
+        if (isTabVisible) {
+            isTabVisible = false
+            onTabUnselected()
+        }
         super.onDestroyView()
         firstVisibleHandled = false // Fragment 视图可能重建，允许再次触发首次可见
     }

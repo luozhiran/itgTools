@@ -1,5 +1,6 @@
 package com.itg.itg_ui.tab
 
+import android.os.Bundle
 import android.util.SparseArray
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
@@ -13,7 +14,7 @@ import java.lang.ref.WeakReference
  *
  * 与 [com.google.android.material.tabs.TabLayout] 配合时，
  * 通过 [com.google.android.material.tabs.TabLayoutMediator] 自动同步标题。
- * 每条 [TabItem] 通过 [Class.newInstance] 反射创建 Fragment 实例。
+ * 每条 [TabItem] 通过宿主 [FragmentManager.fragmentFactory] 创建 Fragment 实例。
  *
  * 内存安全：
  * - 继承 FragmentStateAdapter，不可见页面会被正确保存/恢复状态
@@ -22,7 +23,7 @@ import java.lang.ref.WeakReference
  */
 class GenericTabAdapter(
     private val hostActivity: FragmentActivity,
-    fragmentManager: FragmentManager,
+    private val fragmentManager: FragmentManager,
     lifecycle: Lifecycle,
     private val tabs: List<TabItem<*>>,
 ) : FragmentStateAdapter(fragmentManager, lifecycle) {
@@ -35,10 +36,11 @@ class GenericTabAdapter(
 
     override fun createFragment(position: Int): Fragment {
         val item = tabs[position]
-        val fragment = item.fragmentClass
-            .getDeclaredConstructor()
-            .newInstance()
-        item.arguments?.let { fragment.arguments = it }
+        val fragment = fragmentManager.fragmentFactory.instantiate(
+            hostActivity.classLoader,
+            item.fragmentClass.name,
+        )
+        item.arguments?.let { fragment.arguments = Bundle(it) }
         fragmentCache.put(position, WeakReference(fragment))
         return fragment
     }
@@ -48,7 +50,21 @@ class GenericTabAdapter(
      * ViewPager2 的 offscreenPageLimit 决定哪些 position 已创建。
      * 使用 [WeakReference] 确保不会阻止 FragmentManager 回收已移除的 Fragment。
      */
-    fun getFragmentAt(position: Int): Fragment? = fragmentCache.get(position)?.get()
+    fun getFragmentAt(position: Int): Fragment? {
+        if (position !in tabs.indices) return null
+        fragmentCache.get(position)?.get()?.let { return it }
+
+        // FragmentStateAdapter may restore an existing Fragment without calling createFragment().
+        // Its stable internal tag is "f<itemId>".
+        return fragmentManager.findFragmentByTag("f${getItemId(position)}")?.also {
+            fragmentCache.put(position, WeakReference(it))
+        }
+    }
+
+    /** Returns the adapter position for an instantiated/restored Fragment. */
+    fun getPosition(fragment: Fragment): Int? = tabs.indices.firstOrNull {
+        getFragmentAt(it) === fragment
+    }
 
     /**
      * 提供 TabLayout 标题（当 [TabConfig.autoTitle] = true 时由 Mediator 调用）。

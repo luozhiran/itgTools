@@ -17,4 +17,8 @@ data class TabBadge(
     @ColorInt val backgroundColor: Int? = null,
     /** 最大显示数字，超过显示如 "99+"（默认 99） */
     val maxNumber: Int = 99,
-)
+) {
+    init {
+        require(maxNumber > 0) { "maxNumber 必须大于 0。" }
+    }
+}

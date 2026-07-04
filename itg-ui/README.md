@@ -297,7 +297,6 @@ class NewsActivity : TabHostActivity<ActivityNewsBinding, NewsModel>() {
         style = TabStyle(
             tabBackground = 0xFFD32F2F.toInt(),       // TabLayout 红色背景
             tabElevationDp = 4f,                       // 阴影高度（可选）
-            tabDividerDrawable = dividerDrawable,      // Tab 之间分割线（可选）
             indicator = TabIndicatorStyle(
                 color = Color.WHITE,
                 heightDp = 3,
