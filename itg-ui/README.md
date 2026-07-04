@@ -5,6 +5,48 @@
 - **TabLayout + ViewPager2**：声明式 Tab、懒加载、角标和样式管理。
 - **RecyclerView**：多 Item、ViewBinding/DataBinding、Diff/Payload、LiveData 自动提交和生命周期管理。
 
+## 索引
+
+- [要求](#要求)
+- [依赖](#依赖)
+- [架构](#架构)
+- [快速开始 (Tab)](#快速开始)
+  - [1. 创建 Tab 内容 Fragment](#1-创建-tab-内容-fragment)
+  - [2. 创建宿主 Activity](#2-创建宿主-activity)
+  - [3. 布局](#3-布局)
+  - [4. 完成](#4-完成)
+- [RecyclerView 框架](#recyclerview-框架)
+  - [1. 定义列表 UI Item 和事件](#1-定义列表-ui-item-和事件)
+  - [2. ViewBinding 多 Item](#2-viewbinding-多-item)
+  - [3. DataBinding 自动绑定](#3-databinding-自动绑定)
+  - [4. 绑定生命周期和数据](#4-绑定生命周期和数据)
+  - [5. Diff、Payload 和稳定 ID](#5-diffpayload-和稳定-id)
+- [Tab 核心 API](#tab-核心-api)
+  - [TabItem — Tab 声明](#tabitem--tab-声明)
+  - [TabConfig — 行为配置](#tabconfig--行为配置)
+- [Tab 样式系统](#tab-样式系统)
+  - [TabStyle — 样式定制](#tabstyle--样式定制)
+  - [指示器 `TabIndicatorStyle`](#指示器-tabindicatorstyle)
+  - [文字 `TabTextStyle`](#文字-tabtextstyle)
+  - [Tab 项 `TabItemStyle`](#tab-项-tabitemstyle)
+  - [`TabPadding` 辅助类](#tabpadding-辅助类)
+  - [完整示例：新闻 App 红底白字风格](#完整示例新闻-app-红底白字风格)
+  - [完整示例：底部导航四 Tab](#完整示例底部导航四-tab图标--小字--无指示器)
+- [BaseTabFragment — Tab 内容页](#basetabfragment--tab-内容页)
+- [角标（Badge）](#角标badge)
+- [完全自定义 Tab View](#完全自定义-tab-view)
+- [嵌套 Tab（Fragment 内嵌 TabLayout）](#嵌套-tabfragment-内嵌-tablayout)
+- [手动拼装](#手动拼装)
+  - [不使用 TabHostActivity](#不使用-tabhostactivity-的手动拼装)
+  - [不使用 BaseTabFragment](#不使用-basetabfragment-的手动拼装)
+- [能力清单](#能力清单)
+- [XML 样式 vs Kotlin 样式](#xml-样式-vs-kotlin-样式)
+- [自定义 id](#自定义-id)
+- [内存安全](#内存安全)
+- [三级定制模式](#三级定制模式)
+- [常见问题](#常见问题)
+- [许可](#许可)
+
 ## 要求
 
 | 项目 | 最低版本 |
