@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="itg-ui 可运行示例"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="覆盖 README 中的 Tab、样式、角标、自定义 View、嵌套、动态重绑、手动 Ability 和 RecyclerView 能力。" />
+
+            <Button android:id="@+id/basicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="基础 Tab / 懒加载 / 角标" />
+            <Button android:id="@+id/styledTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="滚动 Tab / 完整样式" />
+            <Button android:id="@+id/bottomTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="底部导航四 Tab" />
+            <Button android:id="@+id/customTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="完全自定义 Tab View" />
+            <Button android:id="@+id/nestedTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="嵌套 TabHostFragment" />
+            <Button android:id="@+id/dynamicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="动态 Tab / unbind + bind" />
+            <Button android:id="@+id/manualTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="手动 Ability / 自定义 ID" />
+            <Button android:id="@+id/recycler" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Recycler 多 Item / 自动绑定 / Payload" />
+        </LinearLayout>
+    </ScrollView>
+</layout>
