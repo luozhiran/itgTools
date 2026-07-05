@@ -2,6 +2,8 @@
 
 适合直接贴到项目 Wiki 或 PR 描述里。
 
+各检查项的详细操作与限制见 [`README.md`](./README.md) 文档索引。
+
 ## 依赖
 
 - [ ] 业务模块已接入 KSP 插件
@@ -42,4 +44,3 @@
 - [`KspRecyclerDemoActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspRecyclerDemoActivity.kt)
 - [`KspTabHostActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspTabHostActivity.kt)
 - [`INTEGRATION_GUIDE.md`](./INTEGRATION_GUIDE.md)
-

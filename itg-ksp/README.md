@@ -1,186 +1,42 @@
-# itg-ksp
+# itg-ksp 文档索引
 
-`itg-ksp` 是 `itg-ui` 的编译期增强层，目标是把 Recycler 注册、字段绑定、payload 计算，以及 Tab 列表生成前移到编译期，减少业务层样板代码。
+`itg-ksp` 是 `itg-ui` 的编译期增强层，由三个模块组成：
 
-## 三层结构
+- `itg-ksp-annotations`：业务代码使用的 SOURCE 注解。
+- `itg-ksp-compiler`：KSP 处理器，生成 Recycler registry、adapter 工厂和 Tab 声明。
+- `itg-ksp-runtime`：生成代码与 `itg-ui` 之间的运行时桥接。
 
-### 1. itg-ksp-annotations
+## 从哪里开始
 
-只放注解定义，业务代码通过这些注解声明生成规则。
+| 目标 | 文档 |
+|---|---|
+| 新模块首次接入 | [01-接入与构建配置](./docs/01-接入与构建配置.md) |
+| 理解 runtime，或不使用注解手写 registry | [02-runtime完整教程](./docs/02-runtime完整教程.md) |
+| ViewBinding Recycler：简单、复杂、自动字段绑定 | [03-Recycler-ViewBinding](./docs/03-Recycler-ViewBinding.md) |
+| DataBinding Recycler | [04-Recycler-DataBinding](./docs/04-Recycler-DataBinding.md) |
+| Diff、payload、混合列表、多列表 | [05-Recycler-Diff与组合场景](./docs/05-Recycler-Diff与组合场景.md) |
+| Activity/Fragment Tab、标题、图标、参数、角标、样式 | [06-Tab完整教程](./docs/06-Tab完整教程.md) |
+| 查询生成文件、类名和函数名 | [07-生成规则与API速查](./docs/07-生成规则与API速查.md) |
+| 生成失败、引用标红、编译或运行异常 | [08-排错手册](./docs/08-排错手册.md) |
+| 按能力确认是否支持 | [09-场景覆盖矩阵](./docs/09-场景覆盖矩阵.md) |
 
-- `@ItgViewBindingItem`
-- `@ItgDataBindingItem`
-- `@ItgBind`
-- `@ItgPayload`
-- `@ItgContentsSame`
-- `@ItgAutoTextField`
-- `@ItgTabHost`
-- `@ItgTabItem`
+## 建议阅读路径
 
-### 2. itg-ksp-runtime
+首次接入：`01 → 03/04 → 05 → 07 → 08`。
 
-提供生成代码会直接调用的运行时桥接。
+只使用 runtime：`02 → itg-ui Recycler 文档`。
 
-- `GeneratedRecyclerRegistry`
-- `itgGeneratedRecyclerAdapter(...)`
-- `GeneratedRecyclerRegistry<A>.adapter(...)`
+接入 Tab：`01 → 06 → 07 → 08`。
 
-### 3. itg-ksp-compiler
+## 仓库中的可运行示例
 
-KSP 处理器，扫描注解并生成：
+- [KspRecyclerDemoActivity](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspRecyclerDemoActivity.kt)
+- [KspRecyclerItems](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspRecyclerItems.kt)
+- [KspTabHostActivity](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspTabHostActivity.kt)
+- [KspTabPages](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspTabPages.kt)
 
-- `GeneratedXXXRegistry`
-- `createXXXRecyclerAdapter(...)`
-- `createXXXTabItems()`
-- `createXXXTabConfig()`
+## 其他入口
 
-生成代码复用 `itg-ui` 现有的 `ItemRendererRegistryBuilder`、`viewBinding`、`dataBinding` 和 `TabItem`。
+- [接入手册（简版）](./INTEGRATION_GUIDE.md)
+- [新模块接入清单](./INTEGRATION_CHECKLIST.md)
 
-## Recycler 注解
-
-### 手写绑定
-
-适合复杂 Item，业务逻辑全写在 item 自己身上。
-
-```kotlin
-@ItgViewBindingItem(
-    bindingClassName = "com.example.databinding.ItemUserBinding",
-    actionsClassName = "com.example.UserActions",
-)
-data class UserRow(
-    override val stableId: Long,
-    val name: String,
-) : ItgListItem {
-
-    @ItgBind
-    fun bind(binding: ItemUserBinding, actions: UserActions, payloads: List<Any>) {
-        binding.name.text = name
-    }
-
-    @ItgPayload
-    fun payload(oldItem: UserRow): Any? = if (oldItem.name != name) "name" else null
-}
-```
-
-### 字段级自动绑定
-
-适合简单 Item。只需要声明字段和目标 View 名称，KSP 会生成：
-
-- View 更新代码
-- payload 差异判断
-- 对应的 registry 注册
-
-```kotlin
-@ItgViewBindingItem(
-    bindingClassName = "com.example.databinding.ItemProfileBinding",
-    actionsClassName = "com.example.ProfileActions",
-)
-data class ProfileRow(
-    override val stableId: Long,
-    @ItgAutoTextField val title: String,
-    @ItgAutoTextField(viewName = "detail") val description: String,
-) : ItgListItem
-```
-
-上面的写法会生成类似逻辑：
-
-- `titleTextView.text = item.title.toString()`
-- `detail.text = item.description.toString()`
-- 字段变化时自动生成 payload 列表
-
-### DataBinding
-
-```kotlin
-@ItgDataBindingItem(
-    layoutExpression = "com.example.R.layout.item_user",
-    itemVariableExpression = "com.example.BR.item",
-    actionsVariableExpression = "com.example.BR.actions",
-    actionsClassName = "com.example.UserActions",
-)
-data class UserDataRow(
-    override val stableId: Long,
-    val title: String,
-) : ItgListItem
-```
-
-## Tab 注解
-
-### Host
-
-把 `TabHostActivity` 或 `TabHostFragment` 当成生成入口。
-
-```kotlin
-@ItgTabHost(groupName = "MainTabs")
-class MainTabsActivity : TabHostActivity<ActivityMainTabsBinding, MainModel>() {
-    override fun onCreateTabs() = createMainTabsTabItems()
-    override fun onCreateTabConfig() = createMainTabsTabConfig()
-}
-```
-
-### Item
-
-`@ItgTabItem` 标记的 Fragment 会被收集到同组 Tab 列表里。
-
-```kotlin
-@ItgTabItem(groupName = "MainTabs", title = "首页", order = 0)
-class HomeFragment : BaseTabFragment<FragmentHomeBinding, HomeModel>()
-```
-
-生成结果：
-
-- `createMainTabsTabItems(): List<TabItem<*>>`
-- `createMainTabsTabConfig(): TabConfig`
-
-## 接入方式
-
-```kotlin
-dependencies {
-    implementation(project(":itg-ksp-annotations"))
-    implementation(project(":itg-ksp-runtime"))
-    ksp(project(":itg-ksp-compiler"))
-}
-```
-
-## 业务侧最小使用方式
-
-Recycler：
-
-```kotlin
-val adapter = createKspDemoRecyclerAdapter(actions = this)
-```
-
-Tab：
-
-```kotlin
-override fun onCreateTabs(): List<TabItem<*>> = createKspDemoTabItems()
-override fun onCreateTabConfig(): TabConfig = createKspDemoTabConfig()
-```
-
-## 可运行 Demo
-
-App 模块里已经放了可直接运行的例子：
-
-- [`KspRecyclerDemoActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspRecyclerDemoActivity.kt)
-- [`KspTabHostActivity`](../app/src/main/java/com/itg/itgtools/pages/itgui/ksp/KspTabHostActivity.kt)
-
-Recycler Demo 覆盖：
-
-- ViewBinding 手写绑定
-- ViewBinding 字段自动绑定
-- DataBinding 自动注册
-- payload / diff
-- LiveData 自动提交
-
-Tab Demo 覆盖：
-
-- `@ItgTabHost`
-- `@ItgTabItem`
-- 继承 `BaseTabFragment` 的间接 Fragment
-- 生成式 Tab 列表与配置
-
-## 接入手册
-
-如果要把这套方案接到新模块，直接看：
-
-- [`INTEGRATION_GUIDE.md`](./INTEGRATION_GUIDE.md)
-- [`INTEGRATION_CHECKLIST.md`](./INTEGRATION_CHECKLIST.md)
