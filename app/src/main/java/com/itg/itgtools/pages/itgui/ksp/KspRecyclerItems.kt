@@ -64,7 +64,7 @@ data class KspAutoRow(
 ) : ItgListItem
 
 @ItgDataBindingItem(
-    layoutExpression = "com.itg.itgtools.R.layout.item_itg_ui_data_binding",
+    layoutExpression = "com.itg.itgtools.R.layout.item_itg_ui_ksp_data_binding",
     itemVariableExpression = "com.itg.itgtools.pages.itgui.RecyclerBindingVariables.ITEM",
     actionsVariableExpression = "com.itg.itgtools.pages.itgui.RecyclerBindingVariables.ACTIONS",
     actionsClassName = KSP_DEMO_ACTIONS_CLASS,

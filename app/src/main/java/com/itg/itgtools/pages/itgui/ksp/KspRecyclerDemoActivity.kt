@@ -5,6 +5,7 @@ import com.itg.itg_base.AutoBindingBaseActivity
 import com.itg.itgtools.databinding.ActivityItgUiKspRecyclerBinding
 import com.itg.itg_ui.recycler.RecyclerConfig
 import com.itg.itg_ui.recycler.RecyclerViewAbility
+import kotlin.getValue
 
 class KspRecyclerDemoActivity :
     AutoBindingBaseActivity<ActivityItgUiKspRecyclerBinding, KspRecyclerDemoModel>(),
@@ -15,7 +16,7 @@ class KspRecyclerDemoActivity :
     )
 
     private val adapter by lazy {
-        createKspDemoRecyclerAdapter(this)
+        createRecyclerAdapter()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

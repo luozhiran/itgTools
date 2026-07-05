@@ -39,6 +39,14 @@ android {
         dataBinding = true
         viewBinding = true
     }
+    sourceSets {
+        getByName("debug").kotlin.directories.add(
+            "build/generated/ksp/debug/kotlin"
+        )
+        getByName("release").kotlin.directories.add(
+            "build/generated/ksp/release/kotlin"
+        )
+    }
 }
 
 dependencies {

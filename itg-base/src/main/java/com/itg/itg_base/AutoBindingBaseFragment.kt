@@ -97,7 +97,7 @@ abstract class AutoBindingBaseFragment<
         viewModelAbility.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
         viewModel = viewModelAbility.viewModel
 
-        permissions.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
+        permissions.inject(this)
         messages.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
         uiState.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
 

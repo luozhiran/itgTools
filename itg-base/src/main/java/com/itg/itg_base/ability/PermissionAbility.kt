@@ -5,6 +5,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 
 /**
  * 运行时权限请求能力。
@@ -46,10 +47,18 @@ class PermissionAbility(
 
     private lateinit var singleLauncher: ActivityResultLauncher<String>
     private lateinit var multiLauncher: ActivityResultLauncher<Array<String>>
+    private var ownerFragment: Fragment? = null
 
     override fun inject(activity: AppCompatActivity): PermissionAbility {
+        ownerFragment = null
         super.inject(activity)
         registerLaunchers()
+        return this
+    }
+
+    fun inject(fragment: Fragment): PermissionAbility {
+        ownerFragment = fragment
+        registerLaunchers(fragment)
         return this
     }
 
@@ -78,6 +87,30 @@ class PermissionAbility(
         }
     }
 
+    private fun registerLaunchers(fragment: Fragment) {
+        singleLauncher = fragment.registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            val cb = singleCallback
+            singleCallback = null
+            cb?.invoke(granted)
+
+            val perm = pendingPermission
+            pendingPermission = null
+            if (!granted && perm != null && !shouldShowRationale(perm)) {
+                config.onPermanentlyDenied?.invoke(perm)
+            }
+        }
+
+        multiLauncher = fragment.registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { results ->
+            val cb = multiCallback
+            multiCallback = null
+            cb?.invoke(results)
+        }
+    }
+
     // ==================== 公开 API ====================
 
     fun request(permission: String, callback: (granted: Boolean) -> Unit) {
@@ -95,13 +128,20 @@ class PermissionAbility(
     }
 
     fun isGranted(permission: String): Boolean {
+        ownerFragment?.let { fragment ->
+            val ctx = fragment.context ?: return false
+            return ContextCompat.checkSelfPermission(
+                ctx, permission
+            ) == PackageManager.PERMISSION_GRANTED
+        }
         if (!isActivityAlive()) return false
-        return ContextCompat.checkSelfPermission(
-            ownerActivity, permission
-        ) == PackageManager.PERMISSION_GRANTED
+        return ContextCompat.checkSelfPermission(ownerActivity, permission) == PackageManager.PERMISSION_GRANTED
     }
 
     fun shouldShowRationale(permission: String): Boolean {
+        ownerFragment?.let { fragment ->
+            return fragment.shouldShowRequestPermissionRationale(permission)
+        }
         if (!isActivityAlive()) return false
         return ownerActivity.shouldShowRequestPermissionRationale(permission)
     }
