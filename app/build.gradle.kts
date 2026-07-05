@@ -53,4 +53,7 @@ dependencies {
     implementation(project(":outter"))
     implementation(libs.therouter.router)
     ksp(libs.therouter.apt)
+    ksp(project(":itg-ksp-compiler"))
+    implementation(project(":itg-ksp-annotations"))
+    implementation(project(":itg-ksp-runtime"))
 }

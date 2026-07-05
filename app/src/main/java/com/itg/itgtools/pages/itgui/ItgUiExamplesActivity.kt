@@ -19,6 +19,8 @@ class ItgUiExamplesActivity :
         binding.dynamicTabs.opens<DynamicTabsActivity>()
         binding.manualTabs.opens<ManualTabsActivity>()
         binding.recycler.opens<RecyclerDemoActivity>()
+        binding.kspRecycler.opens<com.itg.itgtools.pages.itgui.ksp.KspRecyclerDemoActivity>()
+        binding.kspTabs.opens<com.itg.itgtools.pages.itgui.ksp.KspTabHostActivity>()
     }
 
     private inline fun <reified T : android.app.Activity> android.view.View.opens() {

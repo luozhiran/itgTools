@@ -42,6 +42,41 @@ inline fun <reified I : ItgListItem, VB : ViewBinding, A : Any>
     })
 }
 
+inline fun <reified I : ItgListItem, VB : ViewBinding, A : Any>
+    ItemRendererRegistryBuilder<A>.viewBindingWithPayloads(
+    noinline inflate: (LayoutInflater, ViewGroup, Boolean) -> VB,
+    noinline areContentsTheSame: (I, I) -> Boolean = { old, new -> old == new },
+    noinline getChangePayload: (I, I) -> Any? = { _, _ -> null },
+    noinline onRecycled: (VB) -> Unit = {},
+    noinline bindPayload: (VB, I, A, List<Any>) -> Boolean = { _, _, _, _ -> false },
+    noinline bind: VB.(I, A, List<Any>) -> Unit,
+) {
+    renderer(object : ItemRenderer<I, VB, A>(I::class.java) {
+        override fun createBinding(inflater: LayoutInflater, parent: ViewGroup): VB =
+            inflate(inflater, parent, false)
+
+        override fun bind(
+            binding: VB,
+            item: I,
+            actions: A,
+            lifecycleOwner: LifecycleOwner?,
+            payloads: List<Any>,
+        ) {
+            if (payloads.isEmpty() || !bindPayload(binding, item, actions, payloads)) {
+                binding.bind(item, actions, payloads)
+            }
+        }
+
+        override fun areContentsTheSame(oldItem: I, newItem: I): Boolean =
+            areContentsTheSame.invoke(oldItem, newItem)
+
+        override fun getChangePayload(oldItem: I, newItem: I): Any? =
+            getChangePayload.invoke(oldItem, newItem)
+
+        override fun onViewRecycled(binding: VB) = onRecycled.invoke(binding)
+    })
+}
+
 inline fun <reified I : ItgListItem, A : Any>
     ItemRendererRegistryBuilder<A>.dataBinding(
     layoutId: Int,

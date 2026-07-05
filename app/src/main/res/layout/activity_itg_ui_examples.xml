@@ -21,17 +21,20 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
-                android:text="覆盖 README 中的 Tab、样式、角标、自定义 View、嵌套、动态重绑、手动 Ability 和 RecyclerView 能力。" />
+                android:text="覆盖 Tab、样式、角标、嵌套、动态重绑、手动 Ability、Recycler 以及 KSP 生成式注册。"
+                android:textSize="14sp" />
 
             <Button android:id="@+id/basicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="基础 Tab / 懒加载 / 角标" />
             <Button android:id="@+id/styledTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="滚动 Tab / 完整样式" />
             <Button android:id="@+id/advancedStyles" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="高级样式 / Drawable 指示器" />
-            <Button android:id="@+id/bottomTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="底部导航四 Tab" />
+            <Button android:id="@+id/bottomTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="底部导航式 Tab" />
             <Button android:id="@+id/customTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="完全自定义 Tab View" />
             <Button android:id="@+id/nestedTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="嵌套 TabHostFragment" />
             <Button android:id="@+id/dynamicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="动态 Tab / unbind + bind" />
             <Button android:id="@+id/manualTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="手动 Ability / 自定义 ID" />
             <Button android:id="@+id/recycler" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Recycler 多 Item / 自动绑定 / Payload" />
+            <Button android:id="@+id/kspRecycler" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="KSP Recycler / 注解生成" />
+            <Button android:id="@+id/kspTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="KSP Tabs / 注解生成" />
         </LinearLayout>
     </ScrollView>
 </layout>
