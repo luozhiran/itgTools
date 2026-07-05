@@ -2,9 +2,9 @@ package com.itg.itg_ui.recycler
 
 /** 构建完成后不可变的 Item Renderer 注册表。 */
 class ItemRendererRegistry<A : Any> internal constructor(
-    renderers: List<ItemRenderer<out ItgListItem, out androidx.viewbinding.ViewBinding, A>>,
+    renderers: List<ItemRenderer<out Any, out androidx.viewbinding.ViewBinding, A>>,
 ) {
-    private val rendererByClass: Map<Class<out ItgListItem>, RegisteredRenderer<A>>
+    private val rendererByClass: Map<Class<out Any>, RegisteredRenderer<A>>
     private val rendererByViewType: Map<Int, RegisteredRenderer<A>>
 
     init {
@@ -21,7 +21,7 @@ class ItemRendererRegistry<A : Any> internal constructor(
 
     val size: Int get() = rendererByClass.size
 
-    internal fun rendererFor(item: ItgListItem): RegisteredRenderer<A> =
+    internal fun rendererFor(item: Any): RegisteredRenderer<A> =
         rendererByClass[item.javaClass] ?: throw IllegalArgumentException(
             "未注册 ${item.javaClass.name} 的 ItemRenderer。请在 itgRecyclerAdapter DSL 中注册该类型。"
         )
@@ -34,13 +34,13 @@ class ItemRendererRegistry<A : Any> internal constructor(
 
 internal data class RegisteredRenderer<A : Any>(
     val viewType: Int,
-    val renderer: ItemRenderer<out ItgListItem, out androidx.viewbinding.ViewBinding, A>,
+    val renderer: ItemRenderer<out Any, out androidx.viewbinding.ViewBinding, A>,
 )
 
 class ItemRendererRegistryBuilder<A : Any> {
-    private val renderers = mutableListOf<ItemRenderer<out ItgListItem, out androidx.viewbinding.ViewBinding, A>>()
+    private val renderers = mutableListOf<ItemRenderer<out Any, out androidx.viewbinding.ViewBinding, A>>()
 
-    fun <I : ItgListItem, VB : androidx.viewbinding.ViewBinding> renderer(
+    fun <I : Any, VB : androidx.viewbinding.ViewBinding> renderer(
         renderer: ItemRenderer<I, VB, A>,
     ) {
         renderers += renderer

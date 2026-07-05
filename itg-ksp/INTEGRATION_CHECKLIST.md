@@ -14,7 +14,7 @@
 ## Recycler 接入
 
 - [ ] 定义 actions 接口
-- [ ] item 实现 `ItgListItem`
+- [ ] item 实现 `ItgListItem`，或通过 `itemKeyProperty` 使用已有业务唯一键
 - [ ] item 标注 `@ItgViewBindingItem` 或 `@ItgDataBindingItem`
 - [ ] 复杂 item 使用 `@ItgBind`
 - [ ] 简单字段展示使用 `@ItgAutoTextField`

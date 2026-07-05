@@ -13,7 +13,6 @@ import com.itg.itg_base.ability.PermissionAbility
 import com.itg.itg_base.ability.UiStateAbility
 import com.itg.itg_base.ability.ViewBindingAbility
 import com.itg.itg_base.ability.ViewModelAbility
-import java.lang.reflect.ParameterizedType
 
 /**
  * 组合式基类 Fragment，与 [AutoBindingBaseActivity] 能力对称。
@@ -61,22 +60,12 @@ abstract class AutoBindingBaseFragment<
 
     @Suppress("UNCHECKED_CAST")
     private val bindingClass: Class<VB> by lazy {
-        val type = javaClass.genericSuperclass as ParameterizedType
-        check(type.actualTypeArguments.size > 0) {
-            "${javaClass.simpleName} 须声明泛型：" +
-                "AutoBindingBaseFragment<XxxBinding, XxxModel>"
-        }
-        type.actualTypeArguments[0] as Class<VB>
+        resolveSuperclassTypeArgument(javaClass, AutoBindingBaseFragment::class.java, 0) as Class<VB>
     }
 
     @Suppress("UNCHECKED_CAST")
     private val modelClass: Class<VM> by lazy {
-        val type = javaClass.genericSuperclass as ParameterizedType
-        check(type.actualTypeArguments.size > 1) {
-            "缺少 ViewModel 泛型：" +
-                "AutoBindingBaseFragment<VB, VM> 需要两个参数"
-        }
-        type.actualTypeArguments[1] as Class<VM>
+        resolveSuperclassTypeArgument(javaClass, AutoBindingBaseFragment::class.java, 1) as Class<VM>
     }
 
     // ==================== 生命周期 ====================

@@ -5,10 +5,12 @@
 Item 身份由以下两项共同决定：
 
 ```text
-运行时 class + stableId
+运行时 class + item key
 ```
 
-同一提交列表内 `stableId` 必须全局唯一，即使两个 Item 类型不同也不能重复。内容默认使用 data class 的 `equals` 比较。
+旧 `ItgListItem` 的 key 是 `stableId`；普通业务模型的 key 来自 `itemKeyProperty`。同类型 Item 的 key 必须唯一。旧 `ItgListItem` 继续执行 stableId 全列表唯一校验，以保持原有契约。
+
+业务 key 不要求是 Long。Adapter 会按“类型 + key”分配内部 Long ID，并在同一个 Adapter 生命周期内持续复用。
 
 ## 2. 自定义内容比较
 
@@ -110,4 +112,3 @@ rows.value = rows.value.orEmpty().map { row ->
 ```
 
 原地修改同一对象会让 DiffUtil 无法可靠识别旧值与新值。
-

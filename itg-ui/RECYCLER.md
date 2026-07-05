@@ -21,6 +21,21 @@ interface FeedActions {
 
 `stableId` 必须在整个列表中唯一，不能只在相同 Item 类型内唯一。
 
+业务模型不实现 `ItgListItem` 时，在 Renderer 注册中提供已有唯一键，无需增加 `stableId`：
+
+```kotlin
+data class Order(val orderNo: String, val title: String)
+
+viewBinding<Order, ItemOrderBinding, FeedActions>(
+    inflate = ItemOrderBinding::inflate,
+    itemKey = { it.orderNo },
+) { item, _ ->
+    title.text = item.title
+}
+```
+
+`itemKey` 可使用 String、Long、UUID 等非空稳定值；Adapter 内部会分配 RecyclerView 使用的 Long ID。
+
 ## 2. ViewBinding 多 Item
 
 ```kotlin

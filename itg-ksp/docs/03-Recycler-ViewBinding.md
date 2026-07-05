@@ -10,7 +10,7 @@ interface FeedActions {
 }
 ```
 
-每个 Item 必须实现 `ItgListItem`，且同一列表中的 `stableId` 全局唯一：
+旧模式可以继续实现 `ItgListItem`，且同一列表中的 `stableId` 全局唯一：
 
 ```kotlin
 data class UserRow(
@@ -18,6 +18,22 @@ data class UserRow(
     val name: String,
 ) : ItgListItem
 ```
+
+业务模型不想增加 `stableId` 时，不实现 `ItgListItem`，在注解里指定已有的非空唯一属性：
+
+```kotlin
+@ItgViewBindingItem(
+    bindingClassName = "com.example.databinding.ItemOrderBinding",
+    actionsClassName = "com.example.order.OrderActions",
+    itemKeyProperty = "orderNo",
+)
+data class Order(
+    val orderNo: String,
+    val title: String,
+)
+```
+
+业务 key 可以是 String、Long、UUID 等具备稳定相等语义的非空类型。Adapter 内部负责生成 RecyclerView 所需的 Long ID。
 
 `bindingClassName` 和 `actionsClassName` 都是完整限定类名字符串。
 
@@ -111,9 +127,9 @@ data class MixedRow(
 
 ## 6. 必须避免的声明
 
-- Item 没有实现 `ItgListItem`。
+- Item 既没有实现 `ItgListItem`，也没有提供 `itemKeyProperty`。
+- `itemKeyProperty` 指向可空、可变或不唯一的属性。
 - 既没有 `@ItgBind`，也没有 `@ItgAutoTextField`。
 - 一个类同时标注 `@ItgViewBindingItem` 和 `@ItgDataBindingItem`，这会造成同一 Item 类型重复注册。
 - binding/actions 使用简单类名字符串；生成文件需要完整限定名。
 - 不同 Item 使用同一个 actions 类型但实际属于不应混合的 adapter。此时应拆分 actions 类型，以生成不同 registry。
-

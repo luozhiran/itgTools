@@ -41,6 +41,8 @@ adapter 工厂                createProfileRecyclerAdapter(actions)
 
 所有注解都是 `SOURCE` retention，不应在运行时通过反射查找。
 
+`@ItgViewBindingItem` 和 `@ItgDataBindingItem` 的身份规则：实现 `ItgListItem` 时可继续使用 `stableId`；否则必须设置 `itemKeyProperty`，处理器会生成 `itemKey = { item -> item.<property> }`。
+
 ## 4. runtime 速查
 
 | API | 使用场景 |
@@ -55,7 +57,7 @@ adapter 工厂                createProfileRecyclerAdapter(actions)
 编译器会校验：
 
 - Recycler Item 是普通 class。
-- Recycler Item 实现 `ItgListItem`。
+- Recycler Item 实现 `ItgListItem`，或声明有效的 `itemKeyProperty`。
 - ViewBinding Item 至少有 `@ItgBind` 或自动字段。
 - `@ItgBind` 参数数量为 2 或 3，前两项看起来匹配 binding/actions。
 - Tab Item 是 Fragment 子类，支持递归继承检查。
@@ -65,4 +67,3 @@ adapter 工厂                createProfileRecyclerAdapter(actions)
 ## 6. 增量生成
 
 Recycler registry 是聚合输出：同一 actions 下任一 Item 变化都可能重建 registry。Tab 也是按 Host 与同组 Item 聚合。不要编辑 `build/generated/ksp` 下的文件，下一次构建会覆盖。
-

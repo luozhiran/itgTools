@@ -25,11 +25,12 @@
     itemVariableExpression = "com.example.BR.item",
     actionsVariableExpression = "com.example.BR.actions",
     actionsClassName = "com.example.feed.FeedActions",
+    itemKeyProperty = "articleId",
 )
 data class ArticleRow(
-    override val stableId: Long,
+    val articleId: String,
     val title: String,
-) : ItgListItem
+)
 ```
 
 四个参数都是生成进 Kotlin 源码的表达式或类型名：
@@ -40,6 +41,7 @@ data class ArticleRow(
 | `itemVariableExpression` | Item 的 BR id |
 | `actionsVariableExpression` | actions 的 BR id |
 | `actionsClassName` | actions 完整限定类名，也是 registry 分组键 |
+| `itemKeyProperty` | 可选；不实现 ItgListItem 时指定已有非空唯一属性 |
 
 ## 3. BR 类位置
 
@@ -94,4 +96,3 @@ DataBinding 的 payload 用于 DiffUtil 通知；最终 `setVariable` 仍会执�
 - `actionsVariableId 不能为 0`：使用了默认 `"0"`；当前生成器要求真实 actions variable。
 - `布局 ... 不包含 itemVariableId`：注解指向的 BR id 与该布局不匹配。
 - `布局 ... 不包含 actionsVariableId`：布局没有对应 actions variable。
-

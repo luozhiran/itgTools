@@ -7,16 +7,17 @@ import androidx.databinding.ViewDataBinding
 import androidx.lifecycle.LifecycleOwner
 import androidx.viewbinding.ViewBinding
 
-inline fun <reified I : ItgListItem, VB : ViewBinding, A : Any>
+inline fun <reified I : Any, VB : ViewBinding, A : Any>
     ItemRendererRegistryBuilder<A>.viewBinding(
     noinline inflate: (LayoutInflater, ViewGroup, Boolean) -> VB,
     noinline areContentsTheSame: (I, I) -> Boolean = { old, new -> old == new },
     noinline getChangePayload: (I, I) -> Any? = { _, _ -> null },
     noinline onRecycled: (VB) -> Unit = {},
     noinline bindPayload: (VB, I, A, List<Any>) -> Boolean = { _, _, _, _ -> false },
+    noinline itemKey: (I) -> Any = { item -> defaultItemKey(item) },
     noinline bind: VB.(I, A) -> Unit,
 ) {
-    renderer(object : ItemRenderer<I, VB, A>(I::class.java) {
+    renderer(object : ItemRenderer<I, VB, A>(I::class.java, itemKey) {
         override fun createBinding(inflater: LayoutInflater, parent: ViewGroup): VB =
             inflate(inflater, parent, false)
 
@@ -42,16 +43,17 @@ inline fun <reified I : ItgListItem, VB : ViewBinding, A : Any>
     })
 }
 
-inline fun <reified I : ItgListItem, VB : ViewBinding, A : Any>
+inline fun <reified I : Any, VB : ViewBinding, A : Any>
     ItemRendererRegistryBuilder<A>.viewBindingWithPayloads(
     noinline inflate: (LayoutInflater, ViewGroup, Boolean) -> VB,
     noinline areContentsTheSame: (I, I) -> Boolean = { old, new -> old == new },
     noinline getChangePayload: (I, I) -> Any? = { _, _ -> null },
     noinline onRecycled: (VB) -> Unit = {},
     noinline bindPayload: (VB, I, A, List<Any>) -> Boolean = { _, _, _, _ -> false },
+    noinline itemKey: (I) -> Any = { item -> defaultItemKey(item) },
     noinline bind: VB.(I, A, List<Any>) -> Unit,
 ) {
-    renderer(object : ItemRenderer<I, VB, A>(I::class.java) {
+    renderer(object : ItemRenderer<I, VB, A>(I::class.java, itemKey) {
         override fun createBinding(inflater: LayoutInflater, parent: ViewGroup): VB =
             inflate(inflater, parent, false)
 
@@ -77,20 +79,21 @@ inline fun <reified I : ItgListItem, VB : ViewBinding, A : Any>
     })
 }
 
-inline fun <reified I : ItgListItem, A : Any>
+inline fun <reified I : Any, A : Any>
     ItemRendererRegistryBuilder<A>.dataBinding(
     layoutId: Int,
     itemVariableId: Int,
     actionsVariableId: Int? = null,
     noinline areContentsTheSame: (I, I) -> Boolean = { old, new -> old == new },
     noinline getChangePayload: (I, I) -> Any? = { _, _ -> null },
+    noinline itemKey: (I) -> Any = { item -> defaultItemKey(item) },
 ) {
     require(layoutId != 0) { "layoutId 不能为 0。" }
     require(itemVariableId != 0) { "itemVariableId 不能为 0。" }
     require(actionsVariableId == null || actionsVariableId != 0) {
         "actionsVariableId 不能为 0。"
     }
-    renderer(object : ItemRenderer<I, ViewDataBinding, A>(I::class.java) {
+    renderer(object : ItemRenderer<I, ViewDataBinding, A>(I::class.java, itemKey) {
         override fun createBinding(inflater: LayoutInflater, parent: ViewGroup): ViewDataBinding =
             requireNotNull(DataBindingUtil.inflate(inflater, layoutId, parent, false)) {
                 "布局 $layoutId 未生成 ViewDataBinding，请确认布局根节点为 <layout>。"

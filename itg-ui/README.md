@@ -229,7 +229,7 @@ class MainActivity : TabHostActivity<ActivityMainBinding, MainModel>() {
 
 ### 1. 定义列表 UI Item 和事件
 
-列表数据实现 `ItgListItem`。`stableId` 必须在整个列表中全局唯一，并在该条目生命周期内保持不变：
+列表数据可以实现 `ItgListItem`。`stableId` 必须在整个列表中全局唯一，并在该条目生命周期内保持不变：
 
 ```kotlin
 data class UserRow(
@@ -249,6 +249,8 @@ interface FeedActions {
 ```
 
 推荐使用不可变 `data class` 作为 UI Item。默认内容 Diff 直接使用 `equals()`，不需要业务层重复编写比较代码。
+
+普通业务模型也可以不实现 `ItgListItem`，注册 Renderer 时通过 `itemKey = { it.id }` 使用已有非空唯一属性。Adapter 会在内部生成 RecyclerView 所需 Long ID。
 
 ### 2. ViewBinding 多 Item
 
@@ -320,7 +322,7 @@ override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         adapter = adapter,
     )
 
-    // LiveData<List<ItgListItem>> 自动提交
+    // LiveData<List<Any>> 或具体业务类型列表自动提交
     recyclerAbility.observeItems(viewModel.rows)
 
     // 也可以手动提交不可变列表
@@ -332,7 +334,7 @@ Fragment 必须传 `viewLifecycleOwner`。Owner 销毁时会自动移除 LiveDat
 
 ### 5. Diff、Payload 和稳定 ID
 
-- 相同类型且 `stableId` 相同：视为同一个 Item。
+- 相同类型且 item key 相同：视为同一个 Item。ItgListItem 默认使用 stableId，普通模型使用 Renderer 的 itemKey。
 - 默认使用 data class `equals()` 判断内容是否变化。
 - 不同 Item 类型即使 ID 相同也不是同一个 Item，但提交列表仍禁止任何重复 ID。
 - Adapter 使用 `AsyncListDiffer` 在后台计算差异，并启用 `PREVENT_WHEN_EMPTY` 状态恢复策略。
@@ -875,7 +877,7 @@ class SimpleFragment : AutoBindingBaseFragment<FragmentSimpleBinding, SimpleMode
 | `dataBinding<I, A>(...)` | 注册自动变量绑定的 DataBinding Item |
 | `RecyclerViewAbility.bind(...)` | 配置 RecyclerView 并绑定 LifecycleOwner |
 | `RecyclerViewAbility.observeItems(liveData)` | 生命周期安全地自动提交列表 |
-| `RecyclerController.submitList(items)` | 校验 stableId 后提交不可变列表快照 |
+| `RecyclerController.submitList(items)` | 校验 item key 后提交不可变列表快照 |
 | `RecyclerController.clear()` | 清空列表 |
 | `RecyclerController.scrollToPosition(...)` | 普通或平滑滚动到指定位置 |
 

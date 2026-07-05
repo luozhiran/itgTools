@@ -49,7 +49,7 @@ class RecyclerViewAbility(
     }
 
     /** 自动观察 LiveData 并提交不可变列表快照。 */
-    fun <I : ItgListItem> observeItems(items: LiveData<List<I>>) {
+    fun <I : Any> observeItems(items: LiveData<List<I>>) {
         val owner = checkNotNull(lifecycleOwner) { "请先调用 bind()。" }
         val boundController = checkNotNull(controller) { "请先调用 bind()。" }
         clearItemObservers()

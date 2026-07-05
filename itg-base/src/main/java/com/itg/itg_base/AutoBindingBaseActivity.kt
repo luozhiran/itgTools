@@ -14,7 +14,6 @@ import com.itg.itg_base.ability.SystemBarAbility
 import com.itg.itg_base.ability.UiStateAbility
 import com.itg.itg_base.ability.ViewBindingAbility
 import com.itg.itg_base.ability.ViewModelAbility
-import java.lang.reflect.ParameterizedType
 
 /**
  * 组合式基类 Activity，通过 Ability 组合提供以下能力：
@@ -85,33 +84,13 @@ abstract class AutoBindingBaseActivity<
     // ==================== 泛型推导 ====================
 
     @Suppress("UNCHECKED_CAST")
-    private val bindingClass: Class<VB> by lazy { resolveTypeArg(0) as Class<VB> }
+    private val bindingClass: Class<VB> by lazy {
+        resolveSuperclassTypeArgument(javaClass, AutoBindingBaseActivity::class.java, 0) as Class<VB>
+    }
 
     @Suppress("UNCHECKED_CAST")
-    private val modelClass: Class<VM> by lazy { resolveTypeArg(1) as Class<VM> }
-
-    /**
-     * 安全提取泛型实参，校验失败时给出明确错误信息（而非裸 NPE/ClassCastException）。
-     */
-    private fun resolveTypeArg(index: Int): Class<*> {
-        val superClass = javaClass.genericSuperclass
-        check(superClass is ParameterizedType) {
-            "${javaClass.simpleName} 必须以具体泛型继承，例如：\n" +
-                "  class ${javaClass.simpleName} : ${this::class.java.simpleName}<" +
-                "ActivityMainBinding, MyModel>()\n" +
-                "当前未声明泛型参数，无法自动推导。"
-        }
-        val args = superClass.actualTypeArguments
-        check(index < args.size) {
-            "泛型参数不足：需要 ${index + 1} 个，实际声明了 ${args.size} 个。\n" +
-                "请确保同时声明 ViewBinding 和 ViewModel 泛型：" +
-                "AutoBindingBaseActivity<VB, VM>"
-        }
-        check(args[index] is Class<*>) {
-            "泛型参数 ${args[index]} 不是具体类。" +
-                "请确保传入的是具体类型（如 ActivityMainBinding::class.java），而非类型变量。"
-        }
-        return args[index] as Class<*>
+    private val modelClass: Class<VM> by lazy {
+        resolveSuperclassTypeArgument(javaClass, AutoBindingBaseActivity::class.java, 1) as Class<VM>
     }
 
     // ==================== 生命周期 ====================

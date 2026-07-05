@@ -39,15 +39,16 @@ data class KspUserRow(
 @ItgViewBindingItem(
     bindingClassName = BANNER_BINDING_CLASS,
     actionsClassName = KSP_DEMO_ACTIONS_CLASS,
+    itemKeyProperty = "bannerId",
 )
 data class KspBannerRow(
-    override val stableId: Long,
+    val bannerId: Long,
     val text: String,
-) : ItgListItem {
+) {
     @ItgBind
     fun bind(binding: ItemItgUiBannerBinding, actions: KspDemoActions) {
         binding.bannerText.text = text
-        binding.root.setOnClickListener { actions.onBannerClick(stableId) }
+        binding.root.setOnClickListener { actions.onBannerClick(bannerId) }
     }
 }
 

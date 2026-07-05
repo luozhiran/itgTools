@@ -40,6 +40,8 @@ interface ProfileActions {
 
 推荐优先用手写绑定处理复杂场景；简单字段展示可以用 `@ItgAutoTextField`。
 
+Item 可以继续实现 `ItgListItem`；如果业务模型不希望增加 `stableId`，则不实现该接口，并在 Item 注解中设置已有非空唯一属性，例如 `itemKeyProperty = "id"`。
+
 ```kotlin
 @ItgViewBindingItem(
     bindingClassName = "com.example.databinding.ItemProfileBinding",
@@ -149,6 +151,7 @@ override fun onCreateTabConfig(): TabConfig = createKspDemoTabConfig()
 先检查：
 
 - item 是否实现了 `ItgListItem`
+- 未实现 `ItgListItem` 时，是否设置了有效的 `itemKeyProperty`
 - `@ItgViewBindingItem` / `@ItgDataBindingItem` 的参数是否完整
 - `@ItgTabHost` / `@ItgTabItem` 是否在同一个 group
 - Tab 页面是否至少间接继承 `Fragment`

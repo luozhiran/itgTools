@@ -15,24 +15,25 @@ class BindingViewHolder internal constructor(
 class ItgRecyclerAdapter<A : Any> internal constructor(
     internal val registry: ItemRendererRegistry<A>,
     private val actions: A,
-) : ListAdapter<ItgListItem, BindingViewHolder>(ItgItemDiffCallback(registry)) {
+) : ListAdapter<Any, BindingViewHolder>(ItgItemDiffCallback(registry)) {
 
     internal var lifecycleOwner: LifecycleOwner? = null
+    private val stableIds = ItemStableIdStore(registry)
 
     init {
         setHasStableIds(true)
         stateRestorationPolicy = StateRestorationPolicy.PREVENT_WHEN_EMPTY
     }
 
-    override fun getItemId(position: Int): Long = getItem(position).stableId
+    override fun getItemId(position: Int): Long = stableIds.idFor(getItem(position))
 
-    override fun submitList(list: List<ItgListItem>?) {
-        list?.let(::requireUniqueStableIds)
+    override fun submitList(list: List<Any>?) {
+        list?.let { requireUniqueItemKeys(it, registry) }
         super.submitList(list)
     }
 
-    override fun submitList(list: List<ItgListItem>?, commitCallback: Runnable?) {
-        list?.let(::requireUniqueStableIds)
+    override fun submitList(list: List<Any>?, commitCallback: Runnable?) {
+        list?.let { requireUniqueItemKeys(it, registry) }
         super.submitList(list, commitCallback)
     }
 
@@ -74,17 +75,37 @@ class ItgRecyclerAdapter<A : Any> internal constructor(
 
 internal class ItgItemDiffCallback<A : Any>(
     private val registry: ItemRendererRegistry<A>,
-) : DiffUtil.ItemCallback<ItgListItem>() {
-    override fun areItemsTheSame(oldItem: ItgListItem, newItem: ItgListItem): Boolean =
-        oldItem.javaClass == newItem.javaClass && oldItem.stableId == newItem.stableId
+) : DiffUtil.ItemCallback<Any>() {
+    override fun areItemsTheSame(oldItem: Any, newItem: Any): Boolean =
+        oldItem.javaClass == newItem.javaClass &&
+            registry.rendererFor(oldItem).renderer.itemKeyErased(oldItem) ==
+            registry.rendererFor(newItem).renderer.itemKeyErased(newItem)
 
-    override fun areContentsTheSame(oldItem: ItgListItem, newItem: ItgListItem): Boolean {
+    override fun areContentsTheSame(oldItem: Any, newItem: Any): Boolean {
         if (oldItem.javaClass != newItem.javaClass) return false
         return registry.rendererFor(oldItem).renderer.contentsSameErased(oldItem, newItem)
     }
 
-    override fun getChangePayload(oldItem: ItgListItem, newItem: ItgListItem): Any? {
+    override fun getChangePayload(oldItem: Any, newItem: Any): Any? {
         if (oldItem.javaClass != newItem.javaClass) return null
         return registry.rendererFor(oldItem).renderer.payloadErased(oldItem, newItem)
+    }
+}
+
+private data class ItemIdentity(
+    val itemClass: Class<*>,
+    val key: Any,
+)
+
+internal class ItemStableIdStore<A : Any>(
+    private val registry: ItemRendererRegistry<A>,
+) {
+    private val ids = mutableMapOf<ItemIdentity, Long>()
+    private var nextId = Long.MIN_VALUE
+
+    fun idFor(item: Any): Long {
+        val renderer = registry.rendererFor(item).renderer
+        val identity = ItemIdentity(item.javaClass, renderer.itemKeyErased(item))
+        return ids.getOrPut(identity) { nextId++ }
     }
 }

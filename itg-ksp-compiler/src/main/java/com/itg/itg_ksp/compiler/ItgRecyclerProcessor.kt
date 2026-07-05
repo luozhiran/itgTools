@@ -14,6 +14,7 @@ import com.google.devtools.ksp.symbol.KSFile
 import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.symbol.KSFunctionDeclaration
 import com.google.devtools.ksp.symbol.KSType
+import com.google.devtools.ksp.symbol.Nullability
 import com.itg.itg_ksp.annotations.ItgBind
 import com.itg.itg_ksp.annotations.ItgAutoTextField
 import com.itg.itg_ksp.annotations.ItgContentsSame
@@ -38,6 +39,7 @@ private data class ViewBindingItemSpec(
     val itemType: String,
     val bindingType: String,
     val actionsType: String,
+    val itemKeyProperty: String,
     val bindFunction: KSFunctionDeclaration?,
     val autoFields: List<AutoTextFieldSpec>,
     val payloadFunction: KSFunctionDeclaration?,
@@ -54,6 +56,7 @@ private data class AutoTextFieldSpec(
 private data class DataBindingItemSpec(
     val itemType: String,
     val actionsType: String,
+    val itemKeyProperty: String,
     val layoutRes: String,
     val itemVariableId: String,
     val actionsVariableId: String,
@@ -136,15 +139,9 @@ class ItgRecyclerProcessor(
             logger.error("@ItgViewBindingItem can only be used on regular classes.", classDeclaration)
             return null
         }
-        if (!implementsItgListItem(classDeclaration)) {
-            logger.error(
-                "Class ${classDeclaration.qualifiedName?.asString()} must implement ItgListItem.",
-                classDeclaration,
-            )
-            return null
-        }
-
         val annotation = classDeclaration.findAnnotation(VIEW_BINDING_ANNOTATION) ?: return null
+        val itemKeyProperty = annotation.stringValue("itemKeyProperty")
+        if (!validateItemIdentity(classDeclaration, itemKeyProperty)) return null
 
         val bindingType = annotation.stringValue("bindingClassName")
         val actionsType = annotation.stringValue("actionsClassName")
@@ -168,6 +165,7 @@ class ItgRecyclerProcessor(
             itemType = classDeclaration.qualifiedName!!.asString(),
             bindingType = bindingType,
             actionsType = actionsType,
+            itemKeyProperty = itemKeyProperty,
             bindFunction = bindFunction,
             autoFields = autoFields,
             payloadFunction = declaredFunctions.firstOrNull {
@@ -185,21 +183,16 @@ class ItgRecyclerProcessor(
             logger.error("@ItgDataBindingItem can only be used on regular classes.", classDeclaration)
             return null
         }
-        if (!implementsItgListItem(classDeclaration)) {
-            logger.error(
-                "Class ${classDeclaration.qualifiedName?.asString()} must implement ItgListItem.",
-                classDeclaration,
-            )
-            return null
-        }
-
         val annotation = classDeclaration.findAnnotation(DATA_BINDING_ANNOTATION) ?: return null
+        val itemKeyProperty = annotation.stringValue("itemKeyProperty")
+        if (!validateItemIdentity(classDeclaration, itemKeyProperty)) return null
 
         val declaredFunctions = classDeclaration.declarations.filterIsInstance<KSFunctionDeclaration>()
 
         return DataBindingItemSpec(
             itemType = classDeclaration.qualifiedName!!.asString(),
             actionsType = annotation.stringValue("actionsClassName"),
+            itemKeyProperty = itemKeyProperty,
             layoutRes = annotation.stringValue("layoutExpression"),
             itemVariableId = annotation.stringValue("itemVariableExpression"),
             actionsVariableId = annotation.stringValue("actionsVariableExpression"),
@@ -339,6 +332,9 @@ class ItgRecyclerProcessor(
         }
         appendLine("        $rendererCall")
         appendLine("            inflate = ${spec.bindingType}::inflate,")
+        if (spec.itemKeyProperty.isNotBlank()) {
+            appendLine("            itemKey = { item -> item.${spec.itemKeyProperty} },")
+        }
         payloadExpression?.let { appendLine("            $it") }
         contentsExpression?.let { appendLine("            $it") }
         when {
@@ -375,6 +371,9 @@ class ItgRecyclerProcessor(
         appendLine("            layoutId = ${spec.layoutRes},")
         appendLine("            itemVariableId = ${spec.itemVariableId},")
         appendLine("            actionsVariableId = ${spec.actionsVariableId},")
+        if (spec.itemKeyProperty.isNotBlank()) {
+            appendLine("            itemKey = { item -> item.${spec.itemKeyProperty} },")
+        }
         payloadExpression?.let { appendLine("            $it") }
         contentsExpression?.let { appendLine("            $it") }
         appendLine("        )")
@@ -464,6 +463,45 @@ class ItgRecyclerProcessor(
 
     private fun implementsItgListItem(classDeclaration: KSClassDeclaration): Boolean =
         isSubclassOf(classDeclaration, ITEM_LIST_ITEM)
+
+    private fun validateItemIdentity(
+        classDeclaration: KSClassDeclaration,
+        itemKeyProperty: String,
+    ): Boolean {
+        if (itemKeyProperty.isBlank()) {
+            if (implementsItgListItem(classDeclaration)) return true
+            logger.error(
+                "Class ${classDeclaration.qualifiedName?.asString()} must implement ItgListItem " +
+                    "or declare a non-empty itemKeyProperty in its Item annotation.",
+                classDeclaration,
+            )
+            return false
+        }
+        if (!itemKeyProperty.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) {
+            logger.error("itemKeyProperty must be a simple Kotlin property name.", classDeclaration)
+            return false
+        }
+        val property = declaredProperties(classDeclaration)
+            .firstOrNull { it.simpleName.asString() == itemKeyProperty }
+        if (property == null) {
+            logger.error(
+                "Class ${classDeclaration.qualifiedName?.asString()} does not declare property $itemKeyProperty.",
+                classDeclaration,
+            )
+            return false
+        }
+        if (property.type.resolve().nullability == Nullability.NULLABLE) {
+            logger.error("itemKeyProperty $itemKeyProperty must be non-null.", property)
+            return false
+        }
+        if (property.isMutable) {
+            logger.warn(
+                "itemKeyProperty $itemKeyProperty is mutable; changing it breaks Recycler item identity.",
+                property,
+            )
+        }
+        return true
+    }
 
     private fun isFragmentClass(classDeclaration: KSClassDeclaration): Boolean =
         isSubclassOf(classDeclaration, FRAGMENT_CLASS)

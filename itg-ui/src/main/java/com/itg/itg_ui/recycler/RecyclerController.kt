@@ -9,9 +9,9 @@ class RecyclerController<A : Any> internal constructor(
 ) {
     private val recyclerViewRef = WeakReference(recyclerView)
 
-    val currentItems: List<ItgListItem> get() = adapter.currentList
+    val currentItems: List<Any> get() = adapter.currentList
 
-    fun submitList(items: List<ItgListItem>, commitCallback: (() -> Unit)? = null) {
+    fun submitList(items: List<Any>, commitCallback: (() -> Unit)? = null) {
         val immutableCopy = items.toList()
         if (commitCallback == null) {
             adapter.submitList(immutableCopy)
@@ -32,10 +32,27 @@ class RecyclerController<A : Any> internal constructor(
 
 }
 
-internal fun requireUniqueStableIds(items: List<ItgListItem>) {
-    val duplicateId = items.groupingBy { it.stableId }.eachCount()
+internal fun <A : Any> requireUniqueItemKeys(
+    items: List<Any>,
+    registry: ItemRendererRegistry<A>,
+) {
+    val identities = items.map { item ->
+        val key = registry.rendererFor(item).renderer.itemKeyErased(item)
+        require(key !is Unit) { "${item.javaClass.name} 的 itemKey 不能是 Unit。" }
+        ItemKey(item.javaClass, key)
+    }
+    val duplicate = identities.groupingBy { it }.eachCount()
         .entries.firstOrNull { it.value > 1 }?.key
-    require(duplicateId == null) {
-        "stableId=$duplicateId 在列表中重复；stableId 必须全局唯一。"
+    require(duplicate == null) {
+        "Item 类型 ${duplicate?.itemClass?.name} 的 itemKey=${duplicate?.key} 重复；同类型 Item 的 key 必须唯一。"
+    }
+
+    val duplicateLegacyId = items.filterIsInstance<ItgListItem>()
+        .groupingBy { it.stableId }.eachCount()
+        .entries.firstOrNull { it.value > 1 }?.key
+    require(duplicateLegacyId == null) {
+        "stableId=$duplicateLegacyId 在列表中重复；旧 ItgListItem 的 stableId 必须全局唯一。"
     }
 }
+
+private data class ItemKey(val itemClass: Class<*>, val key: Any)

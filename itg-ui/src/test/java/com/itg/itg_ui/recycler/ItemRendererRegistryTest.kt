@@ -72,17 +72,48 @@ class ItemRendererRegistryTest {
 
     @Test
     fun stableIds_mustBeUniqueAcrossItemTypes() {
+        val registry = ItemRendererRegistryBuilder<Unit>().apply {
+            renderer(renderer<UserRow>())
+            renderer(renderer<BannerRow>())
+        }.build()
         assertThrows(IllegalArgumentException::class.java) {
-            requireUniqueStableIds(listOf(UserRow(1, "A"), BannerRow(1, "url")))
+            requireUniqueItemKeys(listOf(UserRow(1, "A"), BannerRow(1, "url")), registry)
         }
-        requireUniqueStableIds(listOf(UserRow(1, "A"), BannerRow(2, "url")))
+        requireUniqueItemKeys(listOf(UserRow(1, "A"), BannerRow(2, "url")), registry)
+    }
+
+    @Test
+    fun businessItems_useRendererKeyWithoutImplementingItgListItem() {
+        val renderer = TestRenderer(
+            itemClass = BusinessRow::class.java,
+            itemKey = { it.businessId },
+        )
+        val registry = ItemRendererRegistryBuilder<Unit>().apply {
+            renderer(renderer)
+        }.build()
+        val diff = ItgItemDiffCallback(registry)
+        val old = BusinessRow("order-1", "old")
+        val changed = BusinessRow("order-1", "new")
+
+        assertTrue(diff.areItemsTheSame(old, changed))
+        assertFalse(diff.areContentsTheSame(old, changed))
+        requireUniqueItemKeys(listOf(old), registry)
+        assertThrows(IllegalArgumentException::class.java) {
+            requireUniqueItemKeys(listOf(old, changed), registry)
+        }
+
+        val stableIds = ItemStableIdStore(registry)
+        assertEquals(stableIds.idFor(old), stableIds.idFor(changed))
+        assertNotEquals(stableIds.idFor(old), stableIds.idFor(BusinessRow("order-2", "new")))
     }
 
     private inline fun <reified I : ItgListItem> renderer(): TestRenderer<I> =
         TestRenderer(I::class.java)
 
-    private open class TestRenderer<I : ItgListItem>(itemClass: Class<I>) :
-        ItemRenderer<I, ViewBinding, Unit>(itemClass) {
+    private open class TestRenderer<I : Any>(
+        itemClass: Class<I>,
+        itemKey: (I) -> Any = { defaultItemKey(it) },
+    ) : ItemRenderer<I, ViewBinding, Unit>(itemClass, itemKey) {
         override fun createBinding(inflater: LayoutInflater, parent: ViewGroup): ViewBinding =
             error("Not used by this unit test")
 
@@ -104,4 +135,9 @@ class ItemRendererRegistryTest {
         override val stableId: Long,
         val url: String,
     ) : ItgListItem
+
+    private data class BusinessRow(
+        val businessId: String,
+        val title: String,
+    )
 }

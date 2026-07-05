@@ -4,11 +4,10 @@ import android.app.Application
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.example.itg_base.arch.ItgModel
-import com.itg.itg_ui.recycler.ItgListItem
 
 class KspRecyclerDemoModel(app: Application) : ItgModel(app) {
-    private val _rows = MutableLiveData<List<ItgListItem>>(initialRows())
-    val rows: LiveData<List<ItgListItem>> = _rows
+    private val _rows = MutableLiveData<List<Any>>(initialRows())
+    val rows: LiveData<List<Any>> = _rows
     private var nextId = 100L
     private var renameCount = 1
 
@@ -32,7 +31,7 @@ class KspRecyclerDemoModel(app: Application) : ItgModel(app) {
         _rows.value = emptyList()
     }
 
-    private fun initialRows(): List<ItgListItem> = listOf(
+    private fun initialRows(): List<Any> = listOf(
         KspBannerRow(10, "KSP 生成式 registry：ViewBinding / DataBinding / Payload"),
         KspUserRow(1, "KSP 用户 A"),
         KspAutoRow(15, "自动字段绑定", "不用写 @ItgBind，直接生成 TextView 赋值"),
