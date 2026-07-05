@@ -50,7 +50,7 @@ class AdvancedTabStylesActivity :
         return TabConfig(
             tabMode = TabLayout.MODE_FIXED,
             style = TabStyle(
-                tabHeightDp = 64,
+                tabHeightDp = 72,
                 indicator = TabIndicatorStyle(
                     drawable = indicatorDrawable,
                     heightDp = 6,
@@ -68,6 +68,7 @@ class AdvancedTabStylesActivity :
                     allCaps = false,
                 ),
                 itemStyle = TabItemStyle(
+                    minWidthDp = 96,
                     padding = TabPadding.all(8f),
                     selectedBackground = 0xFFFFF3E0.toInt(),
                     unselectedBackground = Color.TRANSPARENT,
