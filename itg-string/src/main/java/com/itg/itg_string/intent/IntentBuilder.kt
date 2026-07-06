@@ -1,6 +1,8 @@
 package com.itg.itg_string.intent
 
+import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import java.nio.charset.Charset
 
@@ -38,7 +40,18 @@ import java.nio.charset.Charset
  * val intent = builder.build()
  * ```
  *
- * **场景三：注入已有 Intent**
+ * **场景三：显式 Intent 启动 Activity**
+ * ```kotlin
+ * context.startActivity(
+ *     IntentBuilder()
+ *         .component(ComponentName(context, DetailActivity::class.java))
+ *         .fromUrl("https://api.com?id=12345", prefix = "url_")
+ *         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ *         .build()
+ * )
+ * ```
+ *
+ * **场景四：注入已有 Intent**
  * ```kotlin
  * IntentBuilder()
  *     .fromMap(extras, prefix = "extra_")
@@ -91,6 +104,21 @@ class IntentBuilder {
 
     /** Intent action */
     private var intentAction: String? = null
+
+    /** 显式目标组件 */
+    private var componentName: ComponentName? = null
+
+    /** Intent flags（setFlags 方式，0 表示未设置） */
+    private var flags: Int = 0
+
+    /** data URI */
+    private var dataUri: Uri? = null
+
+    /** MIME type */
+    private var mimeType: String? = null
+
+    /** categories 集合 */
+    private val categories = linkedSetOf<String>()
 
     // ==================================================================
     // 错误处理
@@ -286,7 +314,36 @@ class IntentBuilder {
     }
 
     // ==================================================================
-    // 配置
+    // 配置：目标组件
+    // ==================================================================
+
+    /**
+     * 设置显式目标组件，等价于 [Intent.setComponent]。
+     *
+     * 这是启动特定 Activity 最常用的方法。
+     *
+     * @param component 目标 [ComponentName]；传 null 清空
+     * @return 自身（链式调用）
+     */
+    fun component(component: ComponentName?): IntentBuilder {
+        this.componentName = component
+        return this
+    }
+
+    /**
+     * 通过包名和类名设置目标组件。
+     *
+     * @param packageName 目标包名
+     * @param className   目标类全限定名
+     * @return 自身（链式调用）
+     */
+    fun component(packageName: String, className: String): IntentBuilder {
+        this.componentName = ComponentName(packageName, className)
+        return this
+    }
+
+    // ==================================================================
+    // 配置：action / data / type
     // ==================================================================
 
     /**
@@ -297,6 +354,109 @@ class IntentBuilder {
      */
     fun action(action: String?): IntentBuilder {
         this.intentAction = action
+        return this
+    }
+
+    /**
+     * 设置 Intent 的 data URI，等价于 [Intent.setData]。
+     *
+     * @param uri data URI；传 null 清空
+     * @return 自身（链式调用）
+     */
+    fun data(uri: Uri?): IntentBuilder {
+        this.dataUri = uri
+        return this
+    }
+
+    /**
+     * 设置 Intent 的 MIME type，等价于 [Intent.setType]。
+     *
+     * 注意：单独调用 [data] 后再调用 [type] 会产生互斥效果。
+     * 如需同时设置 data 和 type，请使用 [dataAndType]。
+     *
+     * @param type MIME type 字符串；传 null 清空
+     * @return 自身（链式调用）
+     */
+    fun type(type: String?): IntentBuilder {
+        this.mimeType = type
+        return this
+    }
+
+    /**
+     * 同时设置 data URI 和 MIME type，等价于 [Intent.setDataAndType]。
+     *
+     * 与分开调用 [data] + [type] 不同，此方法保证两者原子设置。
+     *
+     * @param uri  data URI；传 null 清空
+     * @param type MIME type；传 null 清空
+     * @return 自身（链式调用）
+     */
+    fun dataAndType(uri: Uri?, type: String?): IntentBuilder {
+        this.dataUri = uri
+        this.mimeType = type
+        return this
+    }
+
+    // ==================================================================
+    // 配置：flags
+    // ==================================================================
+
+    /**
+     * 设置 Intent flags（覆盖模式），等价于 [Intent.setFlags]。
+     *
+     * @param flags flag 值，如 `Intent.FLAG_ACTIVITY_NEW_TASK`
+     * @return 自身（链式调用）
+     */
+    fun flags(flags: Int): IntentBuilder {
+        this.flags = flags
+        return this
+    }
+
+    /**
+     * 追加 Intent flags（叠加模式），等价于 [Intent.addFlags]。
+     *
+     * 可多次调用，每次追加到已有 flags。与 [flags] 的区别是不清除已有的。
+     *
+     * @param flags 要追加的 flag 值
+     * @return 自身（链式调用）
+     *
+     * 使用示例：
+     * ```kotlin
+     * IntentBuilder()
+     *     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+     *     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+     *     .build()
+     * ```
+     */
+    fun addFlags(flags: Int): IntentBuilder {
+        this.flags = this.flags or flags
+        return this
+    }
+
+    // ==================================================================
+    // 配置：categories
+    // ==================================================================
+
+    /**
+     * 添加一个 category，等价于 [Intent.addCategory]。
+     *
+     * 可多次调用添加多个 category，重复添加会自动去重。
+     *
+     * @param category category 字符串，如 [Intent.CATEGORY_DEFAULT]
+     * @return 自身（链式调用）
+     *
+     * 使用示例：
+     * ```kotlin
+     * IntentBuilder()
+     *     .action(Intent.ACTION_VIEW)
+     *     .data(uri)
+     *     .addCategory(Intent.CATEGORY_DEFAULT)
+     *     .addCategory(Intent.CATEGORY_BROWSABLE)
+     *     .build()
+     * ```
+     */
+    fun addCategory(category: String): IntentBuilder {
+        categories.add(category)
         return this
     }
 
@@ -314,6 +474,20 @@ class IntentBuilder {
      */
     fun build(): Intent {
         val intent = Intent(intentAction)
+        // 目标组件
+        componentName?.let { intent.component = it }
+        // data + type（同时存在时用 setDataAndType 保证原子性）
+        if (dataUri != null && mimeType != null) {
+            intent.setDataAndType(dataUri, mimeType)
+        } else {
+            dataUri?.let { intent.data = it }
+            mimeType?.let { intent.type = it }
+        }
+        // flags
+        if (flags != 0) intent.flags = flags
+        // categories
+        categories.forEach { intent.addCategory(it) }
+        // extras
         if (sources.isNotEmpty()) {
             intent.putExtras(mergeAll())
         }
@@ -380,6 +554,11 @@ class IntentBuilder {
         errorLog.clear()
         errorHandler = null
         intentAction = null
+        componentName = null
+        flags = 0
+        dataUri = null
+        mimeType = null
+        categories.clear()
         return this
     }
 

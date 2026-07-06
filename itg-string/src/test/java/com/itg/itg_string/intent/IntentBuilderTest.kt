@@ -865,4 +865,220 @@ class IntentBuilderTest {
         assertEquals(50, intent.extras?.size())
         assertEquals("value_25", intent.getStringExtra("key_25"))
     }
+
+    // ==================================================================
+    // 配置：目标组件
+    // ==================================================================
+
+    @Test
+    fun component_byComponentName() {
+        val cn = android.content.ComponentName("com.example", "com.example.DetailActivity")
+        val intent = IntentBuilder()
+            .component(cn)
+            .build()
+
+        assertEquals(cn, intent.component)
+    }
+
+    @Test
+    fun component_byPackageAndClass() {
+        val intent = IntentBuilder()
+            .component("com.example", "com.example.DetailActivity")
+            .build()
+
+        assertEquals("com.example", intent.component?.packageName)
+        assertEquals("com.example.DetailActivity", intent.component?.className)
+    }
+
+    @Test
+    fun component_nullClearsIt() {
+        val builder = IntentBuilder()
+            .component("com.example", "com.example.Activity")
+        builder.component(null)
+
+        assertNull(builder.build().component)
+    }
+
+    // ==================================================================
+    // 配置：data / type / dataAndType
+    // ==================================================================
+
+    @Test
+    fun data_setsUri() {
+        val uri = android.net.Uri.parse("https://example.com/product/123")
+        val intent = IntentBuilder()
+            .data(uri)
+            .build()
+
+        assertEquals(uri, intent.data)
+    }
+
+    @Test
+    fun type_setsMimeType() {
+        val intent = IntentBuilder()
+            .type("image/png")
+            .build()
+
+        assertEquals("image/png", intent.type)
+    }
+
+    @Test
+    fun dataAndType_setsBoth() {
+        val uri = android.net.Uri.parse("content://media/123")
+        val intent = IntentBuilder()
+            .dataAndType(uri, "image/jpeg")
+            .build()
+
+        assertEquals(uri, intent.data)
+        assertEquals("image/jpeg", intent.type)
+    }
+
+    @Test
+    fun dataAndType_separate_alsoWorks() {
+        val uri = android.net.Uri.parse("https://example.com")
+        val intent = IntentBuilder()
+            .data(uri)
+            .type("text/html")
+            .action(Intent.ACTION_VIEW)
+            .build()
+
+        assertEquals(uri, intent.data)
+        assertEquals("text/html", intent.type)
+        assertEquals(Intent.ACTION_VIEW, intent.action)
+    }
+
+    // ==================================================================
+    // 配置：flags / addFlags
+    // ==================================================================
+
+    @Test
+    fun flags_setMode() {
+        val intent = IntentBuilder()
+            .flags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .build()
+
+        assertEquals(Intent.FLAG_ACTIVITY_NEW_TASK, intent.flags)
+    }
+
+    @Test
+    fun addFlags_accumulate() {
+        val intent = IntentBuilder()
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .build()
+
+        val expected = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        assertEquals(expected, intent.flags and expected)
+    }
+
+    @Test
+    fun flags_overwritesPrevious() {
+        val intent = IntentBuilder()
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .flags(Intent.FLAG_ACTIVITY_CLEAR_TOP)  // setFlags 覆盖模式
+            .build()
+
+        assertEquals(Intent.FLAG_ACTIVITY_CLEAR_TOP, intent.flags)
+    }
+
+    // ==================================================================
+    // 配置：category
+    // ==================================================================
+
+    @Test
+    fun addCategory_single() {
+        val intent = IntentBuilder()
+            .addCategory(Intent.CATEGORY_DEFAULT)
+            .build()
+
+        assertTrue(intent.categories.contains(Intent.CATEGORY_DEFAULT))
+    }
+
+    @Test
+    fun addCategory_multiple() {
+        val intent = IntentBuilder()
+            .addCategory(Intent.CATEGORY_DEFAULT)
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .build()
+
+        assertEquals(2, intent.categories.size)
+        assertTrue(intent.categories.contains(Intent.CATEGORY_DEFAULT))
+        assertTrue(intent.categories.contains(Intent.CATEGORY_BROWSABLE))
+    }
+
+    @Test
+    fun addCategory_duplicate_deduplicated() {
+        val intent = IntentBuilder()
+            .addCategory(Intent.CATEGORY_DEFAULT)
+            .addCategory(Intent.CATEGORY_DEFAULT)
+            .build()
+
+        assertEquals(1, intent.categories.size)
+    }
+
+    // ==================================================================
+    // 配置：reset 清除新字段
+    // ==================================================================
+
+    @Test
+    fun reset_clearsComponentFlagsDataCategories() {
+        val builder = IntentBuilder()
+            .component("com.example", "com.example.Activity")
+            .flags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .data(android.net.Uri.parse("https://example.com"))
+            .type("text/html")
+            .addCategory(Intent.CATEGORY_DEFAULT)
+
+        builder.reset()
+
+        val intent = builder.build()
+        assertNull(intent.component)
+        assertEquals(0, intent.flags)
+        assertNull(intent.data)
+        assertNull(intent.type)
+        assertTrue(intent.categories.isNullOrEmpty())
+    }
+
+    // ==================================================================
+    // 集成：显式 Intent 启动 Activity
+    // ==================================================================
+
+    @Test
+    fun integration_explicitActivity_fullConfig() {
+        val uri = android.net.Uri.parse("myapp://product/12345")
+        val intent = IntentBuilder()
+            .component("com.example", "com.example.ProductActivity")
+            .action(Intent.ACTION_VIEW)
+            .data(uri)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addCategory(Intent.CATEGORY_DEFAULT)
+            .fromUrl("https://tracker.com?campaign=summer", prefix = "track_")
+            .put("source", "push")
+            .build()
+
+        assertEquals("com.example", intent.component?.packageName)
+        assertEquals(Intent.ACTION_VIEW, intent.action)
+        assertEquals(uri, intent.data)
+        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        assertTrue(intent.categories.contains(Intent.CATEGORY_DEFAULT))
+        assertEquals("summer", intent.getStringExtra("track_campaign"))
+        assertEquals("push", intent.getStringExtra("source"))
+    }
+
+    @Test
+    fun integration_shareIntent_pattern() {
+        val imageUri = android.net.Uri.parse("content://media/external/images/123")
+        val intent = IntentBuilder()
+            .action(Intent.ACTION_SEND)
+            .dataAndType(imageUri, "image/png")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .put("title", "分享图片")
+            .build()
+
+        assertEquals(Intent.ACTION_SEND, intent.action)
+        assertEquals(imageUri, intent.data)
+        assertEquals("image/png", intent.type)
+        assertTrue(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        assertEquals("分享图片", intent.getStringExtra("title"))
+    }
 }
