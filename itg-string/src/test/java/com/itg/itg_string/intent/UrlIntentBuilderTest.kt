@@ -1021,4 +1021,356 @@ class UrlIntentBuilderTest {
         assertEquals("42", intent.getStringExtra("url_id"))
         assertEquals(listOf("hot", "new"), intent.getStringArrayListExtra("url_tag"))
     }
+
+    // ==================================================================
+    // mergeBundles — 简单合并（无前缀）
+    // ==================================================================
+
+    @Test
+    fun mergeBundles_basic() {
+        val first = Bundle().apply {
+            putString("a", "value_a")
+            putString("b", "value_b")
+        }
+        val second = Bundle().apply {
+            putString("c", "value_c")
+            putString("d", "value_d")
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second)
+
+        assertEquals(4, merged.size())
+        assertEquals("value_a", merged.getString("a"))
+        assertEquals("value_b", merged.getString("b"))
+        assertEquals("value_c", merged.getString("c"))
+        assertEquals("value_d", merged.getString("d"))
+    }
+
+    @Test
+    fun mergeBundles_keyConflict_secondWins() {
+        val first = Bundle().apply {
+            putString("key", "first_value")
+            putString("common", "from_first")
+        }
+        val second = Bundle().apply {
+            putString("key", "second_value")
+            putString("extra", "from_second")
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second)
+
+        assertEquals(3, merged.size())
+        assertEquals("second_value", merged.getString("key"))   // second 覆盖
+        assertEquals("from_first", merged.getString("common"))
+        assertEquals("from_second", merged.getString("extra"))
+    }
+
+    @Test
+    fun mergeBundles_emptyFirst() {
+        val first = Bundle()
+        val second = Bundle().apply { putString("key", "value") }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second)
+
+        assertEquals(1, merged.size())
+        assertEquals("value", merged.getString("key"))
+    }
+
+    @Test
+    fun mergeBundles_emptySecond() {
+        val first = Bundle().apply { putString("key", "value") }
+        val second = Bundle()
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second)
+
+        assertEquals(1, merged.size())
+        assertEquals("value", merged.getString("key"))
+    }
+
+    @Test
+    fun mergeBundles_bothEmpty() {
+        val merged = UrlIntentBuilder.mergeBundles(Bundle(), Bundle())
+
+        assertTrue(merged.isEmpty)
+    }
+
+    @Test
+    fun mergeBundles_resultIndependentOfInputs() {
+        val first = Bundle().apply { putString("key", "original") }
+        val second = Bundle().apply { putString("other", "data") }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second)
+
+        // 修改 merged，不影响原始 Bundle
+        merged.putString("key", "modified")
+        merged.putString("other", "changed")
+
+        assertEquals("original", first.getString("key"))
+        assertEquals("data", second.getString("other"))
+    }
+
+    @Test
+    fun mergeBundles_preservesTypes() {
+        val first = Bundle().apply {
+            putString("str", "hello")
+            putInt("num", 42)
+        }
+        val second = Bundle().apply {
+            putBoolean("flag", true)
+            putDouble("score", 3.14)
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second)
+
+        assertEquals("hello", merged.getString("str"))
+        assertEquals(42, merged.getInt("num"))
+        assertTrue(merged.getBoolean("flag"))
+        assertEquals(3.14, merged.getDouble("score"), 0.0)
+    }
+
+    // ==================================================================
+    // mergeBundles — 前缀合并
+    // ==================================================================
+
+    @Test
+    fun mergeBundles_withPrefix_basic() {
+        val first = Bundle().apply { putString("source", "deeplink") }
+        val second = Bundle().apply {
+            putString("userId", "12345")
+            putString("token", "abc123")
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "cfg_")
+
+        assertEquals(3, merged.size())
+        assertEquals("deeplink", merged.getString("source"))
+        assertEquals("12345", merged.getString("cfg_userId"))
+        assertEquals("abc123", merged.getString("cfg_token"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_emptyPrefix_equalsSimpleMerge() {
+        val first = Bundle().apply { putString("a", "1") }
+        val second = Bundle().apply { putString("b", "2") }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "")
+
+        assertEquals(2, merged.size())
+        assertEquals("1", merged.getString("a"))
+        assertEquals("2", merged.getString("b"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesIntType() {
+        val first = Bundle().apply { putString("name", "test") }
+        val second = Bundle().apply { putInt("count", 42) }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "map_")
+
+        assertEquals(42, merged.getInt("map_count"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesLongType() {
+        val first = Bundle()
+        val second = Bundle().apply { putLong("timestamp", 1699000000000L) }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "p_")
+
+        assertEquals(1699000000000L, merged.getLong("p_timestamp"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesBooleanType() {
+        val first = Bundle()
+        val second = Bundle().apply {
+            putBoolean("active", true)
+            putBoolean("debug", false)
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "flag_")
+
+        assertTrue(merged.getBoolean("flag_active"))
+        assertFalse(merged.getBoolean("flag_debug"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesFloatType() {
+        val first = Bundle()
+        val second = Bundle().apply { putFloat("ratio", 0.75f) }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "v_")
+
+        assertEquals(0.75f, merged.getFloat("v_ratio"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesDoubleType() {
+        val first = Bundle()
+        val second = Bundle().apply { putDouble("score", 4.5) }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "d_")
+
+        assertEquals(4.5, merged.getDouble("d_score"), 0.0)
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesStringArrayList() {
+        val first = Bundle().apply { putString("title", "main") }
+        val second = Bundle().apply {
+            putStringArrayList("tags", ArrayList(listOf("kotlin", "android", "jetpack")))
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "arr_")
+
+        assertEquals("main", merged.getString("title"))
+        assertEquals(listOf("kotlin", "android", "jetpack"), merged.getStringArrayList("arr_tags"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_preservesIntegerArrayList() {
+        val first = Bundle()
+        val second = Bundle().apply {
+            putIntegerArrayList("ids", ArrayList(listOf(1, 2, 3, 4, 5)))
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "list_")
+
+        assertEquals(listOf(1, 2, 3, 4, 5), merged.getIntegerArrayList("list_ids"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_firstBundleUnaffected() {
+        val first = Bundle().apply { putString("original", "data") }
+        val second = Bundle().apply { putString("extra", "more") }
+
+        UrlIntentBuilder.mergeBundles(first, second, "p_")
+
+        // first 不被修改
+        assertEquals(1, first.size())
+        assertEquals("data", first.getString("original"))
+        assertFalse(first.containsKey("p_extra"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_secondBundleUnaffected() {
+        val first = Bundle()
+        val second = Bundle().apply { putString("key", "value") }
+
+        UrlIntentBuilder.mergeBundles(first, second, "pre_")
+
+        // second 不被修改
+        assertEquals(1, second.size())
+        assertEquals("value", second.getString("key"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_emptyArrayList() {
+        val first = Bundle()
+        val second = Bundle().apply {
+            putStringArrayList("empty_list", ArrayList())
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "e_")
+
+        val list = merged.getStringArrayList("e_empty_list")
+        assertNotNull(list)
+        assertTrue(list!!.isEmpty())
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_unknownTypeFallback() {
+        // 模拟一个非标准 Bundle value 类型 → toString() 兜底
+        val first = Bundle()
+        val second = Bundle().apply {
+            // 通过反射放入一个非标准类型（此处用 CharSequence 的子类，实际类型检测走 else 分支）
+            putCharSequence("cs_key", "char_seq_value")
+        }
+
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "u_")
+
+        // CharSequence 会被 else 分支 catch，走 putString(toString())
+        assertEquals("char_seq_value", merged.getString("u_cs_key"))
+    }
+
+    @Test
+    fun mergeBundles_withPrefix_overwritesExistingPrefixedKey() {
+        val first = Bundle().apply { putString("cfg_name", "old") }
+        val second = Bundle().apply { putString("name", "new") }
+
+        // second 加 "cfg_" 前缀后 key 为 "cfg_name"，与 first 冲突时覆盖
+        val merged = UrlIntentBuilder.mergeBundles(first, second, "cfg_")
+
+        assertEquals("new", merged.getString("cfg_name"))
+    }
+
+    // ==================================================================
+    // mergeBundles — 集成场景
+    // ==================================================================
+
+    @Test
+    fun integration_merge_urlBundle_and_mapBundle_then_intent() {
+        // 模拟完整链路：URL → Bundle + Map → Bundle → merge → Intent
+
+        // Step 1: URL Bundle
+        val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=deeplink&campaign=summer")!!
+
+        // Step 2: 业务配置 Map → Bundle
+        val cfgBundle = UrlIntentBuilder.toBundle(
+            mapOf<String, Any?>(
+                "userId" to 12345,
+                "isVip" to true,
+                "score" to 4.5,
+                "tags" to listOf("premium", "verified")
+            )
+        )
+
+        // Step 3: 带前缀合并
+        val merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle, "cfg_")
+
+        // Step 4: 注入 Intent
+        val intent = Intent(Intent.ACTION_VIEW)
+        intent.putExtras(merged)
+
+        // 校验 URL 参数
+        assertEquals("deeplink", intent.getStringExtra("source"))
+        assertEquals("summer", intent.getStringExtra("campaign"))
+
+        // 校验 Map 参数（带前缀）
+        assertEquals(12345, intent.getIntExtra("cfg_userId", -1))
+        assertTrue(intent.getBooleanExtra("cfg_isVip", false))
+        assertEquals(4.5, intent.getDoubleExtra("cfg_score", 0.0), 0.0)
+        assertEquals(listOf("premium", "verified"), intent.getStringArrayListExtra("cfg_tags"))
+    }
+
+    @Test
+    fun integration_merge_sameTypeBundles_withoutPrefix() {
+        // 两个同构 Bundle 直接合并（无前缀）
+        val bundle1 = UrlIntentBuilder.toBundle(
+            mapOf<String, Any?>("id" to 1, "name" to "Alice")
+        )
+        val bundle2 = UrlIntentBuilder.toBundle(
+            mapOf<String, Any?>("id" to 2, "extra" to "overwritten")
+        )
+
+        val merged = UrlIntentBuilder.mergeBundles(bundle1, bundle2)
+
+        // id 被 second 覆盖
+        assertEquals(2, merged.getInt("id"))
+        assertEquals("Alice", merged.getString("name"))
+        assertEquals("overwritten", merged.getString("extra"))
+    }
+
+    @Test
+    fun integration_merge_disjointKeys_noConflict() {
+        val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=push&priority=high")!!
+        val mapBundle = UrlIntentBuilder.toBundle(mapOf("env" to "production"))
+
+        val merged = UrlIntentBuilder.mergeBundles(urlBundle, mapBundle)
+
+        assertEquals(3, merged.size())
+        assertEquals("push", merged.getString("source"))
+        assertEquals("high", merged.getString("priority"))
+        assertEquals("production", merged.getString("env"))
+    }
 }
