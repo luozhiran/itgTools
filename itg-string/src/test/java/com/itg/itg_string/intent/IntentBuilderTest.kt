@@ -318,6 +318,25 @@ class IntentBuilderTest {
         assertEquals(1, builder.sourceCount())
     }
 
+    @Test
+    fun fromBundle_defensiveCopy_modifyOriginalDoesNotAffectBuilder() {
+        val original = Bundle().apply {
+            putString("key", "original_value")
+        }
+
+        val builder = IntentBuilder()
+            .fromBundle(original)
+
+        // 调用方修改原 Bundle
+        original.putString("key", "modified")
+        original.putString("new_key", "should_not_appear")
+
+        val bundle = builder.buildBundle()
+        assertEquals("original_value", bundle.getString("key"))
+        assertFalse(bundle.containsKey("new_key"))
+        assertEquals(1, bundle.size())
+    }
+
     // ==================================================================
     // 便捷方法：put()
     // ==================================================================
@@ -475,11 +494,10 @@ class IntentBuilderTest {
 
         assertEquals(1, callCount)
 
-        // 清空 handler
+        // reset 会同时清除 errorHandler
         builder.reset()
-        builder.onError(null)
         builder.fromUrl("!!! bad again")
-        assertEquals(1, callCount)  // 不再触发
+        assertEquals(1, callCount)  // handler 已清除，不再触发
     }
 
     @Test
@@ -575,6 +593,81 @@ class IntentBuilderTest {
 
         assertSame(existing, result)
         assertEquals("me", existing.getStringExtra("keep"))
+    }
+
+    // ==================================================================
+    // 构建输出：buildBundle()
+    // ==================================================================
+
+    @Test
+    fun buildBundle_basic() {
+        val bundle = IntentBuilder()
+            .put("name", "Alice")
+            .put("age", 25)
+            .buildBundle()
+
+        assertEquals("Alice", bundle.getString("name"))
+        assertEquals(25, bundle.getInt("age"))
+    }
+
+    @Test
+    fun buildBundle_multiSourceMerged() {
+        val bundle = IntentBuilder()
+            .fromUrl("https://api.com?source=deeplink", prefix = "url_")
+            .fromMap(mapOf("userId" to 999), prefix = "cfg_")
+            .put("extra", "bonus")
+            .buildBundle()
+
+        assertEquals("deeplink", bundle.getString("url_source"))
+        assertEquals(999, bundle.getInt("cfg_userId"))
+        assertEquals("bonus", bundle.getString("extra"))
+    }
+
+    @Test
+    fun buildBundle_secondOverwritesFirst() {
+        val bundle = IntentBuilder()
+            .put("key", "first")
+            .put("key", "second")
+            .buildBundle()
+
+        assertEquals("second", bundle.getString("key"))
+    }
+
+    @Test
+    fun buildBundle_noSources_returnsEmptyBundle() {
+        val bundle = IntentBuilder().buildBundle()
+
+        assertTrue(bundle.isEmpty)
+    }
+
+    @Test
+    fun buildBundle_resultIndependentOfBuilder() {
+        val builder = IntentBuilder().put("k", "v")
+        val bundle = builder.buildBundle()
+
+        // 修改 bundle 不影响 builder
+        bundle.putString("k", "modified")
+
+        val bundle2 = builder.buildBundle()
+        assertEquals("v", bundle2.getString("k"))
+    }
+
+    @Test
+    fun buildBundle_furtherProcessing_thenIntoIntent() {
+        // 先获取合并后的 Bundle，二次加工后注入 Intent
+        val bundle = IntentBuilder()
+            .fromUrl("https://api.com?q=kotlin", prefix = "url_")
+            .put("version", 2)
+            .buildBundle()
+
+        bundle.putLong("timestamp", 1700000000000L)
+
+        val intent = Intent(Intent.ACTION_VIEW)
+        intent.putExtras(bundle)
+
+        assertEquals("kotlin", intent.getStringExtra("url_q"))
+        assertEquals(2, intent.getIntExtra("version", -1))
+        assertEquals(1700000000000L, intent.getLongExtra("timestamp", -1L))
     }
 
     // ==================================================================
