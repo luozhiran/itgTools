@@ -12,17 +12,19 @@ import java.util.concurrent.Future
 /**
  * URL 查询参数 / Map → Android Bundle / Intent extras 转换工具类。
  *
- * 提供两条数据入口：
+ * 提供三条数据入口：
  * - **URL 入口**：[UrlParser] + [QueryParams] 解析 URL 中的查询参数
  * - **Map 入口**：直接接收 `Map<String, String>` / `Map<String, List<String>>` / `Map<String, *>`
+ * - **Bundle 合并入口**：[mergeBundles] 合并两个 Bundle，支持 key 前缀隔离
  *
- * 两条入口最终汇聚到同一套 Bundle 构建引擎，行为一致。
+ * 所有入口最终汇聚到同一套 Bundle 构建引擎，行为一致。
  *
  * 设计要点：
  * - 所有参数值以各自最合适的类型存储（String / Int / Boolean / ArrayList 等）
  * - 支持自定义字符集解码（URL 入口），兼容 GBK/Shift_JIS 等非 UTF-8 编码
  * - 内置双重编码检测（URL 入口 + Map<String, List<String>> 入口）
  * - 支持 key 前缀，避免 URL 参数覆盖 Intent 已有 extras
+ * - 支持 Bundle 合并：简单覆盖合并 + 前缀隔离合并，均保留值类型
  * - 同步 + 异步双模式，异步通过 [TaskExecutor] 驱动
  * - 所有方法无共享可变状态，天然线程安全
  *
@@ -35,6 +37,10 @@ import java.util.concurrent.Future
  * // === Map 入口 ===
  * val b = UrlIntentBuilder.toBundle(mapOf("key1" to "val1", "key2" to "val2"))
  * UrlIntentBuilder.putExtras(mapOf("id" to 123, "active" to true), intent, keyPrefix = "cfg_")
+ *
+ * // === Bundle 合并 ===
+ * val merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle)
+ * val prefixed = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle, "cfg_")
  * ```
  *
  * @author ITG Team
@@ -564,6 +570,113 @@ object UrlIntentBuilder {
         params: Map<String, *>, intent: Intent, keyPrefix: String, onResult: (Intent) -> Unit
     ): Future<*> {
         return TaskExecutor.io { onResult(putExtras(params, intent, keyPrefix)) }
+    }
+
+    // ==================================================================
+    // 功能三：Bundle 合并
+    // ==================================================================
+
+    /**
+     * 合并两个 [Bundle] 为一个新的 Bundle，key 冲突时 [second] 覆盖 [first]。
+     *
+     * 典型场景：URL 解析得到的 Bundle 与业务配置 Map 转换的 Bundle 合并后注入 Intent。
+     *
+     * @param first  第一个 Bundle
+     * @param second 第二个 Bundle（key 冲突时优先）
+     * @return 合并后的新 Bundle（独立副本，修改不影响入参）
+     *
+     * 使用示例：
+     * ```kotlin
+     * val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=deeplink")
+     * val cfgBundle = UrlIntentBuilder.toBundle(mapOf("userId" to 12345, "isVip" to true))
+     * val merged = UrlIntentBuilder.mergeBundles(urlBundle ?: Bundle(), cfgBundle)
+     * intent.putExtras(merged)
+     * ```
+     */
+    @JvmStatic
+    fun mergeBundles(first: Bundle, second: Bundle): Bundle {
+        return Bundle().apply {
+            putAll(first)
+            putAll(second)
+        }
+    }
+
+    /**
+     * 合并两个 [Bundle]，为 [second] 的所有 key 添加前缀后写入，用于避免 key 命名冲突。
+     *
+     * 前缀机制与 [putQueryExtras] 的 [keyPrefix] 设计一致。
+     * 支持类型保留：String / Int / Long / Boolean / Float / Double / ArrayList<String> / ArrayList<Int>。
+     * 未知类型退化兜底为 `putString(key, value.toString())`。
+     *
+     * @param first     第一个 Bundle（原样写入）
+     * @param second    第二个 Bundle（key 加前缀后写入）
+     * @param keyPrefix 追加到 [second] 每个 key 前的前缀；空字符串等价于 [mergeBundles]
+     * @return 合并后的新 Bundle
+     *
+     * 使用示例：
+     * ```kotlin
+     * val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=deeplink")
+     * val cfgBundle = UrlIntentBuilder.toBundle(mapOf("userId" to 12345))
+     * val merged = UrlIntentBuilder.mergeBundles(urlBundle ?: Bundle(), cfgBundle, "cfg_")
+     * merged.getString("source")        // "deeplink"
+     * merged.getInt("cfg_userId")       // 12345
+     * ```
+     */
+    @JvmStatic
+    @JvmName("mergeBundlesWithPrefix")
+    fun mergeBundles(first: Bundle, second: Bundle, keyPrefix: String): Bundle {
+        val merged = Bundle(first)
+        if (keyPrefix.isEmpty()) {
+            merged.putAll(second)
+            return merged
+        }
+        for (key in second.keySet()) {
+            val value = second.get(key)
+            @Suppress("UNCHECKED_CAST")
+            when (value) {
+                null -> { /* skip */ }
+                is String  -> merged.putString(keyPrefix + key, value)
+                is Int     -> merged.putInt(keyPrefix + key, value)
+                is Long    -> merged.putLong(keyPrefix + key, value)
+                is Boolean -> merged.putBoolean(keyPrefix + key, value)
+                is Float   -> merged.putFloat(keyPrefix + key, value)
+                is Double  -> merged.putDouble(keyPrefix + key, value)
+                is ArrayList<*> -> {
+                    if (value.isEmpty()) {
+                        merged.putStringArrayList(keyPrefix + key, ArrayList())
+                    } else {
+                        when (value.first()) {
+                            is String -> merged.putStringArrayList(
+                                keyPrefix + key, value as ArrayList<String>
+                            )
+                            is Int -> merged.putIntegerArrayList(
+                                keyPrefix + key, value as ArrayList<Int>
+                            )
+                            else -> merged.putStringArrayList(
+                                keyPrefix + key, ArrayList(value.map { it.toString() })
+                            )
+                        }
+                    }
+                }
+                else -> merged.putString(keyPrefix + key, value.toString())
+            }
+        }
+        return merged
+    }
+
+    /** [mergeBundles] 的异步版本。 */
+    @JvmStatic
+    fun mergeBundlesAsync(first: Bundle, second: Bundle, onResult: (Bundle) -> Unit): Future<*> {
+        return TaskExecutor.io { onResult(mergeBundles(first, second)) }
+    }
+
+    /** [mergeBundles] 的异步版本（带前缀）。 */
+    @JvmStatic
+    @JvmName("mergeBundlesWithPrefixAsync")
+    fun mergeBundlesAsync(
+        first: Bundle, second: Bundle, keyPrefix: String, onResult: (Bundle) -> Unit
+    ): Future<*> {
+        return TaskExecutor.io { onResult(mergeBundles(first, second, keyPrefix)) }
     }
 
     // ==================================================================
