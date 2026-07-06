@@ -43,6 +43,7 @@ ITG String 是 ItgTools 项目中的字符串处理模块，提供 **URL 解析*
   - [fromMap — Map 接入](#frommap--map-接入)
   - [fromBundle — Bundle 接入](#frombundle--bundle-接入)
   - [put — 单键值对](#put--单键值对)
+  - [目标组件、action、data/type、flags、category](#目标组件actiondatatypeflagscategory)
   - [前缀隔离与覆盖规则](#前缀隔离与覆盖规则)
   - [错误处理与安全机制](#错误处理与安全机制)
   - [build / into / buildBundle — 三种输出](#build--into--buildbundle--三种输出)
@@ -774,6 +775,72 @@ IntentBuilder()
     .put("score", 3.14)        // Double
 ```
 
+### 目标组件、action、data/type、flags、category
+
+除 extras 数据源外，IntentBuilder 支持设置 Intent 的标准配置项，用于构造显式 Intent 启动 Activity。
+
+**目标组件 — `component()`**：
+
+```kotlin
+IntentBuilder()
+    .component(ComponentName(context, DetailActivity::class.java))  // ComponentName
+    .component("com.example", "com.example.DetailActivity")          // 包名 + 类名
+    .build()
+// 等价于 Intent().setComponent(...)
+```
+
+**action / data / type — `action()` `data()` `type()` `dataAndType()`**：
+
+```kotlin
+IntentBuilder()
+    .action(Intent.ACTION_VIEW)
+    .data(Uri.parse("https://example.com/product/123"))
+    .build()
+
+// 同时设置 data + type（原子操作，避免互斥）
+IntentBuilder()
+    .action(Intent.ACTION_SEND)
+    .dataAndType(imageUri, "image/png")
+    .build()
+```
+
+| 方法 | 对应 Intent API | 说明 |
+|------|-----------------|------|
+| `action(action)` | `setAction` | 设置 action |
+| `data(uri)` | `setData` | 设置 data URI |
+| `type(type)` | `setType` | 设置 MIME type |
+| `dataAndType(uri, type)` | `setDataAndType` | 同时设置 data + type（推荐） |
+
+**flags — `flags()` / `addFlags()`**：
+
+```kotlin
+IntentBuilder()
+    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)       // 追加模式（常用）
+    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)       // 再次追加
+    .build()
+
+// 或覆盖模式
+IntentBuilder()
+    .flags(Intent.FLAG_ACTIVITY_NEW_TASK)            // setFlags（替换所有）
+    .build()
+```
+
+| 方法 | 对应 Intent API | 说明 |
+|------|-----------------|------|
+| `addFlags(flags)` | `addFlags` | 叠加到已有 flags（可多次调用） |
+| `flags(flags)` | `setFlags` | 覆盖所有 flags |
+
+**category — `addCategory()`**：
+
+```kotlin
+IntentBuilder()
+    .action(Intent.ACTION_VIEW)
+    .data(uri)
+    .addCategory(Intent.CATEGORY_DEFAULT)            // 可多次调用
+    .addCategory(Intent.CATEGORY_BROWSABLE)           // 自动去重
+    .build()
+```
+
 ### 前缀隔离与覆盖规则
 
 每个数据源独立前缀，按添加顺序合并，**同名 key 后者覆盖**：
@@ -1221,6 +1288,19 @@ val intent = IntentBuilder()
 | `fromBundle(bundle, prefix)` | Bundle → 管线（防御性拷贝） |
 | `put(key, value)` | 单键值对（String / Int / Long / Boolean / Float / Double） |
 
+**Intent 配置（均返回 `IntentBuilder` 支持链式）：**
+
+| 方法 | 说明 |
+|------|------|
+| `component(cn)` / `component(pkg, cls)` | 设置显式目标组件 |
+| `action(action)` | 设置 Intent action |
+| `data(uri)` | 设置 data URI |
+| `type(type)` | 设置 MIME type |
+| `dataAndType(uri, type)` | 同时设置 data + type（原子操作） |
+| `flags(flags)` | 覆盖所有 flags |
+| `addFlags(flags)` | 追加 flags（可多次调用叠加） |
+| `addCategory(category)` | 添加 category（可多次调用，自动去重） |
+
 **错误处理：**
 
 | 方法 | 返回 | 说明 |
@@ -1233,8 +1313,7 @@ val intent = IntentBuilder()
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `action(action)` | `IntentBuilder` | 设置 Intent.setAction |
-| `build()` | `Intent` | 构建新 Intent |
+| `build()` | `Intent` | 构建新 Intent（应用所有数据源 + 配置） |
 | `into(intent)` | `Intent` | 合并到已有 Intent |
 | `buildBundle()` | `Bundle` | 只返回合并后 Bundle |
 
