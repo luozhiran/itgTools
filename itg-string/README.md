@@ -39,11 +39,14 @@ ITG String 是 ItgTools 项目中的字符串处理模块，提供 **URL 解析*
   - [双重编码检测](#双重编码检测)
 - [5. IntentBuilder — 流式 Intent 构造器](#5-intentbuilder--流式-intent-构造器)
   - [快速上手](#快速上手-1)
-  - [数据源接入](#数据源接入)
-  - [前缀隔离](#前缀隔离)
+  - [fromUrl — URL 接入](#fromurl--url-接入)
+  - [fromMap — Map 接入](#frommap--map-接入)
+  - [fromBundle — Bundle 接入](#frombundle--bundle-接入)
+  - [put — 单键值对](#put--单键值对)
+  - [前缀隔离与覆盖规则](#前缀隔离与覆盖规则)
   - [错误处理与安全机制](#错误处理与安全机制)
-  - [构建输出](#构建输出)
-  - [生命周期管理](#生命周期管理)
+  - [build / into / buildBundle — 三种输出](#build--into--buildbundle--三种输出)
+  - [reset / sourceCount — 生命周期](#reset--sourcecount--生命周期)
 - [6. 实战场景](#6-实战场景)
 - [7. API 完整参考](#7-api-完整参考)
 - [8. 线程模型](#8-线程模型)
@@ -596,68 +599,26 @@ UrlIntentBuilder.putExtras(
 
 将两个 Bundle 合并为一个，支持简单覆盖合并和前缀隔离合并。
 
-**简单合并 — mergeBundles(first, second)**：
-
-同名 key 时 `second` 覆盖 `first`，返回独立新 Bundle，不修改入参。
-
-```kotlin
-val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=deeplink&campaign=summer")!!
-val cfgBundle = UrlIntentBuilder.toBundle(mapOf("userId" to 12345, "isVip" to true))
-
-// 简单合并
-val merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle)
-// merged 中包含: "source", "campaign", "userId", "isVip"
-
-// 同名 key 后者覆盖
-val b1 = Bundle().apply { putString("key", "v1") }
-val b2 = Bundle().apply { putString("key", "v2") }
-UrlIntentBuilder.mergeBundles(b1, b2).getString("key")  // "v2"
-```
-
-**前缀合并 — mergeBundles(first, second, keyPrefix)**：
-
-为 `second` 的所有 key 添加前缀后写入，保留各值类型（String / Int / Long / Boolean / Float / Double / ArrayList）。前缀机制与 `putQueryExtras` 一致。
+**简单合并 — `mergeBundles(first, second)`**：同名 key 时 `second` 覆盖 `first`，返回独立新 Bundle。
 
 ```kotlin
 val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=deeplink")!!
 val cfgBundle = UrlIntentBuilder.toBundle(mapOf("userId" to 12345, "isVip" to true))
 
-val merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle, "cfg_")
-merged.getString("source")         // "deeplink"  (无前缀)
-merged.getInt("cfg_userId")       // 12345       (带前缀)
-merged.getBoolean("cfg_isVip")    // true        (带前缀，类型保留)
+val merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle)
+// merged 包含两者所有 key，同名则后者覆盖
 ```
 
-**前缀合并类型保留规则**：
-
-| 值类型 | 写入方法 | 说明 |
-|--------|----------|------|
-| `String` | `putString` | 字符串 |
-| `Int` / `Long` | `putInt` / `putLong` | 整数类型 |
-| `Boolean` | `putBoolean` | 布尔值 |
-| `Float` / `Double` | `putFloat` / `putDouble` | 浮点类型 |
-| `ArrayList<String>` | `putStringArrayList` | 字符串列表 |
-| `ArrayList<Int>` | `putIntegerArrayList` | 整数列表 |
-| 其他类型 | `putString(key, toString())` | 退化兜底 |
-
-**异步版本**：
+**前缀合并 — `mergeBundles(first, second, keyPrefix)`**：为 `second` 的 key 加前缀，保留值类型。
 
 ```kotlin
-UrlIntentBuilder.mergeBundlesAsync(b1, b2) { merged -> /* ... */ }
-UrlIntentBuilder.mergeBundlesAsync(b1, b2, "prefix_") { merged -> /* ... */ }
-```
-
-**典型组合场景**：
-
-```kotlin
-// URL Bundle + Map Bundle 合并后注入 Intent
-val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=push")!!
-val cfgBundle = UrlIntentBuilder.toBundle(mapOf("userId" to 12345, "isVip" to true))
 val merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle, "cfg_")
-
-intent.putExtras(merged)
-// intent 中: "source" → "push", "cfg_userId" → 12345, "cfg_isVip" → true
+merged.getString("source")       // "deeplink"
+merged.getInt("cfg_userId")     // 12345     (类型保留)
+merged.getBoolean("cfg_isVip")  // true      (类型保留)
 ```
+
+**异步版本**：`mergeBundlesAsync(first, second, onResult)` / `mergeBundlesAsync(first, second, prefix, onResult)`。
 
 ### key 前缀保护
 
@@ -728,7 +689,7 @@ UrlIntentBuilder.mergeBundlesAsync(b1, b2, "prefix_") { merged -> /* ... */ }
 
 **包**：`com.itg.itg_string.intent`
 
-将多个数据源（URL / Map / Bundle / 单键值对）链式合并到一个 Intent 或 Bundle。内置安全兜底：null/空输入静默跳过，URL 解析失败记录错误不中断链路，错误回调异常不影响构建流程。
+将多个数据源（URL / Map / Bundle / 单键值对）**链式合并**到一个 Intent 或 Bundle。内置安全兜底：null/空输入静默跳过，URL 解析失败记录错误不中断链路，错误回调异常不影响构建流程。**同名 key 按添加顺序，后者覆盖前者**。
 
 ### 快速上手
 
@@ -739,105 +700,122 @@ val intent = IntentBuilder()
     .fromBundle(savedState)
     .action(Intent.ACTION_VIEW)
     .build()
-
 // intent 中:
 // "url_source" → "deeplink", "url_campaign" → "summer"
 // "cfg_userId" → 12345, "cfg_isVip" → true
 // + savedState 中的所有 key
 ```
 
-### 数据源接入
+### fromUrl — URL 接入
 
-IntentBuilder 支持 4 类数据源，每种都支持独立的 `prefix` 参数：
-
-**① URL — `fromUrl(url, prefix)`**
+从 URL 查询参数提取键值对，委托 `UrlIntentBuilder.toBundle` 完成解析。
 
 ```kotlin
 IntentBuilder()
-    .fromUrl("https://api.com?q=kotlin&page=1")              // URL 参数直接写入
-    .fromUrl("https://a.com?x=1", prefix = "a_")             // 带前缀隔离
-    .fromUrl("https://s.com?q=%D6%D0%CE%C4", Charset.forName("GBK"), prefix = "gbk_")  // 指定字符集
+    .fromUrl("https://api.com?q=kotlin&page=1")                        // 直接写入
+    .fromUrl("https://a.com?x=1", prefix = "a_")                       // 加前缀隔离
+    .fromUrl("https://s.com?q=%D6%D0%CE%C4", Charset.forName("GBK"),   // 指定字符集
+             prefix = "gbk_")
 ```
 
-URL 为 null/空 → 静默跳过；URL 非法 → 记录错误，继续执行。
+**`fromUrl` 行为说明**：
 
-**② Map — `fromMap(params, prefix)`**
-
-三组精确重载，编译期区分类型：
+| 输入 | 行为 | 错误记录 |
+|------|------|----------|
+| `"https://api.com?q=kotlin"` | 解析参数，加入管线 | — |
+| `"https://example.com/path"`（无 query） | 静默跳过 | — |
+| `null` / `""` / `"   "` | 静默跳过 | — |
+| `"not a valid url"`（含空格等非法字符） | 解析失败，跳过 | ✅ 记录到 `errors()` |
 
 ```kotlin
-IntentBuilder()
-    .fromMap(mapOf("env" to "production"))                     // Map<String, String>
-    .fromMap(linkedMapOf("tags" to listOf("a","b")))           // Map<String, List<String>>
-    .fromMap(mapOf<String, Any?>("id" to 42, "vip" to true), prefix = "cfg_")  // Map<String, *>
+// 多个 URL 聚合，任意一个失败不影响其他
+val builder = IntentBuilder()
+    .fromUrl(null)                                // ← 静默跳过
+    .fromUrl("https://a.com?x=1", prefix = "a_")  // ← 正常
+    .fromUrl("!!! invalid url")                    // ← 记录错误，继续
+    .fromUrl("https://b.com?y=2", prefix = "b_")  // ← 正常
+// builder.hasErrors() == true
+// builder.build() 仍包含 a_x → "1", b_y → "2"
 ```
 
-**③ Bundle — `fromBundle(bundle, prefix)`**
+### fromMap — Map 接入
+
+三组精确重载，编译期区分类型，空 Map 静默跳过：
 
 ```kotlin
 IntentBuilder()
-    .fromBundle(existingBundle)                                // 直接合并已有 Bundle
-    .fromBundle(Bundle().apply { putString("k", "v") }, "p_") // 带前缀
+    .fromMap(mapOf("env" to "production"))                       // Map<String, String>
+    .fromMap(linkedMapOf("tags" to listOf("a", "b")))            // Map<String, List<String>>
+    .fromMap(mapOf<String, Any?>("id" to 42, "vip" to true),
+             prefix = "cfg_")                                    // Map<String, *> 类型感知
 ```
 
-Bundle 为 null/空 → 静默跳过。内部做防御性拷贝，外部修改不影响构建结果。
+### fromBundle — Bundle 接入
 
-**④ 单键值对 — `put(key, value)`**
+已有 Bundle 加入管线，**内部做防御性拷贝**（`Bundle(bundle)`），外部后续修改原 Bundle 不影响构建结果。null / 空 Bundle 静默跳过。
 
 ```kotlin
 IntentBuilder()
-    .put("name", "Alice")          // String
-    .put("age", 25)                // Int
-    .put("timestamp", 1700000L)    // Long
-    .put("vip", true)              // Boolean
-    .put("ratio", 0.75f)           // Float
-    .put("score", 3.14)            // Double
+    .fromBundle(existingBundle)                                   // 合并已有 Bundle
+    .fromBundle(Bundle().apply { putString("k", "v") }, "p_")    // 带前缀
 ```
 
-### 前缀隔离
+### put — 单键值对
 
-每个数据源独立前缀，按添加顺序合并，同名 key 后者覆盖：
+6 种类型重载，快捷添加单个 key-value：
 
 ```kotlin
 IntentBuilder()
-    .fromUrl("https://a.com?id=1", prefix = "a_")   // a_id → "1"
-    .fromUrl("https://b.com?id=2", prefix = "b_")   // b_id → "2"
-    .put("id", 3)                                    // id   → "3"
+    .put("name", "Alice")      // String
+    .put("age", 25)            // Int
+    .put("timestamp", 1700L)   // Long
+    .put("vip", true)          // Boolean
+    .put("ratio", 0.75f)       // Float
+    .put("score", 3.14)        // Double
+```
+
+### 前缀隔离与覆盖规则
+
+每个数据源独立前缀，按添加顺序合并，**同名 key 后者覆盖**：
+
+```kotlin
+IntentBuilder()
+    .fromUrl("https://a.com?id=1", prefix = "a_")  // a_id → "1"
+    .fromUrl("https://b.com?id=2", prefix = "b_")  // b_id → "2"
+    .put("id", 3)                                   // id   → "3"
+    .build()
+// 三个 "id" 互不冲突，因为前缀不同
+```
+
+无前缀时后者直接覆盖：
+
+```kotlin
+IntentBuilder()
+    .put("key", "first")
+    .put("key", "second")   // 覆盖 → "second"
     .build()
 ```
 
 ### 错误处理与安全机制
 
-**安全默认**：异常不中断链路，可事后查询：
+**安全默认**：异常不中断链路，事后查询错误列表：
 
 ```kotlin
 val builder = IntentBuilder()
     .fromUrl("!!! bad url")             // 解析失败，记录错误
-    .fromUrl("https://api.com?q=ok")    // 正常解析
+    .fromUrl("https://api.com?q=ok")    // 正常
     .fromMap(mapOf("fallback" to "works"))
 
 if (builder.hasErrors()) {
     for (err in builder.errors()) {
         Log.w(TAG, "$err")
-        // 输出: [IntentBuilder] fromUrl 失败: URL 解析失败 | input=!!! bad url
+        // [IntentBuilder] fromUrl 失败: URL 解析失败 | input=!!! bad url
     }
 }
-
 val intent = builder.build()  // "q" → "ok", "fallback" → "works"
 ```
 
-**实时回调**：
-
-```kotlin
-IntentBuilder()
-    .onError { e -> tracker.log(e.toString()) }
-    .fromUrl(dynamicUrl)
-    .build()
-```
-
-**回调异常隔离**：回调中抛异常不影响构建流程，仅被静默捕获。
-
-**错误查询**：
+**实时回调**：`onError { e -> tracker.log(e.toString()) }`。回调中抛异常被 try-catch 兜底，不影响构建。
 
 | 方法 | 说明 |
 |------|------|
@@ -845,21 +823,18 @@ IntentBuilder()
 | `errors()` | 返回错误列表（只读副本） |
 | `onError(handler)` | 注册实时回调，传 null 清除 |
 
-### 构建输出
-
-三种输出方式，覆盖不同场景：
+### build / into / buildBundle — 三种输出
 
 ```kotlin
-val builder = IntentBuilder()
-    .put("key", "value")
+val builder = IntentBuilder().put("key", "value")
 
 // 方式 1：产出新 Intent
 val intent = builder.build()
 
 // 方式 2：注入已有 Intent（会覆盖同名 key）
-builder.into(existingIntent)
+val result = builder.into(existingIntent)  // 返回同一 Intent，支持链式
 
-// 方式 3：先取合并后的 Bundle，二次加工
+// 方式 3：只取合并后的 Bundle，二次加工
 val bundle = builder.buildBundle()
 bundle.putLong("timestamp", System.currentTimeMillis())
 intent.putExtras(bundle)
@@ -867,24 +842,19 @@ intent.putExtras(bundle)
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `build()` | `Intent` | 创建新 Intent，action 为 `action()` 配置值 |
-| `into(intent)` | `Intent` | 合并到已有 Intent，返回该 Intent 支持链式 |
-| `buildBundle()` | `Bundle` | 只返回合并后的 Bundle，不做 Intent 包装 |
+| `build()` | `Intent` | 新 Intent，action 由 `action()` 配置 |
+| `into(intent)` | `Intent` | 合并到已有 Intent |
+| `buildBundle()` | `Bundle` | 只返回合并后 Bundle，无 Intent 包装 |
 
-### 生命周期管理
+### reset / sourceCount — 生命周期
 
 ```kotlin
-val builder = IntentBuilder()
-    .put("first", "A")
-    .action(Intent.ACTION_VIEW)
-
-builder.build()  // 第一次使用
-
-builder.reset()  // 清空所有状态（sources / errors / handler / action）
+val builder = IntentBuilder().put("first", "A").action(Intent.ACTION_VIEW)
+builder.build()          // 第一次
+builder.reset()          // 清空 sources / errors / handler / action
     .put("second", "B")
-    .build()      // 第二次使用，全新的 Intent
-
-builder.sourceCount()  // 当前已收集的数据源数量（调试用）
+    .build()             // 第二次，全新
+builder.sourceCount()    // 当前数据源数量（调试用）
 ```
 
 ---
@@ -1059,33 +1029,29 @@ val fragment = DetailFragment().apply {
 ### 场景 M：多 Bundle 前缀合并
 
 ```kotlin
-// 三个独立 Bundle，按来源加前缀隔离
 val urlBundle = UrlIntentBuilder.toBundle("https://api.com?source=deeplink")!!
 val cfgBundle = UrlIntentBuilder.toBundle(mapOf("userId" to 12345, "isVip" to true))
 val stateBundle = Bundle().apply { putString("session", "abc"); putBoolean("loggedIn", true) }
 
 var merged = UrlIntentBuilder.mergeBundles(urlBundle, cfgBundle, "cfg_")
 merged = UrlIntentBuilder.mergeBundles(merged, stateBundle, "state_")
-
 intent.putExtras(merged)
 // "source" → "deeplink", "cfg_userId" → 12345, "state_session" → "abc"
 ```
 
-### 场景 N：IntentBuilder 多源安全聚合
+### 场景 N：IntentBuilder 多源安全聚合（含失败降级）
 
 ```kotlin
-// 多个动态 URL，任意一个失败不影响其他
-val intent = IntentBuilder()
-    .onError { e -> Log.w(TAG, "IntentBuilder error: $e") }
-    .fromUrl(dynamicUrl1, prefix = "a_")     // 可能为 null 或非法
-    .fromUrl(dynamicUrl2, prefix = "b_")     // 同上
-    .fromMap(localConfig, prefix = "cfg_")   // 本地配置兜底
+val builder = IntentBuilder()
+    .onError { e -> Log.w(TAG, "IntentBuilder: $e") }
+    .fromUrl(dynamicUrl1, prefix = "a_")    // 可能为 null / 非法
+    .fromUrl(dynamicUrl2, prefix = "b_")    // 同上报错
+    .fromMap(localConfig, prefix = "cfg_")  // 本地配置兜底
     .action(Intent.ACTION_VIEW)
-    .build()
 
-// 即使两个 URL 都解析失败，localConfig 依然生效
 if (builder.hasErrors()) showDegradedModeNotice()
-context.startActivity(intent)
+context.startActivity(builder.build())
+// 即使两个 URL 都解析失败，localConfig 依然写入 Intent
 ```
 
 ### 场景 O：IntentBuilder 先取 Bundle 加工再注入
@@ -1094,19 +1060,15 @@ context.startActivity(intent)
 val bundle = IntentBuilder()
     .fromUrl("https://api.com?q=kotlin", prefix = "url_")
     .put("version", 2)
-    .buildBundle()
+    .buildBundle()              // ← 先拿到合并后的 Bundle
 
-// 二次加工：追加业务时间戳
-bundle.putLong("client_ts", System.currentTimeMillis())
-
-// 注入已有 Intent（不影响原有 extras）
+bundle.putLong("client_ts", System.currentTimeMillis())  // 二次加工
 intent.putExtras(bundle)
 ```
 
-### 场景 P：IntentBuilder 单键值快速构造
+### 场景 P：IntentBuilder 单键值快速构造（替代逐个 putExtra）
 
 ```kotlin
-// 代替 Intent 逐个 putExtra 的链式写法
 val intent = IntentBuilder()
     .put("userId", 12345)
     .put("userName", "Alice")
@@ -1114,14 +1076,10 @@ val intent = IntentBuilder()
     .put("score", 4.5)
     .action(Intent.ACTION_VIEW)
     .build()
-
-// 等价于:
-// val intent = Intent(Intent.ACTION_VIEW).apply {
-//     putExtra("userId", 12345)
-//     putExtra("userName", "Alice")
-//     ...
-// }
+// 等价于 Intent(...).apply { putExtra(...); putExtra(...) ... }
 ```
+
+---
 
 ## 7. API 完整参考
 
@@ -1249,50 +1207,50 @@ val intent = IntentBuilder()
 
 ### IntentBuilder
 
-链式构造器，将 URL / Map / Bundle / 单键值对合并到 Intent 或 Bundle，内置错误捕获。
+链式构造器，将 URL / Map / Bundle / 单键值对合并到 Intent 或 Bundle。
 
-**数据源：**
+**数据源（均返回 `IntentBuilder` 支持链式）：**
 
 | 方法 | 说明 |
 |------|------|
-| `fromUrl(url, prefix)` | URL 查询参数 → 管线（UTF-8） |
+| `fromUrl(url, prefix)` | URL 查询参数 → 管线（UTF-8，null/空/非法自动兜底） |
 | `fromUrl(url, charset, prefix)` | URL 查询参数 → 管线（指定字符集） |
 | `fromMap(Map<String, String>, prefix)` | 单值 Map → 管线 |
 | `fromMap(Map<String, List<String>>, prefix)` | 多值 Map → 管线 |
 | `fromMap(Map<String, *>, prefix)` | 异构 Map → 管线（类型感知） |
 | `fromBundle(bundle, prefix)` | Bundle → 管线（防御性拷贝） |
-| `put(key, value)` | 单键值对 → 管线（String/Int/Long/Boolean/Float/Double） |
+| `put(key, value)` | 单键值对（String / Int / Long / Boolean / Float / Double） |
 
 **错误处理：**
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `onError(handler)` | `IntentBuilder` | 注册错误回调 |
-| `errors()` | `List<BuildError>` | 返回错误列表（只读副本） |
-| `hasErrors()` | `Boolean` | 是否存在错误 |
+| `onError(handler)` | `IntentBuilder` | 注册实时回调，传 null 清除 |
+| `errors()` | `List<BuildError>` | 只读副本 |
+| `hasErrors()` | `Boolean` | 是否有错误 |
 
 **构建输出：**
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `action(action)` | `IntentBuilder` | 设置 Intent action |
+| `action(action)` | `IntentBuilder` | 设置 Intent.setAction |
 | `build()` | `Intent` | 构建新 Intent |
 | `into(intent)` | `Intent` | 合并到已有 Intent |
-| `buildBundle()` | `Bundle` | 只返回合并后的 Bundle |
+| `buildBundle()` | `Bundle` | 只返回合并后 Bundle |
 
 **生命周期：**
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `reset()` | `IntentBuilder` | 清空所有状态，复用 builder |
-| `sourceCount()` | `Int` | 当前数据源数量（调试用） |
+| `reset()` | `IntentBuilder` | 清空全部状态 |
+| `sourceCount()` | `Int` | 已收集数据源个数 |
 
 **数据结构：**
 
 | 类型 | 说明 |
 |------|------|
-| `BuildError` | `data class(source, input, message)` — 错误信息 |
-| `ErrorHandler` | `fun interface` — 错误回调，支持 Kotlin SAM 转换 |
+| `BuildError(source, input, message)` | `data class` — 错误信息 |
+| `ErrorHandler` | `fun interface` — 错误回调（Kotlin SAM） |
 
 ---
 
@@ -1342,8 +1300,8 @@ UrlParser.parseAsync(url) { components ->
 | 异构 Map 中 null 值 | 跳过不写入，其他 key 正常处理 |
 | 异构 Map 中未知类型 | `putString(key, value.toString())` 退化兜底 |
 | 双重编码 | `Log.w` 警告，继续使用解码结果 |
-| IntentBuilder 数据源失败 | 记录到 `errors()` 列表，继续处理后续数据源 |
-| IntentBuilder 错误回调异常 | try-catch 捕获，不影响构建流程 |
+| IntentBuilder 数据源失败 | 记录到 `errors()`，后续数据源正常处理 |
+| IntentBuilder 错误回调异常 | try-catch 兜底，不影响构建 |
 | IntentBuilder 全部数据源失败 | `build()` 返回无 extras 的 Intent，不抛异常 |
-| Bundle 合并时 null 值 | `mergeBundles` 前缀合并时跳过 null |
+| Bundle 合并时 null 值 | `mergeBundles` 前缀合并跳过 null |
 ```
