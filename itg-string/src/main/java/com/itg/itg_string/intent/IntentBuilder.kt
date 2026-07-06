@@ -235,7 +235,8 @@ class IntentBuilder {
     @JvmOverloads
     fun fromBundle(bundle: Bundle?, prefix: String = ""): IntentBuilder {
         if (bundle == null || bundle.isEmpty) return this
-        return addSource(prefix, bundle)
+        // 防御性拷贝，避免调用方后续修改原 Bundle 污染内部状态
+        return addSource(prefix, Bundle(bundle))
     }
 
     // ==================================================================
@@ -335,6 +336,34 @@ class IntentBuilder {
         return intent
     }
 
+    /**
+     * 将所有已收集的数据源合并为一个 [Bundle] 直接返回。
+     *
+     * 合并规则：按添加顺序依次合并，同名 key 后者覆盖前者。
+     * 每个数据源的 prefix 在合并时生效。
+     * 无数据源时返回空 Bundle。
+     *
+     * 适用于需要先拿到合并后的 Bundle 做进一步加工再注入 Intent 的场景。
+     *
+     * @return 合并后的 Bundle（独立副本，修改不影响 builder 内部状态）
+     *
+     * 使用示例：
+     * ```kotlin
+     * val merged = IntentBuilder()
+     *     .fromUrl("https://api.com?source=deeplink", prefix = "url_")
+     *     .fromMap(mapOf("userId" to 12345), prefix = "cfg_")
+     *     .buildBundle()
+     *
+     * // 二次加工
+     * merged.putLong("timestamp", System.currentTimeMillis())
+     * intent.putExtras(merged)
+     * ```
+     */
+    fun buildBundle(): Bundle {
+        if (sources.isEmpty()) return Bundle()
+        return mergeAll()
+    }
+
     // ==================================================================
     // 生命周期
     // ==================================================================
@@ -349,6 +378,7 @@ class IntentBuilder {
     fun reset(): IntentBuilder {
         sources.clear()
         errorLog.clear()
+        errorHandler = null
         intentAction = null
         return this
     }
@@ -368,13 +398,57 @@ class IntentBuilder {
         return this
     }
 
-    /** 按顺序合并所有 (prefix, Bundle) */
+    /**
+     * 单遍合并所有数据源到一个 Bundle，O(N) 避免中间拷贝。
+     *
+     * 合并规则：按添加顺序，同名 key 后者覆盖前者。
+     * 无前缀 → [Bundle.putAll]（O(keys)），有前缀 → 逐 key 类型路由写入。
+     */
     private fun mergeAll(): Bundle {
-        var merged = Bundle()
+        val merged = Bundle()
         for ((prefix, bundle) in sources) {
-            merged = UrlIntentBuilder.mergeBundles(merged, bundle, prefix)
+            if (prefix.isEmpty()) {
+                merged.putAll(bundle)
+            } else {
+                mergeWithPrefix(merged, bundle, prefix)
+            }
         }
         return merged
+    }
+
+    /** 将 [src] 的所有 key 加 [prefix] 后写入 [dest]，保留值类型 */
+    @Suppress("UNCHECKED_CAST", "DEPRECATION")
+    private fun mergeWithPrefix(dest: Bundle, src: Bundle, prefix: String) {
+        for (key in src.keySet()) {
+            // get(key) 是遍历 Bundle 所有 key 时唯一通用的取值方式
+            val value = src.get(key) ?: continue
+            when (value) {
+                is String  -> dest.putString(prefix + key, value)
+                is Int     -> dest.putInt(prefix + key, value)
+                is Long    -> dest.putLong(prefix + key, value)
+                is Boolean -> dest.putBoolean(prefix + key, value)
+                is Float   -> dest.putFloat(prefix + key, value)
+                is Double  -> dest.putDouble(prefix + key, value)
+                is ArrayList<*> -> {
+                    if (value.isEmpty()) {
+                        dest.putStringArrayList(prefix + key, ArrayList())
+                    } else {
+                        when (value.first()) {
+                            is String -> dest.putStringArrayList(
+                                prefix + key, value as ArrayList<String>
+                            )
+                            is Int -> dest.putIntegerArrayList(
+                                prefix + key, value as ArrayList<Int>
+                            )
+                            else -> dest.putStringArrayList(
+                                prefix + key, ArrayList(value.map { it.toString() })
+                            )
+                        }
+                    }
+                }
+                else -> dest.putString(prefix + key, value.toString())
+            }
+        }
     }
 
     /** 记录错误并触发回调，返回 this 以支持链式调用 */
