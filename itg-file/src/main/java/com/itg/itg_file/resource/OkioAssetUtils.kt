@@ -247,16 +247,19 @@ object OkioAssetUtils {
     fun readAssetLines(
         context: Context,
         assetPath: String,
-        charset: Charset = Charsets.UTF_8
+        charset: Charset = Charsets.UTF_8,
+        maxBytes: Long = DEFAULT_MAX_IN_MEMORY_BYTES
     ): List<String>? {
         if (!AssetUtils.assetExists(context, assetPath)) return null
         return try {
             context.assets.open(assetPath).use { stream ->
-                stream.reader(charset).buffered().use { reader ->
-                    reader.readLines()
-                }
+                val bytes = stream.source().buffer().use { it.readByteArrayWithLimit(maxBytes) }
+                String(bytes, charset).lineSequence().toList()
             }
         } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
+import android.system.Os
 import android.webkit.MimeTypeMap
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.io.File
@@ -62,7 +63,7 @@ object FileUtils {
      */
     @JvmStatic
     fun existsAsync(path: String?, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(exists(path)) }
+        return TaskExecutor.io { safeCallback { onResult(exists(path)) } }
     }
 
     /**
@@ -111,9 +112,9 @@ object FileUtils {
         return try {
             val file = File(path)
             if (file.exists()) return true
-            file.parentFile?.mkdirs()
+            if (!ensureParentDirectory(file)) return false
             file.createNewFile()
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -128,7 +129,7 @@ object FileUtils {
      */
     @JvmStatic
     fun createFileAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(createFile(path)) }
+        return TaskExecutor.io { safeCallback { onResult(createFile(path)) } }
     }
 
     /**
@@ -155,7 +156,7 @@ object FileUtils {
      */
     @JvmStatic
     fun createDirectoryAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(createDirectory(path)) }
+        return TaskExecutor.io { safeCallback { onResult(createDirectory(path)) } }
     }
 
     /**
@@ -209,7 +210,7 @@ object FileUtils {
      */
     @JvmStatic
     fun deleteAsync(path: String?, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(delete(path)) }
+        return TaskExecutor.io { safeCallback { onResult(delete(path)) } }
     }
 
     /**
@@ -234,7 +235,7 @@ object FileUtils {
      */
     @JvmStatic
     fun clearDirectoryAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(clearDirectory(path)) }
+        return TaskExecutor.io { safeCallback { onResult(clearDirectory(path)) } }
     }
 
     // ==================== 重命名 ====================
@@ -259,7 +260,7 @@ object FileUtils {
      */
     @JvmStatic
     fun renameAsync(path: String, newName: String, onResult: (String?) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(rename(path, newName)) }
+        return TaskExecutor.io { safeCallback { onResult(rename(path, newName)) } }
     }
 
     // ==================== 复制 ====================
@@ -279,32 +280,34 @@ object FileUtils {
 
         return try {
             val srcFile = File(srcPath)
-            val destFile = File(destPath)
+            val destFile = File(destPath).absoluteFile
             if (srcFile.canonicalFile == destFile.canonicalFile) return false
             if (destFile.exists() && !overwrite) return false
-            destFile.parentFile?.mkdirs()
 
-            FileInputStream(srcFile).use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.channel.use { srcChannel ->
-                        output.channel.use { destChannel ->
-                            var position = 0L
-                            val size = srcChannel.size()
-                            while (position < size) {
-                                val transferred = srcChannel.transferTo(
-                                    position,
-                                    minOf(COPY_BUFFER_SIZE.toLong(), size - position),
-                                    destChannel
-                                )
-                                if (transferred <= 0L) return false
-                                position += transferred
+            writeToFileAtomically(destFile, overwrite) { tempFile ->
+                FileInputStream(srcFile).use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.channel.use { srcChannel ->
+                            output.channel.use { destChannel ->
+                                var position = 0L
+                                val size = srcChannel.size()
+                                while (position < size) {
+                                    val transferred = srcChannel.transferTo(
+                                        position,
+                                        minOf(COPY_BUFFER_SIZE.toLong(), size - position),
+                                        destChannel
+                                    )
+                                    if (transferred <= 0L) {
+                                        throw IOException("File channel transfer failed")
+                                    }
+                                    position += transferred
+                                }
                             }
                         }
                     }
                 }
             }
-            true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -340,27 +343,27 @@ object FileUtils {
 
         return try {
             val srcFile = File(srcPath)
-            val destFile = File(destPath)
+            val destFile = File(destPath).absoluteFile
             if (srcFile.canonicalFile == destFile.canonicalFile) return false
             if (destFile.exists() && !overwrite) return false
-            destFile.parentFile?.mkdirs()
             val totalSize = srcFile.length()
 
-            FileInputStream(srcFile).use { input ->
-                FileOutputStream(destFile).use { output ->
-                    val buffer = ByteArray(COPY_BUFFER_SIZE)
-                    var bytesCopied = 0L
-                    var bytesRead: Int
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        bytesCopied += bytesRead
-                        onProgress?.invoke(bytesCopied, totalSize)
+            writeToFileAtomically(destFile, overwrite) { tempFile ->
+                FileInputStream(srcFile).use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(COPY_BUFFER_SIZE)
+                        var bytesCopied = 0L
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            bytesCopied += bytesRead
+                            safeCallback { onProgress?.invoke(bytesCopied, totalSize) }
+                        }
+                        output.flush()
                     }
-                    output.flush()
                 }
             }
-            true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -382,7 +385,7 @@ object FileUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(copy(srcPath, destPath, overwrite)) }
+        return TaskExecutor.io { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
     }
 
     /**
@@ -397,7 +400,7 @@ object FileUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         return TaskExecutor.io {
-            onResult(copyWithProgress(srcPath, destPath, overwrite, onProgress))
+            safeCallback { onResult(copyWithProgress(srcPath, destPath, overwrite, onProgress)) }
         }
     }
 
@@ -476,11 +479,11 @@ object FileUtils {
 
         try {
             val src = File(srcPath)
-            val dest = File(destPath)
+            val dest = File(destPath).absoluteFile
             if (src.canonicalFile == dest.canonicalFile) return true
 
             if (dest.exists() && !overwrite) return false
-            dest.parentFile?.mkdirs()
+            if (!ensureParentDirectory(dest)) return false
 
             // 先尝试 rename（同一文件系统下极快）
             if (src.renameTo(dest)) return true
@@ -512,7 +515,7 @@ object FileUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(move(srcPath, destPath, overwrite)) }
+        return TaskExecutor.io { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
     }
 
     // ==================== 文件列表 ====================
@@ -571,13 +574,18 @@ object FileUtils {
      */
     @JvmStatic
     fun listFilesRecursive(path: String): List<File> {
-        val result = mutableListOf<File>()
-        val dir = File(path)
-        if (!dir.isDirectory) return result
-        dir.walkTopDown().forEach { file ->
-            if (file.isFile) result.add(file)
+        return try {
+            val result = mutableListOf<File>()
+            val dir = File(path)
+            if (!dir.isDirectory) return result
+            dir.walkTopDown().forEach { file ->
+                if (file.isFile) result.add(file)
+            }
+            result
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
         }
-        return result
     }
 
     /**
@@ -585,7 +593,7 @@ object FileUtils {
      */
     @JvmStatic
     fun listFilesRecursiveAsync(path: String, onResult: (List<File>) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(listFilesRecursive(path)) }
+        return TaskExecutor.io { safeCallback { onResult(listFilesRecursive(path)) } }
     }
 
     // ==================== 文件信息 ====================
@@ -620,7 +628,7 @@ object FileUtils {
      */
     @JvmStatic
     fun getSizeAsync(path: String?, onResult: (Long) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(getSize(path)) }
+        return TaskExecutor.io { safeCallback { onResult(getSize(path)) } }
     }
 
     /**
@@ -773,7 +781,7 @@ object FileUtils {
      */
     @JvmStatic
     fun getFileInfoAsync(path: String, onResult: (Map<String, Any>) -> Unit): Future<*> {
-        return TaskExecutor.io { onResult(getFileInfo(path)) }
+        return TaskExecutor.io { safeCallback { onResult(getFileInfo(path)) } }
     }
 
     // ==================== 存储空间 ====================
@@ -842,6 +850,51 @@ object FileUtils {
             }
         }
         return file.delete()
+    }
+
+    private inline fun writeToFileAtomically(
+        destination: File,
+        overwrite: Boolean,
+        writer: (File) -> Unit
+    ): Boolean {
+        if (destination.exists()) {
+            if (!overwrite || destination.isDirectory) return false
+        }
+        if (!ensureParentDirectory(destination)) return false
+
+        var tempFile: File? = null
+        return try {
+            val parent = destination.absoluteFile.parentFile ?: return false
+            val prefix = (destination.name.ifBlank { "file" }.take(32) + "_").padEnd(3, '_')
+            tempFile = File.createTempFile(prefix, ".tmp", parent)
+            writer(tempFile)
+            FileOutputStream(tempFile, true).use { it.fd.sync() }
+            Os.rename(tempFile.absolutePath, destination.absolutePath)
+            true
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        } finally {
+            tempFile?.takeIf { it.exists() }?.delete()
+        }
+    }
+
+    private fun ensureParentDirectory(file: File): Boolean {
+        return try {
+            val parent = file.absoluteFile.parentFile ?: return false
+            parent.isDirectory || parent.mkdirs() || parent.isDirectory
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
     }
 
     private fun formatFileSize(bytes: Long): String {

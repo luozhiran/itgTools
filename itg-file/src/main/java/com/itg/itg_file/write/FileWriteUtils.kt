@@ -7,7 +7,6 @@ import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.Charset
@@ -61,15 +60,8 @@ object FileWriteUtils {
         content: String,
         charset: Charset = StandardCharsets.UTF_8
     ): Boolean {
-        if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-            file.writeText(content, charset)
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
+        return writeToFileAtomically(path) { tempFile ->
+            tempFile.writeText(content, charset)
         }
     }
 
@@ -90,7 +82,7 @@ object FileWriteUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeText(path, content, charset)) }
+        return TaskExecutor.io { safeCallback { onResult(writeText(path, content, charset)) } }
     }
 
     /**
@@ -118,10 +110,10 @@ object FileWriteUtils {
         if (path.isBlank()) return false
         return try {
             val file = File(path)
-            file.parentFile?.mkdirs()
+            if (!ensureParentDirectory(file)) return false
             file.appendText(content, charset)
             true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -138,7 +130,7 @@ object FileWriteUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(appendText(path, content, charset)) }
+        return TaskExecutor.io { safeCallback { onResult(appendText(path, content, charset)) } }
     }
 
     // ==================== 写入字节数组 ====================
@@ -152,15 +144,8 @@ object FileWriteUtils {
      */
     @JvmStatic
     fun writeBytes(path: String, bytes: ByteArray): Boolean {
-        if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-            file.writeBytes(bytes)
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
+        return writeToFileAtomically(path) { tempFile ->
+            tempFile.writeBytes(bytes)
         }
     }
 
@@ -173,7 +158,7 @@ object FileWriteUtils {
         bytes: ByteArray,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeBytes(path, bytes)) }
+        return TaskExecutor.io { safeCallback { onResult(writeBytes(path, bytes)) } }
     }
 
     /**
@@ -184,10 +169,10 @@ object FileWriteUtils {
         if (path.isBlank()) return false
         return try {
             val file = File(path)
-            file.parentFile?.mkdirs()
+            if (!ensureParentDirectory(file)) return false
             file.appendBytes(bytes)
             true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -215,20 +200,10 @@ object FileWriteUtils {
         overwrite: Boolean = true,
         onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null
     ): Boolean {
-        if (path.isBlank()) return false
-
-        return try {
-            val file = File(path)
-            if (file.exists() && !overwrite) return false
-            file.parentFile?.mkdirs()
-
-            FileOutputStream(path).use { output ->
+        return writeToFileAtomically(path, overwrite) { tempFile ->
+            FileOutputStream(tempFile).use { output ->
                 copyStream(inputStream, output, onProgress)
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -244,7 +219,7 @@ object FileWriteUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         return TaskExecutor.io {
-            onResult(writeFromStream(path, inputStream, overwrite, onProgress))
+            safeCallback { onResult(writeFromStream(path, inputStream, overwrite, onProgress)) }
         }
     }
 
@@ -268,6 +243,7 @@ object FileWriteUtils {
      */
     @JvmStatic
     @JvmOverloads
+    @Suppress("UNUSED_PARAMETER")
     fun writeToUri(
         context: Context,
         uri: Uri,
@@ -281,7 +257,7 @@ object FileWriteUtils {
                 output.flush()
             }
             true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -298,6 +274,7 @@ object FileWriteUtils {
      */
     @JvmStatic
     @JvmOverloads
+    @Suppress("UNUSED_PARAMETER")
     fun writeStreamToUri(
         context: Context,
         uri: Uri,
@@ -310,7 +287,7 @@ object FileWriteUtils {
                 copyStream(inputStream, output)
             }
             true
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             false
         }
@@ -342,29 +319,8 @@ object FileWriteUtils {
         content: String,
         charset: Charset = StandardCharsets.UTF_8
     ): Boolean {
-        if (path.isBlank()) return false
-
-        return try {
-            val destFile = File(path)
-            destFile.parentFile?.mkdirs()
-            val tmpFile = File.createTempFile(
-                (destFile.nameWithoutExtension + "_").padEnd(3, '_'),
-                ".tmp",
-                destFile.parentFile
-            )
-
-            // 写入临时文件
-            tmpFile.writeText(content, charset)
-
-            // 删除旧文件 → 重命名临时文件
-            val result = replaceAtomically(tmpFile, destFile)
-
-            // 清理残留临时文件
-            if (!result) tmpFile.delete()
-            result
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
+        return writeToFileAtomically(path) { tempFile ->
+            tempFile.writeText(content, charset)
         }
     }
 
@@ -379,7 +335,7 @@ object FileWriteUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeTextAtomic(path, content, charset)) }
+        return TaskExecutor.io { safeCallback { onResult(writeTextAtomic(path, content, charset)) } }
     }
 
     /**
@@ -391,25 +347,8 @@ object FileWriteUtils {
      */
     @JvmStatic
     fun writeBytesAtomic(path: String, bytes: ByteArray): Boolean {
-        if (path.isBlank()) return false
-
-        return try {
-            val destFile = File(path)
-            destFile.parentFile?.mkdirs()
-            val tmpFile = File.createTempFile(
-                (destFile.nameWithoutExtension + "_").padEnd(3, '_'),
-                ".tmp",
-                destFile.parentFile
-            )
-
-            tmpFile.writeBytes(bytes)
-
-            val result = replaceAtomically(tmpFile, destFile)
-            if (!result) tmpFile.delete()
-            result
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
+        return writeToFileAtomically(path) { tempFile ->
+            tempFile.writeBytes(bytes)
         }
     }
 
@@ -444,28 +383,20 @@ object FileWriteUtils {
         overwrite: Boolean = true,
         onProgress: ((written: Long, total: Long) -> Unit)? = null
     ): Boolean {
-        if (path.isBlank()) return false
+        if (chunkSize <= 0) return false
 
-        return try {
-            val file = File(path)
-            if (file.exists() && !overwrite) return false
-            file.parentFile?.mkdirs()
-
-            FileOutputStream(path).use { output ->
+        return writeToFileAtomically(path, overwrite) { tempFile ->
+            FileOutputStream(tempFile).use { output ->
                 var offset = 0
                 while (offset < data.size) {
                     val remaining = data.size - offset
                     val size = minOf(chunkSize, remaining)
                     output.write(data, offset, size)
                     offset += size
-                    onProgress?.invoke(offset.toLong(), data.size.toLong())
+                    safeProgress(onProgress, offset.toLong(), data.size.toLong())
                 }
                 output.flush()
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -482,7 +413,7 @@ object FileWriteUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         return TaskExecutor.io {
-            onResult(writeBytesInChunks(path, data, chunkSize, overwrite, onProgress))
+            safeCallback { onResult(writeBytesInChunks(path, data, chunkSize, overwrite, onProgress)) }
         }
     }
 
@@ -499,9 +430,64 @@ object FileWriteUtils {
         while (input.read(buffer).also { bytesRead = it } != -1) {
             output.write(buffer, 0, bytesRead)
             totalWritten += bytesRead
-            onProgress?.invoke(totalWritten, -1L)
+            safeProgress(onProgress, totalWritten, -1L)
         }
         output.flush()
+    }
+
+    private inline fun writeToFileAtomically(
+        path: String,
+        overwrite: Boolean = true,
+        writer: (File) -> Unit
+    ): Boolean {
+        if (path.isBlank()) return false
+
+        val destination = File(path).absoluteFile
+        if (destination.exists()) {
+            if (!overwrite || destination.isDirectory) return false
+        }
+        if (!ensureParentDirectory(destination)) return false
+
+        var tempFile: File? = null
+        return try {
+            val parent = destination.parentFile ?: return false
+            val prefix = (destination.name.ifBlank { "file" }.take(32) + "_").padEnd(3, '_')
+            tempFile = File.createTempFile(prefix, ".tmp", parent)
+            writer(tempFile)
+            replaceAtomically(tempFile, destination)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        } finally {
+            tempFile?.takeIf { it.exists() }?.delete()
+        }
+    }
+
+    private fun ensureParentDirectory(file: File): Boolean {
+        return try {
+            val parent = file.absoluteFile.parentFile ?: return false
+            parent.isDirectory || parent.mkdirs() || parent.isDirectory
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun safeProgress(
+        callback: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)?,
+        bytesWritten: Long,
+        estimatedTotal: Long
+    ) {
+        if (callback == null) return
+        safeCallback { callback(bytesWritten, estimatedTotal) }
     }
 
     private fun replaceAtomically(tempFile: File, destination: File): Boolean {

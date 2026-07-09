@@ -627,7 +627,7 @@ object AssetUtils {
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     bytesCopied += bytesRead
-                    onProgress?.invoke(bytesCopied, totalBytes)
+                    safeCallback { onProgress?.invoke(bytesCopied, totalBytes) }
                 }
                 output.flush()
             }
@@ -700,7 +700,7 @@ object AssetUtils {
             if (copyAssetToFile(context, file, destFile.absolutePath, overwrite)) {
                 successCount++
             }
-            onProgress?.invoke(index + 1, total)
+            safeCallback { onProgress?.invoke(index + 1, total) }
         }
         return successCount
     }
@@ -797,7 +797,7 @@ object AssetUtils {
     fun readRawBytes(
         context: Context,
         resId: Int,
-        maxBytes: Int = 0
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
     ): ByteArray? {
         return try {
             context.resources.openRawResource(resId).use { stream ->
@@ -827,7 +827,7 @@ object AssetUtils {
     fun readRawBytesAsync(
         context: Context,
         resId: Int,
-        maxBytes: Int = 0,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
@@ -971,7 +971,7 @@ object AssetUtils {
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     bytesCopied += bytesRead
-                    onProgress?.invoke(bytesCopied, totalBytes)
+                    safeCallback { onProgress?.invoke(bytesCopied, totalBytes) }
                 }
                 output.flush()
             }

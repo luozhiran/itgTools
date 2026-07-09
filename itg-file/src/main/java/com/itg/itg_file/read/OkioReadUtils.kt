@@ -198,8 +198,13 @@ object OkioReadUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun readLines(path: String, charset: Charset = Charsets.UTF_8): List<String>? {
+    fun readLines(
+        path: String,
+        charset: Charset = Charsets.UTF_8,
+        maxBytes: Long = DEFAULT_MAX_IN_MEMORY_BYTES.toLong()
+    ): List<String>? {
         if (!FileUtils.isFile(path)) return null
+        if (!canReadIntoMemory(path, maxBytes)) return null
         return try {
             File(path).inputStream().bufferedReader(charset).use { reader ->
                 reader.readLines()

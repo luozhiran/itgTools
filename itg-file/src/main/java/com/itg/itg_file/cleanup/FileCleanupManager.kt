@@ -15,6 +15,7 @@ import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Future
+import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -484,7 +485,23 @@ object FileCleanupManager {
             }
         } catch (error: Throwable) {
             immediateRules.remove(key, registered)
-            throw error
+            error.printStackTrace()
+            deliverResult(
+                registered,
+                CleanupResult(
+                    key = registered.rule.key,
+                    path = registered.rule.path,
+                    action = registered.rule.action,
+                    success = false,
+                    deletedEntries = 0,
+                    existedBefore = false,
+                    existedAfter = false,
+                    message = "Cleanup task submission failed: ${error.message}",
+                    error = error
+                ),
+                onTerminal
+            )
+            return completedFuture()
         }
         futureRef.set(future)
         immediateTasks[key] = future
@@ -577,7 +594,7 @@ object FileCleanupManager {
             val pending = PendingPermissionRule(registered, result, onTerminal)
             pendingPermissionRules[registered.rule.key] = pending
             val request = createPermissionRequest(pending)
-            TaskExecutor.main {
+            if (!postToMain {
                 try {
                     if (isOwnerAlive(registered)) {
                         permissionCallback(request)
@@ -588,6 +605,10 @@ object FileCleanupManager {
                     if (pendingPermissionRules.remove(registered.rule.key, pending)) {
                         deliverResult(registered, result, onTerminal)
                     }
+                }
+            }) {
+                if (pendingPermissionRules.remove(registered.rule.key, pending)) {
+                    deliverResult(registered, result, onTerminal)
                 }
             }
             return
@@ -613,13 +634,21 @@ object FileCleanupManager {
         result: CleanupResult,
         onTerminal: () -> Unit
     ) {
-        TaskExecutor.main {
+        if (!postToMain {
             try {
                 if (isOwnerAlive(registered)) {
-                    registered.callbacks.onResult(result)
+                    safeCallback { registered.callbacks.onResult(result) }
                 }
             } finally {
-                onTerminal()
+                safeCallback { onTerminal() }
+            }
+        }) {
+            try {
+                if (isOwnerAlive(registered)) {
+                    safeCallback { registered.callbacks.onResult(result) }
+                }
+            } finally {
+                safeCallback { onTerminal() }
             }
         }
     }
@@ -683,6 +712,28 @@ object FileCleanupManager {
         return roots.any { root ->
             val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return@any false
             target == canonicalRoot || target.path.startsWith(canonicalRoot.path + java.io.File.separator)
+        }
+    }
+
+    private fun postToMain(block: () -> Unit): Boolean {
+        return try {
+            TaskExecutor.main { block() }
+            true
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private fun completedFuture(): Future<*> {
+        return FutureTask<Unit> {}.also { it.run() }
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
         }
     }
 

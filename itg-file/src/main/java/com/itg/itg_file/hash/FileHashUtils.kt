@@ -119,9 +119,11 @@ object FileHashUtils {
         return TaskExecutor.io {
             try {
                 val hash = hashFile(path, algorithm)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback {
+                    onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -163,7 +165,7 @@ object FileHashUtils {
                 while (fis.read(buffer).also { bytesRead = it } != -1) {
                     digest.update(buffer, 0, bytesRead)
                     processed += bytesRead
-                    onProgress?.invoke(processed, totalSize)
+                    safeCallback { onProgress?.invoke(processed, totalSize) }
                 }
             }
             digest.digest().toHexString()
@@ -187,9 +189,11 @@ object FileHashUtils {
         return TaskExecutor.io {
             try {
                 val hash = hashFileWithProgress(path, algorithm, onProgress)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback {
+                    onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -287,9 +291,11 @@ object FileHashUtils {
         return TaskExecutor.io {
             try {
                 val result = crc32(path)
-                onResult(result, if (result == null) IOException("CRC32 failed: $path") else null)
+                safeCallback {
+                    onResult(result, if (result == null) IOException("CRC32 failed: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -385,7 +391,7 @@ object FileHashUtils {
         return TaskExecutor.io {
             val actual = hashFile(path, algorithm)
             val valid = actual != null && actual.equals(expectedHash, ignoreCase)
-            onResult(valid, actual)
+            safeCallback { onResult(valid, actual) }
         }
     }
 
@@ -420,10 +426,18 @@ object FileHashUtils {
         algorithm: Algorithm = Algorithm.SHA256,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(compareFiles(path1, path2, algorithm)) }
+        return TaskExecutor.io { safeCallback { onResult(compareFiles(path1, path2, algorithm)) } }
     }
 
     // ==================== 内部方法 ====================
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
 
     private fun ByteArray.toHexString(): String {
         return joinToString("") { "%02x".format(it) }
