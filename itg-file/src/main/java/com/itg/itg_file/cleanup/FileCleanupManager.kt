@@ -34,7 +34,7 @@ object FileCleanupManager {
     private val scheduledTasks = ConcurrentHashMap<String, Future<*>>()
     private val activeTimedRules = ConcurrentHashMap<String, RegisteredRule>()
     private val backgroundRules = ConcurrentHashMap<String, RegisteredRule>()
-    private val runningBackgroundRules = ConcurrentHashMap.newKeySet<String>()
+    private val runningBackgroundRules = ConcurrentHashMap<String, Boolean>()
     private val pendingPermissionRules = ConcurrentHashMap<String, PendingPermissionRule>()
     private val activityRuleKeys = WeakHashMap<Activity, MutableSet<String>>()
     private val fragmentRuleKeys = WeakHashMap<Fragment, MutableSet<String>>()
@@ -547,7 +547,7 @@ object FileCleanupManager {
     private fun executeBackgroundRules() {
         backgroundRules.values.toList().forEach { registered ->
             val key = registered.rule.key
-            if (runningBackgroundRules.add(key)) {
+            if (runningBackgroundRules.putIfAbsent(key, true) == null) {
                 submitBackground(registered)
             }
         }
@@ -807,9 +807,7 @@ object FileCleanupManager {
         }
 
         override fun onActivityStopped(activity: Activity) {
-            val count = startedActivities.updateAndGet { current ->
-                (current - 1).coerceAtLeast(0)
-            }
+            val count = decrementStartedActivities()
             if (count == 0 && !activity.isChangingConfigurations) {
                 executeBackgroundRules()
             }
@@ -821,6 +819,14 @@ object FileCleanupManager {
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
         override fun onActivityDestroyed(activity: Activity) {
             releaseActivityRules(activity)
+        }
+
+        private fun decrementStartedActivities(): Int {
+            while (true) {
+                val current = startedActivities.get()
+                val next = (current - 1).coerceAtLeast(0)
+                if (startedActivities.compareAndSet(current, next)) return next
+            }
         }
     }
 

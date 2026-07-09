@@ -5,14 +5,10 @@ import com.itg.itg_thread_pools.executor.TaskExecutor
 import okio.Buffer
 import okio.BufferedSource
 import okio.ByteString
-import okio.FileSystem
 import okio.ForwardingSource
 import okio.IOException
-import okio.Okio
-import okio.Path.Companion.toPath
-import okio.Source
-import okio.Timeout
 import okio.buffer
+import okio.source
 import java.io.File
 import java.nio.charset.Charset
 import java.util.concurrent.Future
@@ -36,7 +32,7 @@ import java.util.concurrent.TimeUnit
 @Suppress("unused")
 object OkioReadUtils {
 
-    private val fileSystem: FileSystem = FileSystem.SYSTEM
+    private const val DEFAULT_MAX_IN_MEMORY_BYTES = 10 * 1024 * 1024
 
     // ==================== 读取为 ByteString ====================
 
@@ -60,15 +56,18 @@ object OkioReadUtils {
      * ```
      */
     @JvmStatic
-    fun readByteString(path: String): ByteString? {
+    @JvmOverloads
+    fun readByteString(path: String, maxBytes: Long = DEFAULT_MAX_IN_MEMORY_BYTES.toLong()): ByteString? {
         if (!FileUtils.isFile(path)) return null
+        if (!canReadIntoMemory(path, maxBytes)) return null
         return try {
-            fileSystem.source(path.toPath()).use { source ->
-                source.buffer().use { buffered ->
-                    buffered.readByteString()
-                }
+            File(path).source().buffer().use { buffered ->
+                buffered.readByteString()
             }
         } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }
@@ -85,9 +84,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readByteString(path)
-                onResult(result, if (result == null) IOException("Read failed: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -105,15 +104,21 @@ object OkioReadUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun readUtf8(path: String, charset: Charset = Charsets.UTF_8): String? {
+    fun readUtf8(
+        path: String,
+        charset: Charset = Charsets.UTF_8,
+        maxBytes: Long = DEFAULT_MAX_IN_MEMORY_BYTES.toLong()
+    ): String? {
         if (!FileUtils.isFile(path)) return null
+        if (!canReadIntoMemory(path, maxBytes)) return null
         return try {
-            fileSystem.source(path.toPath()).use { source ->
-                source.buffer().use { buffered ->
-                    buffered.readString(charset)
-                }
+            File(path).source().buffer().use { buffered ->
+                buffered.readString(charset)
             }
         } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }
@@ -132,9 +137,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readUtf8(path, charset)
-                onResult(result, if (result == null) IOException("Read failed: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -154,7 +159,7 @@ object OkioReadUtils {
         if (!FileUtils.isFile(path)) return null
         return try {
             val buffer = Buffer()
-            fileSystem.source(path.toPath()).use { source ->
+            File(path).source().use { source ->
                 buffer.writeAll(source)
             }
             buffer
@@ -175,9 +180,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readToBuffer(path)
-                onResult(result, if (result == null) IOException("Read failed: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -196,17 +201,13 @@ object OkioReadUtils {
     fun readLines(path: String, charset: Charset = Charsets.UTF_8): List<String>? {
         if (!FileUtils.isFile(path)) return null
         return try {
-            val lines = mutableListOf<String>()
-            fileSystem.source(path.toPath()).use { source ->
-                source.buffer().use { buffered ->
-                    while (true) {
-                        val line = buffered.readUtf8Line() ?: break
-                        lines.add(line)
-                    }
-                }
+            File(path).inputStream().bufferedReader(charset).use { reader ->
+                reader.readLines()
             }
-            lines
         } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }
@@ -224,9 +225,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readLines(path, charset)
-                onResult(result, if (result == null) IOException("Read failed: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -248,18 +249,19 @@ object OkioReadUtils {
         if (!FileUtils.isFile(path)) return -1
         return try {
             var count = 0
-            fileSystem.source(path.toPath()).use { source ->
-                source.buffer().use { buffered ->
-                    while (true) {
-                        val line = buffered.readUtf8Line() ?: break
-                        if (!onEachLine(line, count)) break
-                        count++
-                    }
+            File(path).source().buffer().use { buffered ->
+                while (true) {
+                    val line = buffered.readUtf8Line() ?: break
+                    if (!safeLineCallback(line, count, onEachLine)) break
+                    count++
                 }
             }
             count
         } catch (e: IOException) {
             e.printStackTrace()
+            -1
+        } catch (t: Throwable) {
+            t.printStackTrace()
             -1
         }
     }
@@ -282,19 +284,27 @@ object OkioReadUtils {
      * ```
      */
     @JvmStatic
-    fun readWithTimeout(path: String, timeoutMs: Long): ByteString? {
+    @JvmOverloads
+    fun readWithTimeout(
+        path: String,
+        timeoutMs: Long,
+        maxBytes: Long = DEFAULT_MAX_IN_MEMORY_BYTES.toLong()
+    ): ByteString? {
         if (!FileUtils.isFile(path)) return null
+        if (!canReadIntoMemory(path, maxBytes)) return null
         return try {
-            fileSystem.source(path.toPath()).use { source ->
-                source.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
-                source.buffer().use { buffered ->
-                    buffered.readByteString()
-                }
+            val source = File(path).source()
+            source.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
+            source.buffer().use { buffered ->
+                buffered.readByteString()
             }
         } catch (e: IOException) {
             if (e is java.io.InterruptedIOException) {
                 android.util.Log.w("OkioReadUtils", "Read timed out after ${timeoutMs}ms: $path")
             }
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }
@@ -312,9 +322,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readWithTimeout(path, timeoutMs)
-                onResult(result, if (result == null) IOException("Read failed/timed out: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Read failed/timed out: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -347,6 +357,7 @@ object OkioReadUtils {
         onProgress: ((bytesRead: Long, totalBytes: Long) -> Unit)? = null
     ): ByteArray? {
         if (!FileUtils.isFile(path)) return null
+        if (!canReadIntoMemory(path, DEFAULT_MAX_IN_MEMORY_BYTES.toLong())) return null
 
         return try {
             val file = File(path)
@@ -354,7 +365,7 @@ object OkioReadUtils {
             var bytesRead = 0L
             var lastReport = 0L
 
-            val rawSource = fileSystem.source(path.toPath())
+            val rawSource = file.source()
             val progressSource = object : ForwardingSource(rawSource) {
                 override fun read(sink: Buffer, byteCount: Long): Long {
                     val read = super.read(sink, byteCount)
@@ -362,7 +373,7 @@ object OkioReadUtils {
                         bytesRead += read
                         // 控制进度回调频率
                         if (onProgress != null && bytesRead - lastReport >= chunkSize) {
-                            onProgress(bytesRead, totalSize)
+                            safeCallback { onProgress(bytesRead, totalSize) }
                             lastReport = bytesRead
                         }
                     }
@@ -373,10 +384,13 @@ object OkioReadUtils {
             progressSource.buffer().use { buffered ->
                 val result = buffered.readByteArray()
                 // 最后一次进度回调
-                onProgress?.invoke(bytesRead, totalSize)
+                safeCallback { onProgress?.invoke(bytesRead, totalSize) }
                 result
             }
         } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }
@@ -395,9 +409,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readWithProgress(path, chunkSize, onProgress)
-                onResult(result, if (result == null) IOException("Read failed: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -414,14 +428,15 @@ object OkioReadUtils {
     fun readGzip(path: String): ByteArray? {
         if (!FileUtils.isFile(path)) return null
         return try {
-            fileSystem.source(path.toPath()).use { source ->
+            File(path).source().use { source ->
                 okio.GzipSource(source).buffer().use { gzip ->
-                    val buffer = Buffer()
-                    buffer.writeAll(gzip)
-                    buffer.readByteArray()
+                    gzip.readByteArrayWithLimit(DEFAULT_MAX_IN_MEMORY_BYTES.toLong())
                 }
             }
         } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
         }
@@ -438,9 +453,9 @@ object OkioReadUtils {
         return TaskExecutor.io {
             try {
                 val result = readGzip(path)
-                onResult(result, if (result == null) IOException("Gzip read failed: $path") else null)
+                safeCallback { onResult(result, if (result == null) IOException("Gzip read failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -452,5 +467,43 @@ object OkioReadUtils {
     fun readGzipAsText(path: String, charset: Charset = Charsets.UTF_8): String? {
         val bytes = readGzip(path) ?: return null
         return String(bytes, charset)
+    }
+
+    private fun canReadIntoMemory(path: String, maxBytes: Long): Boolean {
+        return maxBytes <= 0L || File(path).length() <= maxBytes
+    }
+
+    private fun BufferedSource.readByteArrayWithLimit(maxBytes: Long): ByteArray {
+        if (maxBytes <= 0L) return readByteArray()
+        val buffer = Buffer()
+        var total = 0L
+        while (true) {
+            val read = read(buffer, 8192L)
+            if (read == -1L) break
+            total += read
+            if (total > maxBytes) throw IOException("Input exceeds maxBytes=$maxBytes")
+        }
+        return buffer.readByteArray()
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
+    private inline fun safeLineCallback(
+        line: String,
+        index: Int,
+        callback: (line: String, index: Int) -> Boolean
+    ): Boolean {
+        return try {
+            callback(line, index)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            false
+        }
     }
 }

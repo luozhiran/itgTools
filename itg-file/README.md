@@ -2,9 +2,9 @@
 
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/nougat/android-7.0)
 [![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
-[![Okio](https://img.shields.io/badge/Okio-3.17.0-orange.svg)](https://square.github.io/okio/)
+[![Okio](https://img.shields.io/badge/Okio-2.9.0-orange.svg)](https://square.github.io/okio/)
 
-ITG File 是 ItgTools 项目中的文件处理核心模块，提供 **java.io 传统引擎** 与 **Okio 现代引擎** 双实现，覆盖文件 CRUD、高效读写、流式哈希、原子操作、Gzip 压缩/解压、进度追踪、超时控制，以及 **生命周期感知的自动清理管理**。所有操作同步/异步双模式，异步基于 [itg-thread-pools](./itg-thread-pools/)。
+ITG File 是 ItgTools 项目中的文件处理核心模块，提供 **java.io 传统引擎** 与 **Okio 现代引擎** 双实现，覆盖文件 CRUD、高效读写、流式哈希、原子操作、Gzip 压缩/解压、进度追踪、超时控制、**Android Assets/Raw 资源读写** 以及 **生命周期感知的自动清理管理**。所有操作同步/异步双模式，异步基于 [itg-thread-pools](./itg-thread-pools/)。
 
 ---
 
@@ -24,6 +24,9 @@ ITG File 是 ItgTools 项目中的文件处理核心模块，提供 **java.io �
   - [OkioReadUtils — 高效读取](#okioreadutils--高效读取)
   - [OkioWriteUtils — 高效写入](#okiowriteutils--高效写入)
   - [OkioHashUtils — 流式哈希](#okiohashutils--流式哈希)
+- [资源读写模块](#资源读写模块)
+  - [AssetUtils — Assets/Raw 资源操作](#assetutils--assetsraw-资源操作)
+  - [OkioAssetUtils — Okio 资源操作](#okioassetutils--okio-资源操作)
 - [文件清理模块](#文件清理模块)
   - [FileCleanupManager — 自动清理管理](#filecleanupmanager--自动清理管理)
   - [CleanupConfig/Builder — 声明式构建](#cleanupconfigbuilder--声明式构建)
@@ -50,7 +53,7 @@ itg-file/
 └── src/main/java/com/itg/itg_file/
     ├── core/
     │   ├── FileUtils.kt            (java.io  文件基础操作, 48个方法)
-    │   └── OkioFileUtils.kt        (Okio     文件操作,      24个方法)
+    │   └── OkioFileUtils.kt        (Okio     文件操作,      21个方法)
     ├── read/
     │   ├── FileReadUtils.kt        (java.io  文件读取,      16个方法)
     │   └── OkioReadUtils.kt        (Okio     文件读取,      16个方法)
@@ -60,13 +63,16 @@ itg-file/
     ├── hash/
     │   ├── FileHashUtils.kt        (java.io  文件哈希,      22个方法)
     │   └── OkioHashUtils.kt        (Okio     流式哈希,      13个方法)
+    ├── resource/
+    │   ├── AssetUtils.kt           (java.io  Assets/Raw,    30个方法)
+    │   └── OkioAssetUtils.kt       (Okio     Assets/Raw,    28个方法)
     └── cleanup/
         ├── CleanupModels.kt        (数据模型: 触发器/规则/结果)
         ├── CleanupExecutor.kt      (清理执行器)
         └── FileCleanupManager.kt   (生命周期感知管理器,  20+个方法)
 ```
 
-**总计: 8 个工具 object, 3 个清理模块, 190+ 个公开方法, 全部 @JvmStatic 支持 Java 调用。**
+**总计: 10 个工具 object, 3 个清理模块, 250+ 个公开方法, 全部 @JvmStatic 支持 Java 调用。**
 
 ---
 
@@ -79,7 +85,7 @@ itg-file/
 dependencies {
     implementation(project(":itg-file"))
 }
-// 自动传递: itg-thread-pools + Okio 3.17.0
+// 自动传递: itg-thread-pools + Okio 2.9.0
 ```
 
 ### 同步模式
@@ -136,6 +142,7 @@ FileCleanupManager.register(application, FileCleanupManager.builder()
 │  │  FileReadUtils        │   │  OkioReadUtils               │      │
 │  │  FileWriteUtils       │   │  OkioWriteUtils              │      │
 │  │  FileHashUtils        │   │  OkioHashUtils               │      │
+│  │  AssetUtils           │   │  OkioAssetUtils              │      │
 │  └──────────┬───────────┘   └──────────────┬───────────────┘      │
 │             │                               │                      │
 │             └───────────┬───────────────────┘                      │
@@ -158,14 +165,14 @@ FileCleanupManager.register(application, FileCleanupManager.builder()
 
 | 维度 | java.io 引擎 | Okio 引擎 |
 |------|-------------|----------|
-| 依赖 | Android SDK 内置 | Okio 3.17.0 (~200KB) |
+| 依赖 | Android SDK 内置 | Okio 2.9.0 (~200KB) |
 | 性能 | 标准 I/O | 更快 (Segment 池, 零拷贝 Buffer) |
 | 超时控制 | 无 | `Source.timeout()`, `Sink.timeout()` |
 | 不可变字节 | `byte[]` (需拷贝) | `ByteString` (零拷贝子序列, 内置 hex/base64/utf8) |
 | 流式哈希 | 读完再算 | 边读边算 (`DigestingSource`) |
 | Gzip | `java.util.zip.GZIPInputStream` | 内建 (`GzipSource` / `GzipSink`) |
 | 进度追踪 | 手动循环计数 | `ForwardingSource/Sink` 拦截器 |
-| 原子移动 | 手动 copy+delete | `FileSystem.atomicMove()` |
+| 原子移动 | `File.renameTo()` (同分区) / copy+delete (跨分区) | `File.renameTo()` (同分区) / copy+delete (跨分区) |
 | 选择建议 | 简单场景, 零额外依赖 | 高性能/超时/流式哈希/Gzip 场景 |
 
 ---
@@ -179,9 +186,9 @@ FileCleanupManager.register(application, FileCleanupManager.builder()
 | 删除文件/递归删除 | `FileUtils.delete/clearDirectory` | `OkioFileUtils.delete` |
 | 复制文件 | `FileUtils.copy/copyWithProgress` | `OkioFileUtils.copy` |
 | 复制整个目录 | `FileUtils.copyDirectory` | — |
-| 移动文件 (含跨分区) | `FileUtils.move` | `OkioFileUtils.move` (优先 atomicMove) |
+| 移动文件 (含跨分区) | `FileUtils.move` | `OkioFileUtils.move` (优先 rename) |
 | 重命名 | `FileUtils.rename` | — |
-| 列出目录文件 | `FileUtils.listFiles/listFilesRecursive` | `OkioFileUtils.list/listRecursively` |
+| 目录列表/递归遍历 | `FileUtils.listFiles/listFilesRecursive` | `OkioFileUtils.list/listRecursively` (返回 List\<File\>) |
 | 按扩展名过滤 | `FileUtils.listFilesByExtension` | — |
 | 获取文件信息 | `FileUtils.getFileInfo/getSize/getMimeType` | `OkioFileUtils.getSize/getLastModifiedMillis` |
 | 存储空间查询 | `FileUtils.getAvailableSpace/getTotalSpace` | `OkioFileUtils.getAvailableSpace/getTotalSpace` |
@@ -211,6 +218,15 @@ FileCleanupManager.register(application, FileCleanupManager.builder()
 | 校验文件完整性 | `FileHashUtils.verify` | `OkioHashUtils.hashFile` + 手动比对 |
 | 比较两个文件 | `FileHashUtils.compareFiles` | `OkioHashUtils.hashByteString` + 比对 |
 | 字符串/字节哈希 | `FileHashUtils.hashString/hashBytes` | `OkioHashUtils.hashString/hashByteString` |
+| 列出 Assets 文件 | `AssetUtils.listAssets/listAssetsRecursive` | — |
+| 读取 Assets 文本 | `AssetUtils.readAssetText` | `OkioAssetUtils.readAssetUtf8` |
+| 读取 Assets 二进制 | `AssetUtils.readAssetBytes` | `OkioAssetUtils.readAssetByteString` |
+| Assets 复制到文件系统 | `AssetUtils.copyAssetToFile` | `OkioAssetUtils.copyAssetToFile` |
+| Assets 目录批量复制 | `AssetUtils.copyAssetDirToFile` | — |
+| 读取 Raw 资源 | `AssetUtils.readRawText/readRawBytes` | `OkioAssetUtils.readRawUtf8/readRawByteString` |
+| Raw 资源复制到文件系统 | `AssetUtils.copyRawToFile` | `OkioAssetUtils.copyRawToFile` |
+| Assets Gzip 解压读取 | — | `OkioAssetUtils.readAssetGzip` |
+| 资源操作超时控制 | — | `OkioAssetUtils.readAssetWithTimeout` |
 | 应用启动清缓存 | `FileCleanupManager.register(app, builder().clearOnAppStart(...).build())` |
 | 应用退后台清临时目录 | `FileCleanupManager.register(app, builder().clearOnAppBackground(...).build())` |
 | 延迟清理 (如30分钟后) | `FileCleanupManager.register(app, builder().clearAfterDelay("k", "/path", 30*60*1000L).build())` |
@@ -591,17 +607,17 @@ FileHashUtils.compareFilesAsync(path1, path2) { same -> }
 ### OkioFileUtils — 高效文件操作
 
 **位置**: `com.itg.itg_file.core.OkioFileUtils`  
-**方法数**: 24  
-**依赖**: Okio `FileSystem.SYSTEM`, `Path`
+**方法数**: 21  
+**依赖**: Okio `BufferedSource`, `BufferedSink`
 
-#### 快速复制与原子移动
+#### 快速复制与移动
 
 ```kotlin
 // Okio 复制 (利用 Buffer 零拷贝, 通常比 java.io 快 2-3x)
 OkioFileUtils.copy("/sdcard/large.bin", "/sdcard/backup/large.bin")
 OkioFileUtils.copyAsync(src, dest) { success -> }
 
-// 原子移动 (同一文件系统下无拷贝, 仅修改指针)
+// 移动 (同一文件系统下 rename, 跨文件系统 copy+delete)
 OkioFileUtils.move("/sdcard/temp.bin", "/sdcard/final.bin")
 OkioFileUtils.moveAsync(src, dest) { success -> }
 ```
@@ -631,18 +647,11 @@ OkioFileUtils.withTimeoutAsync(5000L, { heavyOperation() }) { result -> }
 
 ```kotlin
 // 直接子项
-val children = OkioFileUtils.list("/sdcard/DCIM/")
+val children = OkioFileUtils.list("/sdcard/DCIM/")   // List<File>
 
 // 递归列出
-val all = OkioFileUtils.listRecursively("/sdcard/MyApp/")
-OkioFileUtils.listRecursivelyAsync(path) { pathStrings -> }
-```
-
-#### Path 类型互转
-
-```kotlin
-val okioPath = OkioFileUtils.toPath("/sdcard/file.txt")  // String→Path
-val strPath = OkioFileUtils.fromPath(okioPath)             // Path→String
+val all = OkioFileUtils.listRecursively("/sdcard/MyApp/")   // List<File>
+OkioFileUtils.listRecursivelyAsync(path) { pathStrings -> }  // 异步, 返回路径字符串列表
 ```
 
 #### 元数据查询
@@ -663,7 +672,7 @@ OkioFileUtils.getTotalSpace(path)
 
 **位置**: `com.itg.itg_file.read.OkioReadUtils`  
 **方法数**: 16  
-**依赖**: Okio `ByteString`, `BufferedSource`, `DigestingSource`
+**依赖**: Okio `ByteString`, `BufferedSource`
 
 #### ByteString — 不可变字节序列 (Okio 独有)
 
@@ -745,7 +754,7 @@ OkioReadUtils.readLinesStreaming("/sdcard/huge.log") { line, index ->
 
 **位置**: `com.itg.itg_file.write.OkioWriteUtils`  
 **方法数**: 19  
-**依赖**: Okio `ByteString`, `BufferedSink`, `DigestingSink`, `ForwardingSink`
+**依赖**: Okio `ByteString`, `BufferedSink`, `ForwardingSink`, `GzipSink`
 
 #### 写入 ByteString
 
@@ -817,7 +826,7 @@ OkioWriteUtils.writeAtomicAsync(path, data) { success -> }
 
 **位置**: `com.itg.itg_file.hash.OkioHashUtils`  
 **方法数**: 13  
-**依赖**: Okio `DigestingSource`/`DigestingSink` (自定义 Forwarding 子类)
+**依赖**: Okio `ForwardingSource`, `ForwardingSink`, `GzipSink` (自定义 Digesting 包装类)
 
 #### 边读边算哈希 (一次 I/O 完成两个操作)
 
@@ -886,6 +895,179 @@ OkioHashUtils.hashFileWithProgress(path, digest, onProgress = { p, t -> } )
 OkioHashUtils.hashFileAsync(path, digest) { hash, error -> }
 OkioHashUtils.hashString("hello", MessageDigest.getInstance("MD5"))
 OkioHashUtils.hashByteString(byteString, MessageDigest.getInstance("SHA-256"))
+```
+
+---
+
+## 资源读写模块
+
+`resource/` 包提供 Android Assets 和 res/raw 内置资源的读写能力。由于 APK 内置资源只读，"写入"操作指复制到文件系统。
+
+### AssetUtils — Assets/Raw 资源操作
+
+**位置**: `com.itg.itg_file.resource.AssetUtils`
+**方法数**: 30 (15 同步, 15 异步)
+**依赖**: Android `AssetManager` / `Resources`
+
+#### Assets 列举与查询
+
+```kotlin
+// 列出 assets 目录
+val files = AssetUtils.listAssets(context, "")           // 根目录
+val dataFiles = AssetUtils.listAssets(context, "data")   // data/ 子目录
+
+// 递归列出所有文件
+val allFiles = AssetUtils.listAssetsRecursive(context, "", maxDepth = 10)
+
+// 存在性与信息
+AssetUtils.assetExists(context, "config.json")           // Boolean
+AssetUtils.isAssetDirectory(context, "images")            // Boolean
+val size = AssetUtils.getAssetSize(context, "data.bin")   // Long (字节)
+val info = AssetUtils.getAssetInfo(context, "photo.jpg")  // Map
+```
+
+#### Assets 读取
+
+```kotlin
+// 读取文本
+val json = AssetUtils.readAssetText(context, "data/config.json")
+val gbk = AssetUtils.readAssetText(context, "legacy.txt", Charset.forName("GBK"))
+AssetUtils.readAssetTextAsync(context, path) { content, error -> }
+
+// 读取字节
+val bytes = AssetUtils.readAssetBytes(context, "images/logo.png")
+AssetUtils.readAssetBytesAsync(context, path) { bytes, error -> }
+
+// 按行读取
+val lines = AssetUtils.readAssetLines(context, "data/words.txt")
+AssetUtils.readAssetLinesAsync(context, path) { lines, error -> }
+
+// 流式逐行 (大文件友好)
+AssetUtils.readAssetLinesStreaming(context, "data/large.csv",
+    onEachLine = { line, index -> processLine(line); true })
+
+// 异步流式
+AssetUtils.readAssetLinesStreamingAsync(context, path,
+    onEachLine = { line, idx -> parseLine(line); true },
+    onComplete = { total, error -> })
+```
+
+#### Assets 复制到文件系统 (写入能力)
+
+```kotlin
+// 单个文件复制
+AssetUtils.copyAssetToFile(context, "templates/app.db", "/sdcard/MyApp/app.db")
+AssetUtils.copyAssetToFileAsync(context, assetPath, destPath) { success -> }
+
+// 带进度复制 (大文件)
+AssetUtils.copyAssetToFileWithProgress(context, "bundled_data.bin",
+    "/sdcard/data.bin", onProgress = { copied, total ->
+        updateProgressBar((copied * 100 / total).toInt())
+    })
+
+// 批量复制整个 assets 目录
+val count = AssetUtils.copyAssetDirToFile(context, "templates",
+    "/sdcard/MyApp/templates", onProgress = { current, total ->
+        updateProgress(current, total)
+    })
+AssetUtils.copyAssetDirToFileAsync(context, dir, destDir) { count -> }
+```
+
+#### Raw 资源读取与复制
+
+```kotlin
+// 读取文本
+val license = AssetUtils.readRawText(context, R.raw.license)
+AssetUtils.readRawTextAsync(context, R.raw.license) { text, error -> }
+
+// 读取字节 (支持 maxBytes 限制)
+val audio = AssetUtils.readRawBytes(context, R.raw.sound_effect, maxBytes = 5 * 1024 * 1024)
+AssetUtils.readRawBytesAsync(context, resId) { bytes, error -> }
+
+// 获取大小
+val size = AssetUtils.getRawSize(context, R.raw.large_data)
+
+// 复制到文件系统
+AssetUtils.copyRawToFile(context, R.raw.default_avatar, "/sdcard/avatar.png")
+AssetUtils.copyRawToFileWithProgress(context, R.raw.huge_data, "/sdcard/data.bin",
+    onProgress = { copied, total -> updateProgress(copied, total) })
+```
+
+---
+
+### OkioAssetUtils — Okio 资源操作
+
+**位置**: `com.itg.itg_file.resource.OkioAssetUtils`
+**方法数**: 28 (14 同步, 14 异步)
+**依赖**: Okio `ByteString`, `Buffer`, `ForwardingSource`, `GzipSource`
+
+比 [AssetUtils](#assetutils--assetsraw-资源操作) 增加了: `ByteString` 不可变字节、超时控制、Gzip 解压、进度追踪。
+
+#### Assets 读取 (Okio 增强)
+
+```kotlin
+// ByteString — 不可变字节 (内置 hex/base64/md5)
+val byteStr = OkioAssetUtils.readAssetByteString(context, "images/photo.jpg")
+println("Base64: ${byteStr?.base64()}")
+println("MD5: ${byteStr?.md5()?.hex()}")
+
+// 读取到可变 Buffer
+val buffer = OkioAssetUtils.readAssetToBuffer(context, "data/template.txt")
+buffer?.let { it.writeUtf8("-- APPENDED --") }
+
+// UTF-8 字符串
+val text = OkioAssetUtils.readAssetUtf8(context, "data/config.json")
+OkioAssetUtils.readAssetUtf8Async(context, path) { text, error -> }
+
+// 按行读取
+val lines = OkioAssetUtils.readAssetLines(context, "data/words.txt")
+OkioAssetUtils.readAssetLinesStreaming(context, "data/large.csv") { line, idx ->
+    processLine(line); true
+}
+```
+
+#### Assets 复制 (Okio 写入优化)
+
+```kotlin
+// Okio 写入 (Buffer 零拷贝)
+OkioAssetUtils.copyAssetToFile(context, "models/model.tflite", "/sdcard/model.tflite")
+
+// 带进度 (ForwardingSource 拦截)
+OkioAssetUtils.copyAssetToFileWithProgress(context, "huge_data.bin", "/sdcard/data.bin",
+    onProgress = { copied, total -> updateProgress(copied, total) })
+```
+
+#### 超时控制与 Gzip
+
+```kotlin
+// 超时读取 (30秒)
+val data = OkioAssetUtils.readAssetWithTimeout(context, "large_data.bin", 30_000L)
+
+// Gzip 解压读取 (assets 中存放 .gz 以节省 APK 体积)
+val json = OkioAssetUtils.readAssetGzip(context, "data/config.json.gz")
+val text = OkioAssetUtils.readAssetGzipAsText(context, "data/config.json.gz")
+
+// 带进度读取
+val data = OkioAssetUtils.readAssetWithProgress(context, "huge_model.bin",
+    onProgress = { read, total -> updateProgress(read, total) })
+```
+
+#### Raw 资源 (Okio 实现)
+
+```kotlin
+// ByteString
+val byteStr = OkioAssetUtils.readRawByteString(context, R.raw.large_data)
+// UTF-8
+val text = OkioAssetUtils.readRawUtf8(context, R.raw.license)
+// 可变 Buffer
+val buffer = OkioAssetUtils.readRawToBuffer(context, R.raw.template)
+// 复制到文件系统
+OkioAssetUtils.copyRawToFile(context, R.raw.default_avatar, "/sdcard/avatar.png")
+// 带进度复制
+OkioAssetUtils.copyRawToFileWithProgress(context, R.raw.huge_data, "/sdcard/data.bin",
+    onProgress = { copied, total -> updateProgress(copied, total) })
+// 超时读取
+val data = OkioAssetUtils.readRawWithTimeout(context, R.raw.large_file, 30_000L)
 ```
 
 ---
@@ -1366,16 +1548,15 @@ fun compressAndHash(srcPath: String, gzPath: String): String? {
 
 | 方法签名 | 返回 | 说明 |
 |----------|------|------|
-| `toPath(path)` / `fromPath(path)` | `Path` / `String` | Path 互转 |
 | `exists(path)` / `existsAsync(...)` | `Boolean` / `Future<*>` | 存在判断 |
 | `getSize(path)` / `getLastModifiedMillis(path)` | `Long` | 元数据 |
 | `isRegularFile(path)` / `isDirectory(path)` | `Boolean` | 类型判断 |
 | `copy(src, dest, ow)` / `copyAsync(...)` | `Boolean` / `Future<*>` | 复制 (Buffer优化) |
-| `move(src, dest, ow)` / `moveAsync(...)` | `Boolean` / `Future<*>` | 移动 (优先atomicMove) |
+| `move(src, dest, ow)` / `moveAsync(...)` | `Boolean` / `Future<*>` | 移动 (优先rename) |
 | `delete(path)` / `deleteAsync(...)` | `Boolean` / `Future<*>` | 删除 |
 | `createDirectory(path)` / `createDirectoryAsync(...)` | `Boolean` / `Future<*>` | 创建目录 |
-| `list(path)` / `listRecursively(path)` | `List<Path>` | 列出/递归列出 |
-| `listRecursivelyAsync(path, onResult)` | `Future<*>` | 异步递归列出 |
+| `list(path)` / `listRecursively(path)` | `List<File>` | 列出/递归列出 |
+| `listRecursivelyAsync(path, onResult)` | `Future<*>` | 异步递归列出(返回路径字符串) |
 | `getAvailableSpace(path)` / `getTotalSpace(path)` | `Long` | 磁盘空间 |
 | `withTimeout<T>(ms, block)` / `withTimeoutAsync(...)` | `T?` / `Future<*>` | 超时控制 |
 
@@ -1422,6 +1603,55 @@ fun compressAndHash(srcPath: String, gzPath: String): String? {
 | `gzipAndHash(src, dest, digest, onP)` | `Pair?` | Gzip+哈希 |
 | `hashByteString(data, digest)` | `String` | ByteString哈希 |
 | `hashString(text, digest)` | `String` | 字符串哈希 |
+
+### AssetUtils (resource / java.io)
+
+| 方法签名 | 返回 | 说明 |
+|----------|------|------|
+| `listAssets(context, path)` | `List<String>` | 列出 assets 目录 |
+| `listAssetsAsync(context, path, onResult)` | `Future<*>` | 异步列出 |
+| `listAssetsRecursive(context, path, maxDepth)` | `List<String>` | 递归列出 assets |
+| `listAssetsRecursiveAsync(context, path, max, onResult)` | `Future<*>` | 异步递归列出 |
+| `assetExists(context, assetPath)` / `...Async(...)` | `Boolean` / `Future<*>` | Assets 存在判断 |
+| `isAssetDirectory(context, assetPath)` | `Boolean` | 是否为目录 |
+| `getAssetSize(context, assetPath)` / `...Async(...)` | `Long` / `Future<*>` | Assets 文件大小 |
+| `getAssetInfo(context, assetPath)` | `Map<String,Any>` | Assets 文件信息 |
+| `readAssetText(context, path, cs)` / `...Async(...)` | `String?` / `Future<*>` | 读取 Assets 文本 |
+| `readAssetBytes(context, path)` / `...Async(...)` | `ByteArray?` / `Future<*>` | 读取 Assets 字节 |
+| `readAssetLines(context, path, cs)` / `...Async(...)` | `List<String>?` / `Future<*>` | 按行读取 Assets |
+| `readAssetLinesStreaming(context, path, cs, onEachLine)` | `Int` | 流式逐行读取 |
+| `readAssetLinesStreamingAsync(context, path, cs, onEachLine, onComplete)` | `Future<*>` | 异步流式逐行 |
+| `copyAssetToFile(context, aPath, dPath, ow)` / `...Async(...)` | `Boolean` / `Future<*>` | Assets→文件 |
+| `copyAssetToFileWithProgress(context, aPath, dPath, ow, onP)` / `...Async(...)` | `Boolean` / `Future<*>` | 带进度复制 |
+| `copyAssetDirToFile(context, aDir, dDir, ow, onP)` / `...Async(...)` | `Int` / `Future<*>` | 批量复制目录 |
+| `readRawText(context, resId, cs)` / `...Async(...)` | `String?` / `Future<*>` | 读取 Raw 文本 |
+| `readRawBytes(context, resId, max)` / `...Async(...)` | `ByteArray?` / `Future<*>` | 读取 Raw 字节 |
+| `getRawSize(context, resId)` / `...Async(...)` | `Long` / `Future<*>` | Raw 资源大小 |
+| `copyRawToFile(context, resId, dPath, ow)` / `...Async(...)` | `Boolean` / `Future<*>` | Raw→文件 |
+| `copyRawToFileWithProgress(context, resId, dPath, ow, onP)` / `...Async(...)` | `Boolean` / `Future<*>` | 带进度复制 |
+| `guessMimeType(fileName)` | `String` | 推断 MIME 类型 |
+
+### OkioAssetUtils (resource / Okio)
+
+| 方法签名 | 返回 | 说明 |
+|----------|------|------|
+| `readAssetByteString(context, path)` / `...Async(...)` | `ByteString?` / `Future<*>` | Assets→ByteString |
+| `readAssetUtf8(context, path, cs)` / `...Async(...)` | `String?` / `Future<*>` | Assets→String |
+| `readAssetToBuffer(context, path)` / `...Async(...)` | `Buffer?` / `Future<*>` | Assets→Buffer |
+| `readAssetLines(context, path, cs)` / `...Async(...)` | `List<String>?` / `Future<*>` | 按行读取 Assets |
+| `readAssetLinesStreaming(context, path, onEachLine)` | `Int` | 流式逐行 (Okio) |
+| `copyAssetToFile(context, aPath, dPath, ow)` / `...Async(...)` | `Boolean` / `Future<*>` | Assets→文件 (Okio) |
+| `copyAssetToFileWithProgress(context, aPath, dPath, ow, cs, onP)` / `...Async(...)` | `Boolean` / `Future<*>` | 带进度复制 |
+| `readAssetWithTimeout(context, path, ms)` / `...Async(...)` | `ByteString?` / `Future<*>` | 超时读取 |
+| `readAssetWithProgress(context, path, cs, onP)` / `...Async(...)` | `ByteArray?` / `Future<*>` | 带进度读取 |
+| `readAssetGzip(context, path)` / `...Async(...)` | `ByteArray?` / `Future<*>` | Gzip 解压 |
+| `readAssetGzipAsText(context, path, cs)` | `String?` | Gzip→String |
+| `readRawByteString(context, resId)` / `...Async(...)` | `ByteString?` / `Future<*>` | Raw→ByteString |
+| `readRawUtf8(context, resId, cs)` / `...Async(...)` | `String?` / `Future<*>` | Raw→String |
+| `readRawToBuffer(context, resId)` | `Buffer?` | Raw→Buffer |
+| `copyRawToFile(context, resId, dPath, ow)` / `...Async(...)` | `Boolean` / `Future<*>` | Raw→文件 (Okio) |
+| `copyRawToFileWithProgress(context, resId, dPath, ow, cs, onP)` / `...Async(...)` | `Boolean` / `Future<*>` | 带进度复制 |
+| `readRawWithTimeout(context, resId, ms)` / `...Async(...)` | `ByteString?` / `Future<*>` | 超时读取 |
 
 ### FileCleanupManager (cleanup)
 

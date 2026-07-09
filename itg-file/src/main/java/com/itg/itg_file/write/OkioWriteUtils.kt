@@ -1,20 +1,14 @@
 package com.itg.itg_file.write
 
-import android.system.Os
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_thread_pools.executor.TaskExecutor
 import okio.Buffer
-import okio.BufferedSink
 import okio.ByteString
-import okio.FileSystem
 import okio.ForwardingSink
+import okio.GzipSink
 import okio.IOException
-import okio.Okio
-import okio.Path.Companion.toPath
-import okio.Sink
-import okio.Timeout
 import okio.buffer
-import okio.use
+import okio.sink
 import okio.source
 import java.io.File
 import java.io.FileOutputStream
@@ -26,7 +20,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Okio 文件写入工具类
  *
- * 基于 Okio [BufferedSink] 实现高效文件写入，相比传统 java.io：
+ * 基于 Okio [okio.BufferedSink] 实现高效文件写入，相比传统 java.io：
  * - [Buffer]: 零拷贝字节缓冲区，分段写入后一次性 flush
  * - 内置超时控制 (sink.timeout)
  * - 进度追踪 (ForwardingSink)
@@ -41,14 +35,12 @@ import java.util.concurrent.TimeUnit
 @Suppress("unused")
 object OkioWriteUtils {
 
-    private val fileSystem: FileSystem = FileSystem.SYSTEM
-
     // ==================== 写入 ByteString ====================
 
     /**
      * 写入 [ByteString] 到文件
      *
-     * ByteString 可来自 [OkioReadUtils.readByteString] 或手动构建。
+     * ByteString 可来自 [com.itg.itg_file.read.OkioReadUtils.readByteString] 或手动构建。
      *
      * @param path      文件路径
      * @param byteString 不可变字节序列
@@ -63,18 +55,10 @@ object OkioWriteUtils {
     @JvmStatic
     fun writeByteString(path: String, byteString: ByteString): Boolean {
         if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-            fileSystem.sink(path.toPath()).use { sink ->
-                sink.buffer().use { buffered ->
-                    buffered.write(byteString)
-                }
+        return writeToFileAtomically(path) { file ->
+            file.sink().buffer().use { buffered ->
+                buffered.write(byteString)
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -87,7 +71,7 @@ object OkioWriteUtils {
         byteString: ByteString,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeByteString(path, byteString)) }
+        return TaskExecutor.io { safeCallback { onResult(writeByteString(path, byteString)) } }
     }
 
     // ==================== 写入字符串 ====================
@@ -104,16 +88,10 @@ object OkioWriteUtils {
     @JvmOverloads
     fun writeUtf8(path: String, content: String, charset: Charset = Charsets.UTF_8): Boolean {
         if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-            fileSystem.write(path.toPath()) {
-                writeString(content, charset)
+        return writeToFileAtomically(path) { file ->
+            file.sink().buffer().use { buffered ->
+                buffered.writeString(content, charset)
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -128,7 +106,7 @@ object OkioWriteUtils {
         charset: Charset = Charsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeUtf8(path, content, charset)) }
+        return TaskExecutor.io { safeCallback { onResult(writeUtf8(path, content, charset)) } }
     }
 
     /**
@@ -145,14 +123,15 @@ object OkioWriteUtils {
         if (path.isBlank()) return false
         return try {
             val file = File(path)
-            file.parentFile?.mkdirs()
-            fileSystem.appendingSink(path.toPath()).use { sink ->
-                sink.buffer().use { buffered ->
-                    buffered.writeString(content, charset)
-                }
+            ensureParentDirectory(file) ?: return false
+            FileOutputStream(file, true).sink().buffer().use { buffered ->
+                buffered.writeString(content, charset)
             }
             true
         } catch (e: IOException) {
+            e.printStackTrace()
+            false
+        } catch (e: SecurityException) {
             e.printStackTrace()
             false
         }
@@ -168,7 +147,7 @@ object OkioWriteUtils {
         charset: Charset = Charsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(appendUtf8(path, content, charset)) }
+        return TaskExecutor.io { safeCallback { onResult(appendUtf8(path, content, charset)) } }
     }
 
     // ==================== 从 Buffer 写入 ====================
@@ -183,16 +162,10 @@ object OkioWriteUtils {
     @JvmStatic
     fun writeFromBuffer(path: String, buffer: Buffer): Boolean {
         if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-            fileSystem.write(path.toPath()) {
-                writeAll(buffer)
+        return writeToFileAtomically(path) { file ->
+            file.sink().buffer().use { buffered ->
+                buffered.writeAll(buffer)
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -214,19 +187,12 @@ object OkioWriteUtils {
         overwrite: Boolean = true
     ): Boolean {
         if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            if (file.exists() && !overwrite) return false
-            file.parentFile?.mkdirs()
-
-            val source = inputStream.source().buffer()
-            fileSystem.write(path.toPath()) {
-                writeAll(source)
+        return writeToFileAtomically(path, overwrite) { file ->
+            inputStream.source().buffer().use { source ->
+                file.sink().buffer().use { buffered ->
+                    buffered.writeAll(source)
+                }
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -240,7 +206,7 @@ object OkioWriteUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeFromStream(path, inputStream, overwrite)) }
+        return TaskExecutor.io { safeCallback { onResult(writeFromStream(path, inputStream, overwrite)) } }
     }
 
     // ==================== 超时控制的写入 ====================
@@ -258,23 +224,12 @@ object OkioWriteUtils {
     @JvmStatic
     fun writeWithTimeout(path: String, bytes: ByteArray, timeoutMs: Long): Boolean {
         if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-
-            fileSystem.sink(path.toPath()).use { sink ->
-                sink.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
-                sink.buffer().use { buffered ->
-                    buffered.write(bytes)
-                }
+        return writeToFileAtomically(path) { file ->
+            val sink = file.sink()
+            sink.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
+            sink.buffer().use { buffered ->
+                buffered.write(bytes)
             }
-            true
-        } catch (e: IOException) {
-            if (e is java.io.InterruptedIOException) {
-                android.util.Log.w("OkioWriteUtils", "Write timed out after ${timeoutMs}ms: $path")
-            }
-            e.printStackTrace()
-            false
         }
     }
 
@@ -288,7 +243,7 @@ object OkioWriteUtils {
         timeoutMs: Long,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeWithTimeout(path, bytes, timeoutMs)) }
+        return TaskExecutor.io { safeCallback { onResult(writeWithTimeout(path, bytes, timeoutMs)) } }
     }
 
     // ==================== 带进度的写入 ====================
@@ -314,20 +269,18 @@ object OkioWriteUtils {
     ): Boolean {
         if (path.isBlank()) return false
 
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
+        return writeToFileAtomically(path) { file ->
             val totalSize = data.size.toLong()
             var bytesWritten = 0L
             var lastReport = 0L
 
-            val rawSink = fileSystem.sink(path.toPath())
+            val rawSink = file.sink()
             val progressSink = object : ForwardingSink(rawSink) {
                 override fun write(source: Buffer, byteCount: Long) {
                     super.write(source, byteCount)
                     bytesWritten += byteCount
                     if (onProgress != null && bytesWritten - lastReport >= chunkSize) {
-                        onProgress(bytesWritten, totalSize)
+                        safeCallback { onProgress(bytesWritten, totalSize) }
                         lastReport = bytesWritten
                     }
                 }
@@ -335,12 +288,8 @@ object OkioWriteUtils {
 
             progressSink.buffer().use { buffered ->
                 buffered.write(data)
-                onProgress?.invoke(bytesWritten, totalSize)
+                safeCallback { onProgress?.invoke(bytesWritten, totalSize) }
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -356,7 +305,7 @@ object OkioWriteUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         return TaskExecutor.io {
-            onResult(writeWithProgress(path, data, chunkSize, onProgress))
+            safeCallback { onResult(writeWithProgress(path, data, chunkSize, onProgress)) }
         }
     }
 
@@ -380,19 +329,12 @@ object OkioWriteUtils {
     @JvmStatic
     fun writeGzip(path: String, data: ByteArray): Boolean {
         if (path.isBlank()) return false
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-
-            fileSystem.sink(path.toPath()).use { sink ->
-                okio.GzipSink(sink).buffer().use { gzip ->
+        return writeToFileAtomically(path) { file ->
+            file.sink().use { sink ->
+                GzipSink(sink).buffer().use { gzip ->
                     gzip.write(data)
                 }
             }
-            true
-        } catch (e: IOException) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -405,7 +347,7 @@ object OkioWriteUtils {
         data: ByteArray,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeGzip(path, data)) }
+        return TaskExecutor.io { safeCallback { onResult(writeGzip(path, data)) } }
     }
 
     /**
@@ -432,31 +374,10 @@ object OkioWriteUtils {
     @JvmStatic
     fun writeAtomic(path: String, data: ByteArray): Boolean {
         if (path.isBlank()) return false
-        var tmpFile: File? = null
-        return try {
-            val destFile = File(path)
-            destFile.parentFile?.mkdirs()
-            val tempFile = File.createTempFile(
-                (destFile.nameWithoutExtension + "_").padEnd(3, '_'),
-                ".tmp",
-                destFile.parentFile
-            )
-            tmpFile = tempFile
-
-            // 写入临时文件
-            fileSystem.write(tempFile.absolutePath.toPath()) {
-                write(data)
+        return writeToFileAtomically(path) { tempFile ->
+            tempFile.sink().buffer().use { buffered ->
+                buffered.write(data)
             }
-
-            // 原子移动
-            FileOutputStream(tempFile, true).use { it.fd.sync() }
-            Os.rename(tempFile.absolutePath, destFile.absolutePath)
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
-        } finally {
-            tmpFile?.takeIf { it.exists() }?.delete()
         }
     }
 
@@ -469,7 +390,7 @@ object OkioWriteUtils {
         data: ByteArray,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { onResult(writeAtomic(path, data)) }
+        return TaskExecutor.io { safeCallback { onResult(writeAtomic(path, data)) } }
     }
 
     /**
@@ -479,5 +400,60 @@ object OkioWriteUtils {
     @JvmOverloads
     fun writeAtomicUtf8(path: String, content: String, charset: Charset = Charsets.UTF_8): Boolean {
         return writeAtomic(path, content.toByteArray(charset))
+    }
+
+    private fun writeToFileAtomically(
+        path: String,
+        overwrite: Boolean = true,
+        writer: (File) -> Unit
+    ): Boolean {
+        if (path.isBlank()) return false
+        var tempFile: File? = null
+        return try {
+            val destFile = File(path).canonicalFile
+            if (destFile.exists()) {
+                if (!overwrite || destFile.isDirectory) return false
+            }
+            val parent = ensureParentDirectory(destFile) ?: return false
+            tempFile = File.createTempFile(".${destFile.name}.", ".tmp", parent)
+            writer(tempFile)
+            FileOutputStream(tempFile, true).use { it.fd.sync() }
+            if (destFile.exists() && !overwrite) return false
+            replaceFile(tempFile, destFile)
+            tempFile = null
+            true
+        } catch (e: IOException) {
+            e.printStackTrace()
+            false
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+            false
+        } finally {
+            tempFile?.delete()
+        }
+    }
+
+    private fun replaceFile(tempFile: File, destFile: File) {
+        if (tempFile.renameTo(destFile)) return
+        if (destFile.exists() && !destFile.delete()) {
+            throw IOException("Failed to delete destination: ${destFile.absolutePath}")
+        }
+        if (!tempFile.renameTo(destFile)) {
+            throw IOException("Failed to move temp file to destination: ${destFile.absolutePath}")
+        }
+    }
+
+    private fun ensureParentDirectory(file: File): File? {
+        val parent = file.parentFile ?: return null
+        if (parent.exists()) return if (parent.isDirectory) parent else null
+        return if (parent.mkdirs()) parent else null
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
     }
 }
