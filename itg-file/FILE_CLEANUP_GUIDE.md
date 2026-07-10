@@ -1,5 +1,7 @@
 # FileCleanupManager 使用指南
 
+> **文档导航：** [← 返回 README](./README.md) ｜ [使用场景实例（含完整代码示例）](./demo.md#6-文件清理生命周期驱动)
+
 `FileCleanupManager` 用来按条件清理本地文件或目录。适合缓存、临时文件、过期导出文件、日志轮转等场景。
 
 ## 能做什么
