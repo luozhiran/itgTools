@@ -11,6 +11,7 @@ Android 本地文件处理工具库，提供 `java.io` 和 `Okio 2.9.0` 两套�
 - [快速开始](#快速开始)
 - [模块总览](#模块总览)
 - [选择建议](#选择建议)
+- [使用场景实例](./demo.md) — 覆盖所有场景的完整代码示例，含 java.io 与 Okio 双模式对比
 - [安全与性能](#安全与性能)
 - [清理指南](./FILE_CLEANUP_GUIDE.md)
 - [旧版说明](./README1.md)
@@ -71,6 +72,8 @@ FileReadUtils.readTextAsync("/sdcard/demo.txt") { content, error ->
 | 需要自动清理缓存、临时文件、过期数据 | `FileCleanupManager` |
 
 ## 使用示例
+
+> 更多完整场景实例（含 java.io 与 Okio 双模式对比）请参见 **[demo.md](./demo.md)**。
 
 ### 读写文本
 
