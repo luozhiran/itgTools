@@ -134,6 +134,7 @@ com.itg.concurrent
 
 | 文档 | 说明 |
 |------|------|
+| [**完整使用指南**](./docs/UsageGuide.md) | 🔥 **覆盖全部 20 个使用场景** — 基础任务、Future、延迟、定时、取消、等待、后端切换、混合模式、Suspend、自定义分发器、生命周期、ViewModel 集成、Java 调用、调试、实战示例、API 速查 |
 | [Concurrent](./docs/Concurrent.md) | 统一入口 + 工厂 — 使用教程、后端切换、混合模式、suspend API |
 | [BackendAdapters](./docs/BackendAdapters.md) | 适配器原理 — ThreadPoolAdapter/CoroutineAdapter、自定义适配器(Virtual Threads) |
 | [ConcurrentUtils](./docs/ConcurrentUtils.md) | 工具方法 — 线程检测/断言、Future辅助、安全休眠 |
