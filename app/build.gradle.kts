@@ -63,6 +63,7 @@ dependencies {
     implementation(libs.therouter.router)
     ksp(libs.therouter.apt)
     ksp(project(":itg-ksp-compiler"))
+    implementation(project(":itg-web-cache"))
 }
 
 // JitPack 兼容：outter 是纯聚合模块（无 src/main 源码），其 AAR 的 classes.jar 为空，
