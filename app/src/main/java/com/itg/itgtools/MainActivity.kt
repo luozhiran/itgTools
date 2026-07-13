@@ -14,6 +14,15 @@ class MainActivity : AutoBindingBaseActivity<ActivityMainBinding, MainModel>() {
         super.onCreate(savedInstanceState)
         binding.openItgUiExamples.setOnClickListener {
             startActivity(Intent(this, ItgUiExamplesActivity::class.java))
+        enableEdgeToEdge()
+        setContentView(R.layout.activity_main)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
+        }
+        findViewById<android.view.View>(R.id.openWebCacheDemoButton).setOnClickListener {
+            startActivity(Intent(this, WebCacheDemoActivity::class.java))
         }
     }
 }
