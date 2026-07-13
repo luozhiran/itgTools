@@ -11,6 +11,21 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.ItgTools">
+        <activity android:name=".pages.itgui.RecyclerDemoActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.ksp.KspRecyclerDemoActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.ksp.KspTabHostActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.ManualTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.DynamicTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.NestedTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.CustomTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.BottomNavigationTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.StyledTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.AdvancedTabStylesActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.BasicTabsActivity" android:exported="false" />
+        <activity android:name=".pages.itgui.ItgUiExamplesActivity" android:exported="false" />
+        <activity
+            android:name=".pages.itgstring.ItgStringActivity"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

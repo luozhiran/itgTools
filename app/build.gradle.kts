@@ -1,8 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    // id("therouter")  // 暂时移除
-    // id("com.google.devtools.ksp")  // 暂时移除：与 AGP 降级相关的 KSP 版本调整中
+    id("therouter")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -37,6 +37,11 @@ android {
     }
     buildFeatures {
         dataBinding = true
+        viewBinding = true
+    }
+    sourceSets {
+        getByName("debug").kotlin.srcDir("build/generated/ksp/debug/kotlin")
+        getByName("release").kotlin.srcDir("build/generated/ksp/release/kotlin")
     }
 }
 
@@ -50,8 +55,14 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     implementation(project(":outter"))
-    // implementation(libs.therouter.router)  // 暂时移除
-    // ksp(libs.therouter.apt)  // 暂时移除
+    implementation(project(":itg-ui"))
+    implementation(project(":itg-coroutine-pools"))
+    implementation(project(":itg-concurrent-core"))
+    implementation(project(":itg-ksp-annotations"))
+    implementation(project(":itg-ksp-runtime"))
+    implementation(libs.therouter.router)
+    ksp(libs.therouter.apt)
+    ksp(project(":itg-ksp-compiler"))
 }
 
 // JitPack 兼容：outter 是纯聚合模块（无 src/main 源码），其 AAR 的 classes.jar 为空，

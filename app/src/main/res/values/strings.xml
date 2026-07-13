@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">ItgTools</string>
+    <string name="itg_ui_resource_tab">资源标题</string>
 </resources>

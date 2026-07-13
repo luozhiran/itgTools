@@ -61,7 +61,7 @@ abstract class AutoBindingBaseFragment<
 
     @Suppress("UNCHECKED_CAST")
     private val bindingClass: Class<VB> by lazy {
-        val type = javaClass.genericSuperclass as ParameterizedType
+        val type = findParameterizedSuperclass()
         check(type.actualTypeArguments.size > 0) {
             "${javaClass.simpleName} 须声明泛型：" +
                 "AutoBindingBaseFragment<XxxBinding, XxxModel>"
@@ -71,12 +71,25 @@ abstract class AutoBindingBaseFragment<
 
     @Suppress("UNCHECKED_CAST")
     private val modelClass: Class<VM> by lazy {
-        val type = javaClass.genericSuperclass as ParameterizedType
+        val type = findParameterizedSuperclass()
         check(type.actualTypeArguments.size > 1) {
             "缺少 ViewModel 泛型：" +
                 "AutoBindingBaseFragment<VB, VM> 需要两个参数"
         }
         type.actualTypeArguments[1] as Class<VM>
+    }
+
+    /** 沿类层级向上查找第一个 [ParameterizedType] 父类，兼容中间有非泛型抽象类的情况 */
+    private fun findParameterizedSuperclass(): ParameterizedType {
+        var cls: Class<*> = javaClass
+        while (true) {
+            val superclass = cls.genericSuperclass ?: throw IllegalStateException(
+                "${javaClass.simpleName}: 无法在类层级中找到泛型父类。" +
+                    "请确认 Fragment 继承了 AutoBindingBaseFragment<XxxBinding, XxxModel>"
+            )
+            if (superclass is ParameterizedType) return superclass
+            cls = superclass as Class<*>
+        }
     }
 
     // ==================== 生命周期 ====================
@@ -97,9 +110,10 @@ abstract class AutoBindingBaseFragment<
         viewModelAbility.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
         viewModel = viewModelAbility.viewModel
 
-        permissions.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
-        messages.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
-        uiState.inject(requireActivity() as androidx.appcompat.app.AppCompatActivity)
+        val activity = requireActivity() as androidx.appcompat.app.AppCompatActivity
+        permissions.inject(activity)
+        messages.inject(activity)
+        uiState.inject(activity)
 
         if (binding.root is ViewGroup) {
             uiState.bind(binding.root as ViewGroup)

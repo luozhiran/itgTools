@@ -90,17 +90,24 @@ abstract class AutoBindingBaseActivity<
     @Suppress("UNCHECKED_CAST")
     private val modelClass: Class<VM> by lazy { resolveTypeArg(1) as Class<VM> }
 
+    /** 沿类层级向上查找第一个 [ParameterizedType] 父类 */
+    private fun findParameterizedSuperclass(): ParameterizedType {
+        var cls: Class<*> = javaClass
+        while (true) {
+            val superclass = cls.genericSuperclass ?: throw IllegalStateException(
+                "${javaClass.simpleName}: 无法在类层级中找到泛型父类。" +
+                    "请确认 Activity 继承了 AutoBindingBaseActivity<XxxBinding, XxxModel>"
+            )
+            if (superclass is ParameterizedType) return superclass
+            cls = superclass as Class<*>
+        }
+    }
+
     /**
      * 安全提取泛型实参，校验失败时给出明确错误信息（而非裸 NPE/ClassCastException）。
      */
     private fun resolveTypeArg(index: Int): Class<*> {
-        val superClass = javaClass.genericSuperclass
-        check(superClass is ParameterizedType) {
-            "${javaClass.simpleName} 必须以具体泛型继承，例如：\n" +
-                "  class ${javaClass.simpleName} : ${this::class.java.simpleName}<" +
-                "ActivityMainBinding, MyModel>()\n" +
-                "当前未声明泛型参数，无法自动推导。"
-        }
+        val superClass = findParameterizedSuperclass()
         val args = superClass.actualTypeArguments
         check(index < args.size) {
             "泛型参数不足：需要 ${index + 1} 个，实际声明了 ${args.size} 个。\n" +
