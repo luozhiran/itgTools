@@ -78,7 +78,65 @@ object Concurrent {
     @JvmStatic fun backgroundDelayed(task: () -> Unit, delayMs: Long): Future<*> =
         get(DispatcherType.BACKGROUND).schedule(task, delayMs)
 
-    // ==================== 协程原生 API ====================
+    // ==================== Managed Coroutine API ====================
+
+    @JvmStatic
+    @JvmOverloads
+    fun createScope(
+        type: DispatcherType = DispatcherType.BACKGROUND,
+        name: String? = null
+    ): ConcurrentScope {
+        val dispatcher = getCoroutineDispatcher(type)
+        val context = if (name.isNullOrBlank()) {
+            SupervisorJob() + dispatcher
+        } else {
+            SupervisorJob() + dispatcher + CoroutineName(name)
+        }
+        return ConcurrentScope(CoroutineScope(context))
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun launch(
+        type: DispatcherType = DispatcherType.BACKGROUND,
+        name: String? = null,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job {
+        val scope = createScope(type, name)
+        val job = scope.launch(block)
+        job.invokeOnCompletion { scope.cancel() }
+        return job
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun launchIo(
+        name: String? = null,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job = launch(DispatcherType.IO, name, block)
+
+    @JvmStatic
+    @JvmOverloads
+    fun launchCompute(
+        name: String? = null,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job = launch(DispatcherType.COMPUTE, name, block)
+
+    @JvmStatic
+    @JvmOverloads
+    fun launchBackground(
+        name: String? = null,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job = launch(DispatcherType.BACKGROUND, name, block)
+
+    @JvmStatic
+    @JvmOverloads
+    fun launchMain(
+        name: String? = null,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job = launch(DispatcherType.MAIN, name, block)
+
+    // ==================== Coroutine Native API ====================
 
     @JvmStatic
     suspend fun <T> ioSuspend(task: suspend () -> T): T {

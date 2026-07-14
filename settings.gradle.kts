@@ -9,6 +9,7 @@ pluginManagement {
         }
         mavenCentral()
         gradlePluginPortal()
+        maven { url = uri("https://www.jitpack.io") }
     }
 }
 // foojay 插件在受限网络/JitPack 环境无法下载 JDK，改用本地安装的 JDK。
@@ -21,6 +22,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://www.jitpack.io") }
     }
 }
 

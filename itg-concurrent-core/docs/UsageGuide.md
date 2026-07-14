@@ -1,352 +1,805 @@
-# Concurrent 完整使用指南
+# itg-concurrent-core 使用指南
 
-覆盖全部 20 个使用场景。
+`itg-concurrent-core` 是项目里的统一并发入口。它把业务代码和具体执行后端隔离开：同一套 `Concurrent` API 可以运行在线程池后端，也可以运行在协程后端。
+
+当前文档只覆盖本模块真实存在的 API，不包含未实现的周期调度、批量等待等能力。
 
 ## 目录
-1. [基础任务提交](#1-基础任务提交)
-2. [有返回值 Future](#2-有返回值-future)
-3. [延迟执行](#3-延迟执行)
-4. [定时周期任务](#4-定时周期任务)
-5. [取消任务](#5-取消任务)
-6. [等待任务完成](#6-等待任务完成)
-7. [后端切换](#7-后端切换)
-8. [混合后端模式](#8-混合后端模式)
-9. [Suspend 原生 API](#9-suspend-原生-api)
-10. [自定义分发器](#10-自定义分发器)
-11. [获取底层 Dispatcher](#11-获取底层-dispatcher)
-12. [生命周期管理](#12-生命周期管理)
-13. [生命周期感知任务](#13-生命周期感知任务)
-14. [异常处理](#14-异常处理)
-15. [ViewModel 集成](#15-viewmodel-集成)
-16. [与存量代码共存](#16-与存量代码共存)
-17. [Java 调用](#17-java-调用)
-18. [调试监控](#18-调试监控)
-19. [完整实战](#19-完整实战)
-20. [API 速查表](#20-api-速查表)
+
+1. [先选 API](#1-先选-api)
+2. [依赖和后端](#2-依赖和后端)
+3. [Application 初始化](#3-application-初始化)
+4. [普通后台任务](#4-普通后台任务)
+5. [主线程任务](#5-主线程任务)
+6. [Future 返回值](#6-future-返回值)
+7. [延迟执行](#7-延迟执行)
+8. [取消和等待 Future](#8-取消和等待-future)
+9. [线程检测和断言](#9-线程检测和断言)
+10. [在协程里切线程](#10-在协程里切线程)
+11. [没有 lifecycleScope 时启动 suspend 任务](#11-没有-lifecyclescope-时启动-suspend-任务)
+12. [长期持有的 ConcurrentScope](#12-长期持有的-concurrentscope)
+13. [Flow collect 场景](#13-flow-collect-场景)
+14. [线程池后端下运行 suspend/Flow](#14-线程池后端下运行-suspendflow)
+15. [并发组合](#15-并发组合)
+16. [混合后端模式](#16-混合后端模式)
+17. [自定义 TaskDispatcher](#17-自定义-taskdispatcher)
+18. [获取底层 Dispatcher](#18-获取底层-dispatcher)
+19. [生命周期和释放](#19-生命周期和释放)
+20. [异常处理](#20-异常处理)
+21. [Java 调用](#21-java-调用)
+22. [常见错误](#22-常见错误)
+23. [API 速查表](#23-api-速查表)
 
 ---
 
-## 1. 基础任务提交
+## 1. 先选 API
+
+根据任务类型先选入口：
+
+| 场景 | 推荐 API | 返回 | 说明 |
+| --- | --- | --- | --- |
+| 普通阻塞 I/O | `Concurrent.io { }` | `Future<T>` | 文件、网络同步调用、数据库同步调用 |
+| CPU 计算 | `Concurrent.compute { }` | `Future<T>` | 图片处理、加解密、格式化大数据 |
+| 通用后台任务 | `Concurrent.background { }` | `Future<T>` | 不明确属于 I/O 或计算的后台任务 |
+| 切回主线程 | `Concurrent.main { }` | `Unit` | UI 更新或主线程回调 |
+| 延迟任务 | `mainDelayed/ioDelayed/backgroundDelayed` | `Future<*>` | 防抖、延迟提示、延迟清理 |
+| 已经在协程内 | `ioSuspend/computeSuspend/backgroundSuspend/mainSuspend` | `T` | 在 `lifecycleScope/viewModelScope/launch` 中切线程 |
+| 不在 Activity/Fragment，但要跑 suspend/Flow | `Concurrent.launchIo { }` | `Job` | 一次性异步任务，可取消 |
+| 普通类长期持有任务 | `Concurrent.createScope(...)` | `ConcurrentScope` | Manager/Repository/SDK 组件，owner 释放时 cancel |
+
+原则：
+
+- `Concurrent.io { }` 接收普通 lambda，不能直接调用 `suspend` 函数。
+- `Flow.collect` 是 `suspend` 函数，必须放在协程入口里，例如 `launchIo { flow.collect { } }`。
+- 长生命周期任务要保存 `Job` 或 `ConcurrentScope`，在不需要时取消。
+
+## 2. 依赖和后端
+
+模块依赖关系通常是：
 
 ```kotlin
-import com.itg.concurrent.Concurrent
+dependencies {
+    implementation(project(":itg-concurrent-core"))
 
-Concurrent.io { }         // I/O — 网络、文件
-Concurrent.compute { }    // CPU — 图片、加解密
-Concurrent.background { } // 通用后台
-Concurrent.single { }     // 严格串行
-Concurrent.main { }       // 主线程 UI
-```
-
-## 2. 有返回值 Future
-
-```kotlin
-val f = Concurrent.io<Int> { calculate() }
-Concurrent.io {
-    val r = ConcurrentUtils.await(f, timeoutMs = 5000)
-    Concurrent.main { display(r) }
+    // 至少提供一个后端。两者都提供时，AUTO 默认优先协程后端。
+    implementation(project(":itg-coroutine-pools"))
+    implementation(project(":itg-thread-pools"))
 }
 ```
 
-## 3. 延迟执行
+`itg-concurrent-core` 支持三种后端选择：
+
+| 后端 | 说明 |
+| --- | --- |
+| `AUTO` | 自动检测 classpath，优先使用协程后端，其次使用线程池后端 |
+| `COROUTINE` | 强制使用 `itg-coroutine-pools` |
+| `THREAD_POOL` | 强制使用 `itg-thread-pools` |
+
+检测当前环境：
 
 ```kotlin
-Concurrent.mainDelayed(2000L) { showTooltip() }
-val f = Concurrent.ioDelayed(5000L) { sync() }
-ConcurrentUtils.cancel(f)
-
-// 搜索防抖
-var pending: Future<*>? = null
-fun onSearchChanged(q: String) {
-    pending?.let { ConcurrentUtils.cancel(it) }
-    pending = Concurrent.backgroundDelayed(300L) { search(q) }
-}
+val backends = ConcurrentFactory.getAvailableBackends()
+val current = ConcurrentFactory.currentBackend
+val hasCoroutine = ConcurrentFactory.isCoroutineAvailable()
+val hasThreadPool = ConcurrentFactory.isThreadPoolAvailable()
 ```
 
-## 4. 定时周期任务
+## 3. Application 初始化
 
-```kotlin
-// 每30s心跳
-val hb = Concurrent.scheduleAtFixedRate(periodMs = 30_000L) { heartbeat() }
-// 每5s轮询
-val poll = Concurrent.scheduleWithFixedDelay(delayMs = 5_000L) { check() }
-ConcurrentUtils.cancel(hb)
-```
-
-## 5. 取消任务
-
-```kotlin
-ConcurrentUtils.cancel(future)
-// 页面离开时批量取消
-override fun onDestroy() {
-    tasks.forEach { ConcurrentUtils.cancel(it) }
-}
-```
-
-## 6. 等待任务完成
-
-```kotlin
-ConcurrentUtils.await(future, timeoutMs = 5000L)
-ConcurrentUtils.awaitAll(futures, timeoutMs = 30_000L)
-
-// 竞速
-val idx = ConcurrentUtils.awaitAny(futures, timeoutMs = 10_000L)
-val result = futures[idx].get()
-futures.forEachIndexed { i, f -> if (i != idx) ConcurrentUtils.cancel(f) }
-```
-
-## 7. 后端切换
+不配置时默认是 `AUTO`。如果业务希望明确后端，可以在 `Application.onCreate()` 中配置。
 
 ```kotlin
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+
         ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE)
     }
 }
-
-// 检测可用后端
-if (ConcurrentFactory.isCoroutineAvailable()) { /* suspend API */ }
-println(ConcurrentFactory.getAvailableBackends()) // [COROUTINE, THREAD_POOL]
 ```
 
-## 8. 混合后端模式
+切到线程池：
 
 ```kotlin
-ConcurrentFactory.useMixed(mapOf(
-    DispatcherType.IO to ConcurrentFactory.BackendType.COROUTINE,
-    DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL
-))
-// Concurrent.io → 协程, Concurrent.compute → 线程池
+ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL)
 ```
 
-## 9. Suspend 原生 API
+恢复自动检测：
+
+```kotlin
+ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.AUTO)
+```
+
+## 4. 普通后台任务
+
+I/O 任务：
+
+```kotlin
+Concurrent.io {
+    val config = loadConfigFromDisk()
+    Concurrent.main {
+        render(config)
+    }
+}
+```
+
+计算任务：
+
+```kotlin
+Concurrent.compute {
+    val digest = md5(bytes)
+    Concurrent.main {
+        showDigest(digest)
+    }
+}
+```
+
+通用后台任务：
+
+```kotlin
+Concurrent.background {
+    cleanupExpiredCache()
+}
+```
+
+注意：这三个 API 都返回 `Future<T>`。如果不关心返回值，可以忽略。
+
+## 5. 主线程任务
+
+```kotlin
+Concurrent.main {
+    textView.text = "done"
+}
+```
+
+如果当前已经在主线程，`Concurrent.main { }` 会直接执行；否则会分发到主线程执行。
+
+## 6. Future 返回值
+
+```kotlin
+val future: Future<User> = Concurrent.io {
+    api.getUser(userId)
+}
+
+Concurrent.io {
+    val user = ConcurrentUtils.await(future, timeoutMs = 5_000L)
+    Concurrent.main {
+        if (user != null) showUser(user) else showError()
+    }
+}
+```
+
+`ConcurrentUtils.await` 是阻塞等待，不要在主线程调用。
+
+## 7. 延迟执行
+
+当前真实签名是 `task` 在前，`delayMs` 在后：
+
+```kotlin
+val future = Concurrent.ioDelayed({
+    syncCache()
+}, delayMs = 3_000L)
+```
+
+主线程延迟：
+
+```kotlin
+Concurrent.mainDelayed({
+    showTooltip()
+}, delayMs = 500L)
+```
+
+后台延迟：
+
+```kotlin
+val pending = Concurrent.backgroundDelayed({
+    reportEvent()
+}, delayMs = 1_000L)
+```
+
+搜索防抖：
+
+```kotlin
+private var searchFuture: Future<*>? = null
+
+fun onSearchTextChanged(keyword: String) {
+    searchFuture?.let { ConcurrentUtils.cancel(it) }
+    searchFuture = Concurrent.ioDelayed({
+        val result = search(keyword)
+        Concurrent.main { render(result) }
+    }, delayMs = 300L)
+}
+```
+
+## 8. 取消和等待 Future
+
+取消：
+
+```kotlin
+val future = Concurrent.io { upload() }
+ConcurrentUtils.cancel(future)
+```
+
+等待：
+
+```kotlin
+val result = ConcurrentUtils.await(future, timeoutMs = 5_000L)
+```
+
+无超时等待：
+
+```kotlin
+val result = ConcurrentUtils.await(future)
+```
+
+`await` 返回可空值：
+
+- 成功时返回任务结果。
+- 被中断或取消时返回 `null`。
+- `Future.get()` 抛出的其他异常会继续向外抛出，例如 `ExecutionException`。
+
+## 9. 线程检测和断言
+
+```kotlin
+if (ConcurrentUtils.isMainThread()) {
+    updateUi()
+}
+
+ConcurrentUtils.assertBackgroundThread()
+ConcurrentUtils.assertMainThread()
+
+val desc = ConcurrentUtils.getCurrentThreadDescription()
+val info = ConcurrentUtils.getCurrentThreadInfo()
+```
+
+阻塞 sleep：
+
+```kotlin
+Concurrent.io {
+    ConcurrentUtils.sleep(200L)
+}
+```
+
+`ConcurrentUtils.sleep` 不应该在主线程调用；如果在主线程调用，它会记录警告并直接返回。
+
+## 10. 在协程里切线程
+
+在 `lifecycleScope`、`viewModelScope` 或任意已有协程中，使用 `Suspend` API 切到对应分发器。
 
 ```kotlin
 lifecycleScope.launch {
-    val data = Concurrent.ioSuspend { api.fetch() }
-    Concurrent.mainSuspend { updateUI(data) }
-}
-
-// 并发
-val a = async { Concurrent.ioSuspend { api.fetchA() } }
-val b = async { Concurrent.ioSuspend { api.fetchB() } }
-val (ra, rb) = a.await() to b.await()
-```
-
-## 10. 自定义分发器
-
-```kotlin
-class LoggingDispatcher(private val d: TaskDispatcher) : TaskDispatcher {
-    override val name = "log-${d.name}"
-    override val supportsCoroutineNative = d.supportsCoroutineNative
-    override fun execute(task: () -> Unit) {
-        val t = System.nanoTime()
-        d.execute { task(); Log.d("T", "[$name] ${(System.nanoTime()-t)/1_000_000}ms") }
+    val user = Concurrent.ioSuspend {
+        api.getUser(userId)
     }
-    override fun <T> submit(task: () -> T): Future<T> = d.submit(task)
-    override fun schedule(task: () -> Unit, ms: Long): Future<*> = d.schedule(task, ms)
-}
-ConcurrentFactory.register(DispatcherType.IO, LoggingDispatcher(Concurrent.get(DispatcherType.IO)))
-```
 
-## 11. 获取底层 Dispatcher
-
-```kotlin
-val io = Concurrent.getCoroutineDispatcher(DispatcherType.IO)
-viewModelScope.launch(io) { fetch() }
-
-val disp = Concurrent.get(DispatcherType.IO)
-if (disp is CoroutineTaskDispatcher) {
-    disp.executeSuspend { fetch() }
-}
-```
-
-## 12. 生命周期管理
-
-```kotlin
-// 全局 — 不受页面影响
-Concurrent.io { uploadLogs() }
-
-// 页面 Scope — Activity 销毁自动取消
-lifecycleScope.launch { Concurrent.ioSuspend { fetch() } }
-
-// ViewModel Scope
-viewModelScope.launch { Concurrent.ioSuspend { load() } }
-
-// Application 关闭
-ConcurrentFactory.shutdown()
-```
-
-## 13. 生命周期感知任务
-
-```kotlin
-class PageTaskManager(owner: LifecycleOwner) {
-    private val tasks = mutableListOf<Future<*>>()
-    init {
-        owner.lifecycle.addObserver(object : LifecycleEventObserver {
-            override fun onStateChanged(src: LifecycleOwner, e: Lifecycle.Event) {
-                if (e == Lifecycle.Event.ON_DESTROY) {
-                    tasks.forEach { ConcurrentUtils.cancel(it) }
-                    tasks.clear()
-                }
-            }
-        })
+    val viewState = Concurrent.computeSuspend {
+        buildViewState(user)
     }
-    fun <T> submit(task: () -> T): Future<T> {
-        val f = Concurrent.io(task)
-        tasks.add(f)
-        return f
+
+    Concurrent.mainSuspend {
+        render(viewState)
     }
 }
 ```
 
-## 14. 异常处理
+这些 API 不会创建新的顶层生命周期，只是在当前协程结构里切换执行上下文。
+
+## 11. 没有 lifecycleScope 时启动 suspend 任务
+
+普通类中没有 `lifecycleScope`，但又要调用 `suspend` 或 `Flow.collect`，可以用一次性 `launch` API。
 
 ```kotlin
-// Fire-and-forget — 内部 try-catch
+val job = Concurrent.launchIo(name = "preload-config") {
+    val config = api.fetchConfig()
+    Concurrent.mainSuspend {
+        callback(config)
+    }
+}
+```
+
+也可以指定分发类型：
+
+```kotlin
+val job = Concurrent.launch(DispatcherType.COMPUTE, name = "format-data") {
+    val result = formatLargeData(data)
+    Concurrent.mainSuspend { render(result) }
+}
+```
+
+取消：
+
+```kotlin
+job.cancel()
+```
+
+一次性 `launch` 内部会创建临时 `ConcurrentScope`，任务完成或取消后会释放该临时 scope。
+
+## 12. 长期持有的 ConcurrentScope
+
+如果一个普通类会多次启动任务，推荐持有 `ConcurrentScope`，并在 owner 释放时取消。
+
+```kotlin
+class PreloadManager {
+    private val scope = Concurrent.createScope(
+        type = DispatcherType.IO,
+        name = "preload-manager"
+    )
+
+    fun preload() {
+        scope.launch {
+            val config = api.fetchConfig()
+            cache.save(config)
+        }
+    }
+
+    fun release() {
+        scope.cancel()
+    }
+}
+```
+
+`ConcurrentScope` 使用 `SupervisorJob`，同一 scope 下一个子任务失败，不会自动取消其他兄弟任务。
+
+## 13. Flow collect 场景
+
+错误写法：
+
+```kotlin
 Concurrent.io {
-    try { val d = api.fetch(); Concurrent.main { display(d) } }
-    catch (e: IOException) { Concurrent.main { showError() } }
+    flow.collect { value ->
+        handle(value)
+    }
 }
-
-// Future
-try { ConcurrentUtils.await(f) }
-catch (e: ExecutionException) { /* e.cause 是原始异常 */ }
-
-// Suspend — 直接 try-catch
-try { val d = Concurrent.ioSuspend { api.fetch() } }
-catch (e: IOException) { showError() }
 ```
 
-## 15. ViewModel 集成
+原因：`Concurrent.io { }` 是普通函数，不是 `suspend` lambda。
+
+正确写法：
 
 ```kotlin
-class ProfileVM(private val api: UserApi) : ViewModel() {
-    private val _state = MutableLiveData<UiState>()
-    val state: LiveData<UiState> = _state
+Concurrent.launchIo {
+    flow.collect { value ->
+        handle(value)
+    }
+}
+```
 
-    fun load(userId: String) {
-        _state.value = UiState.Loading
-        viewModelScope.launch {
+长期任务写法：
+
+```kotlin
+class MessageSubscriber {
+    private val scope = Concurrent.createScope(DispatcherType.IO, "message-subscriber")
+
+    fun start() {
+        scope.launch {
+            messageFlow.collect { message ->
+                saveMessage(message)
+            }
+        }
+    }
+
+    fun stop() {
+        scope.cancel()
+    }
+}
+```
+
+网络 Flow 示例：
+
+```kotlin
+Concurrent.launchIo("preload-url") {
+    val type = object : TypeToken<PreloadConfig>() {}.type
+
+    Net.instance.get()
+        .path("launch-hub/open/noauth/bcop/getPreloadPageUrls")
+        .monitorExtra("web-cache-url")
+        .flowResponse { raw ->
+            GsonNetConverter<PreloadConfig>(type = type).convert(raw)
+        }
+        .collect { config ->
+            handlePreloadConfig(config)
+        }
+}
+```
+
+## 14. 线程池后端下运行 suspend/Flow
+
+即使全局切到线程池后端，`launchIo`、`ioSuspend`、`getCoroutineDispatcher` 仍然可以运行 suspend 任务。
+
+```kotlin
+ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL)
+
+Concurrent.launchIo {
+    flow.collect { value ->
+        handle(value)
+    }
+}
+```
+
+实现逻辑是：线程池 `TaskDispatcher` 会被桥接成 `CoroutineDispatcher`。所以调用方式不变，但仍然依赖 Kotlin Coroutines 来执行 `suspend` 函数。
+
+限制：
+
+- 取消是协作式取消；已经进入阻塞 I/O 的代码不一定马上停止。
+- `flowOn(...)` 会改变 Flow 上游运行的 dispatcher。
+- 不要把长时间阻塞代码放到 `mainSuspend` 或 `launchMain` 中。
+
+## 15. 并发组合
+
+在协程中可以用标准 `async/await` 组合多个任务。
+
+```kotlin
+Concurrent.launchBackground("load-home") {
+    val userDeferred = async {
+        Concurrent.ioSuspend { api.getUser() }
+    }
+    val configDeferred = async {
+        Concurrent.ioSuspend { api.getConfig() }
+    }
+
+    val user = userDeferred.await()
+    val config = configDeferred.await()
+
+    val state = Concurrent.computeSuspend {
+        buildHomeState(user, config)
+    }
+
+    Concurrent.mainSuspend {
+        render(state)
+    }
+}
+```
+
+如果使用 `Future` 风格，也可以手动保存多个 `Future`，逐个 `await`：
+
+```kotlin
+val userFuture = Concurrent.io { api.getUser() }
+val configFuture = Concurrent.io { api.getConfig() }
+
+Concurrent.io {
+    val user = ConcurrentUtils.await(userFuture, 5_000L)
+    val config = ConcurrentUtils.await(configFuture, 5_000L)
+    Concurrent.main { render(user, config) }
+}
+```
+
+当前 `ConcurrentUtils` 没有 `awaitAll` 或 `awaitAny`，需要业务自己组合。
+
+## 16. 混合后端模式
+
+可以按任务类型选择不同后端。
+
+```kotlin
+ConcurrentFactory.useMixed(
+    mapOf(
+        DispatcherType.IO to ConcurrentFactory.BackendType.COROUTINE,
+        DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL,
+        DispatcherType.BACKGROUND to ConcurrentFactory.BackendType.COROUTINE,
+        DispatcherType.MAIN to ConcurrentFactory.BackendType.COROUTINE
+    )
+)
+```
+
+之后业务调用不用变化：
+
+```kotlin
+Concurrent.io { readFile() }          // 使用 IO 配置的后端
+Concurrent.compute { resizeBitmap() } // 使用 COMPUTE 配置的后端
+Concurrent.launchIo { flow.collect { } }
+```
+
+## 17. 自定义 TaskDispatcher
+
+可以注册自定义分发器覆盖某个 `DispatcherType`。
+
+```kotlin
+class LoggingDispatcher(
+    private val delegate: TaskDispatcher
+) : TaskDispatcher {
+    override val name: String = "logging-${delegate.name}"
+    override val supportsCoroutineNative: Boolean = delegate.supportsCoroutineNative
+
+    override fun execute(task: () -> Unit) {
+        delegate.execute {
+            val start = System.currentTimeMillis()
             try {
-                val cached = Concurrent.ioSuspend { db.getUser(userId) }
-                if (cached != null) _state.value = UiState.Cached(cached)
-                val fresh = Concurrent.ioSuspend { api.fetchUser(userId) }
-                val processed = Concurrent.computeSuspend { format(fresh) }
-                Concurrent.ioSuspend { db.saveUser(processed) }
-                _state.value = UiState.Success(processed)
-            } catch (e: IOException) { _state.value = UiState.Error(e.message) }
+                task()
+            } finally {
+                Log.d("Concurrent", "$name cost=${System.currentTimeMillis() - start}ms")
+            }
+        }
+    }
+
+    override fun <T> submit(task: () -> T): Future<T> {
+        return delegate.submit(task)
+    }
+
+    override fun schedule(task: () -> Unit, delayMs: Long): Future<*> {
+        return delegate.schedule(task, delayMs)
+    }
+}
+
+val origin = Concurrent.get(DispatcherType.IO)
+ConcurrentFactory.register(DispatcherType.IO, LoggingDispatcher(origin))
+```
+
+如果自定义分发器也要原生支持 `suspend`，需要实现 `CoroutineTaskDispatcher`。
+
+## 18. 获取底层 Dispatcher
+
+获取统一分发器：
+
+```kotlin
+val dispatcher: TaskDispatcher = Concurrent.get(DispatcherType.IO)
+dispatcher.execute { doWork() }
+```
+
+获取协程 dispatcher：
+
+```kotlin
+val ioDispatcher = Concurrent.getCoroutineDispatcher(DispatcherType.IO)
+
+CoroutineScope(SupervisorJob() + ioDispatcher).launch {
+    doSuspendWork()
+}
+```
+
+`getCoroutineDispatcher` 在协程后端下返回原生 dispatcher；在线程池后端下返回由线程池桥接出来的 dispatcher。
+
+## 19. 生命周期和释放
+
+页面场景优先用 AndroidX 生命周期：
+
+```kotlin
+class Page : Fragment() {
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val data = Concurrent.ioSuspend { repository.load() }
+            render(data)
         }
     }
 }
 ```
 
-## 16. 与存量代码共存
+ViewModel 场景：
 
 ```kotlin
-// 旧模块不改 (itg-file)
-import com.itg.itg_thread_pools.executor.TaskExecutor
-TaskExecutor.io { readFile() }
-
-// 新模块用中间件
-import com.itg.concurrent.Concurrent
-Concurrent.io { newFeature() }
-
-// 两者共存，互不干扰
+class PageViewModel : ViewModel() {
+    fun load() {
+        viewModelScope.launch {
+            val data = Concurrent.ioSuspend { repository.load() }
+            _state.value = data
+        }
+    }
+}
 ```
 
-## 17. Java 调用
+普通类场景：
+
+```kotlin
+class WorkerOwner {
+    private val scope = Concurrent.createScope(DispatcherType.BACKGROUND, "worker-owner")
+
+    fun start() {
+        scope.launch { doWork() }
+    }
+
+    fun destroy() {
+        scope.cancel()
+    }
+}
+```
+
+进程退出或测试清理时，可以关闭已注册的分发器：
+
+```kotlin
+ConcurrentFactory.shutdown()
+```
+
+`shutdown()` 只会关闭 `ConcurrentFactory` 注册表中的分发器。业务自己创建的 `ConcurrentScope` 仍然应该由业务 owner 调用 `cancel()`。
+
+## 20. 异常处理
+
+普通 `Future` 任务：
+
+```kotlin
+val future = Concurrent.io {
+    api.getUser()
+}
+
+Concurrent.io {
+    try {
+        val user = future.get()
+        Concurrent.main { render(user) }
+    } catch (e: ExecutionException) {
+        val realCause = e.cause
+        Concurrent.main { showError(realCause) }
+    }
+}
+```
+
+`suspend` 任务：
+
+```kotlin
+Concurrent.launchIo {
+    try {
+        val user = api.getUser()
+        Concurrent.mainSuspend { render(user) }
+    } catch (e: IOException) {
+        Concurrent.mainSuspend { showError(e) }
+    }
+}
+```
+
+`ConcurrentScope` 默认使用 `SupervisorJob`，一个子任务失败不会取消同一个 scope 下的其他子任务。需要统一处理异常时，在每个 `launch` 里 `try/catch`，或者在业务层添加 `CoroutineExceptionHandler` 后自行创建协程作用域。
+
+## 21. Java 调用
+
+Kotlin 函数类型在 Java 中需要返回 `Unit.INSTANCE`。
 
 ```java
 import com.itg.concurrent.Concurrent;
 import com.itg.concurrent.ConcurrentFactory;
+import com.itg.concurrent.DispatcherType;
 import com.itg.concurrent.util.ConcurrentUtils;
+import java.util.concurrent.Future;
+import kotlin.Unit;
 
-ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE);
-Concurrent.io(() -> { doWork(); return Unit.INSTANCE; });
+ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL);
 
-Future<String> f = Concurrent.io(() -> api.fetch());
+Future<String> future = Concurrent.io(() -> api.fetch());
+
 Concurrent.io(() -> {
-    String r = ConcurrentUtils.await(f, 5000L);
-    Concurrent.main(() -> display(r));
+    String result = ConcurrentUtils.await(future, 5000L);
+    Concurrent.main(() -> {
+        render(result);
+        return Unit.INSTANCE;
+    });
     return Unit.INSTANCE;
 });
+
+Concurrent.mainDelayed(() -> {
+    showTip();
+    return Unit.INSTANCE;
+}, 300L);
 ```
 
-## 18. 调试监控
+Java 调用 `suspend` 风格 API 不方便，Java 侧优先使用 `Future` 风格 API。
+
+## 22. 常见错误
+
+### 在 `Concurrent.io` 中调用 `collect`
+
+错误：
 
 ```kotlin
-println(ConcurrentFactory.currentBackend)
-println(ConcurrentFactory.getAvailableBackends())
-println(ConcurrentUtils.getCurrentThreadDescription())
-
-// A/B 性能对比
-ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE)
-val t1 = measureTimeMillis { /* 100 requests */ }
-ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL)
-val t2 = measureTimeMillis { /* 100 requests */ }
-Log.d("Perf", "Coroutine:${t1}ms ThreadPool:${t2}ms")
+Concurrent.io {
+    flow.collect { }
+}
 ```
 
-## 19. 完整实战
+正确：
 
-### 图片批量加载
 ```kotlin
-fun loadImages(urls: List<String>, onComplete: (List<Bitmap>) -> Unit) {
-    Concurrent.io {
-        val futures = urls.map { url -> Concurrent.io<Bitmap?> {
-            try {
-                val bytes = httpClient.call(url).body?.bytes()
-                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes!!.size)
-                ConcurrentUtils.await(Concurrent.compute<Bitmap> { scale(bmp!!, 600) }, 5000L)
-            } catch (e: Exception) { null }
-        } }
-        ConcurrentUtils.awaitAll(futures, 30_000L)
-        val results = futures.mapNotNull { if (it.isDone) try { it.get() } catch (_: Exception) { null } else null }
-        Concurrent.main { onComplete(results) }
+Concurrent.launchIo {
+    flow.collect { }
+}
+```
+
+### 在主线程 `await`
+
+错误：
+
+```kotlin
+val result = ConcurrentUtils.await(future)
+```
+
+如果这段代码运行在主线程，会阻塞 UI。应该放到后台：
+
+```kotlin
+Concurrent.io {
+    val result = ConcurrentUtils.await(future)
+    Concurrent.main { render(result) }
+}
+```
+
+### 忘记取消长期 scope
+
+错误：
+
+```kotlin
+class Manager {
+    private val scope = Concurrent.createScope(DispatcherType.IO)
+}
+```
+
+正确：
+
+```kotlin
+class Manager {
+    private val scope = Concurrent.createScope(DispatcherType.IO)
+
+    fun release() {
+        scope.cancel()
     }
 }
 ```
 
-### 文件下载+校验
+### 把阻塞任务放到主线程
+
+错误：
+
 ```kotlin
-fun downloadAndVerify(url: String, dest: String, md5: String, onDone: (Boolean) -> Unit) {
-    Concurrent.io {
-        val file = Concurrent.ioSuspend { api.download(url, dest) }
-        val actualMd5 = Concurrent.computeSuspend { verifier.md5(file) }
-        Concurrent.main { onDone(actualMd5 == md5) }
-    }
+Concurrent.launchMain {
+    Thread.sleep(3000L)
 }
 ```
 
-## 20. API 速查表
+正确：
 
-### Concurrent — 统一入口
+```kotlin
+Concurrent.launchIo {
+    val data = blockingLoad()
+    Concurrent.mainSuspend { render(data) }
+}
+```
 
-| 方法 | 返回 | 说明 |
-|------|------|------|
-| `Concurrent.io { }` | Unit | I/O 执行 |
-| `Concurrent.compute { }` | Unit | 计算执行 |
-| `Concurrent.background { }` | Unit | 后台执行 |
-| `Concurrent.single { }` | Unit | 串行执行 |
-| `Concurrent.main { }` | Unit | 主线程 |
-| `Concurrent.io<T> { }: Future<T>` | Future\<T\> | I/O + 返回值 |
-| `Concurrent.mainDelayed(ms) { }` | Future\<*\> | 主线程延迟 |
-| `Concurrent.ioDelayed(ms) { }` | Future\<*\> | I/O 延迟 |
-| `Concurrent.scheduleAtFixedRate(...)` | Future\<*\> | 固定频率 |
-| `Concurrent.scheduleWithFixedDelay(...)` | Future\<*\> | 固定延迟 |
-| `Concurrent.ioSuspend { }: T` | T | suspend I/O |
-| `Concurrent.computeSuspend { }: T` | T | suspend 计算 |
-| `Concurrent.get(type)` | TaskDispatcher | 分发器 |
-| `Concurrent.getCoroutineDispatcher(type)` | CoroutineDispatcher | 协程 Dispatcher |
+## 23. API 速查表
+
+### Concurrent
+
+| API | 返回 | 说明 |
+| --- | --- | --- |
+| `main(task)` | `Unit` | 主线程执行，已在主线程时直接执行 |
+| `io<T>(task)` | `Future<T>` | I/O 分发器执行普通任务 |
+| `compute<T>(task)` | `Future<T>` | 计算分发器执行普通任务 |
+| `background<T>(task)` | `Future<T>` | 后台分发器执行普通任务 |
+| `mainDelayed(task, delayMs)` | `Future<*>` | 主线程延迟执行 |
+| `ioDelayed(task, delayMs)` | `Future<*>` | I/O 延迟执行 |
+| `backgroundDelayed(task, delayMs)` | `Future<*>` | 后台延迟执行 |
+| `createScope(type, name)` | `ConcurrentScope` | 创建可手动取消的托管协程 scope |
+| `launch(type, name, block)` | `Job` | 一次性启动 suspend 任务 |
+| `launchIo(name, block)` | `Job` | 在 IO 分发器启动 suspend 任务 |
+| `launchCompute(name, block)` | `Job` | 在 COMPUTE 分发器启动 suspend 任务 |
+| `launchBackground(name, block)` | `Job` | 在 BACKGROUND 分发器启动 suspend 任务 |
+| `launchMain(name, block)` | `Job` | 在 MAIN 分发器启动 suspend 任务 |
+| `ioSuspend(task)` | `T` | suspend 环境中切到 IO |
+| `computeSuspend(task)` | `T` | suspend 环境中切到 COMPUTE |
+| `backgroundSuspend(task)` | `T` | suspend 环境中切到 BACKGROUND |
+| `mainSuspend(task)` | `T` | suspend 环境中切到 MAIN |
+| `get(type)` | `TaskDispatcher` | 获取底层任务分发器 |
+| `getCoroutineDispatcher(type)` | `CoroutineDispatcher` | 获取或桥接协程 dispatcher |
+
+### ConcurrentScope
+
+| API | 返回 | 说明 |
+| --- | --- | --- |
+| `launch(block)` | `Job` | 在 scope 内启动 suspend 任务 |
+| `cancel()` | `Unit` | 取消 scope 及其子任务 |
+| `close()` | `Unit` | 等同于 `cancel()` |
 
 ### ConcurrentFactory
 
-| 方法 | 说明 |
-|------|------|
-| `switchTo(backend)` | 全局切换 |
-| `useMixed(config)` | 混合模式 |
-| `register(type, disp)` | 自定义分发器 |
-| `isCoroutineAvailable()` / `isThreadPoolAvailable()` | 检测 |
-| `shutdown()` | 关闭全部 |
+| API | 说明 |
+| --- | --- |
+| `switchTo(backend)` | 全局切换后端，并清空手动注册表 |
+| `useMixed(config)` | 按 `DispatcherType` 使用不同后端 |
+| `register(type, dispatcher)` | 手动注册指定类型的分发器 |
+| `isCoroutineAvailable()` | 检查协程后端是否可用 |
+| `isThreadPoolAvailable()` | 检查线程池后端是否可用 |
+| `getAvailableBackends()` | 返回当前 classpath 可用后端 |
+| `shutdown()` | 关闭已注册且支持关闭的分发器，并清空注册表 |
+
+### ConcurrentUtils
+
+| API | 说明 |
+| --- | --- |
+| `isMainThread()` | 当前是否主线程 |
+| `isBackgroundThread()` | 当前是否后台线程 |
+| `assertMainThread(message)` | 断言主线程，否则抛异常 |
+| `assertBackgroundThread(message)` | 断言后台线程，否则抛异常 |
+| `await(future, timeoutMs)` | 阻塞等待 Future，取消或中断时返回 null |
+| `cancel(future, mayInterrupt)` | 取消 Future |
+| `sleep(ms)` | 后台线程阻塞 sleep，主线程调用会告警并返回 |
+| `getCurrentThreadDescription()` | 当前线程描述 |
+| `getCurrentThreadInfo()` | 当前线程信息 Map |

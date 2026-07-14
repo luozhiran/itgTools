@@ -68,6 +68,9 @@ dependencies {
     implementation(project(":itg-thread-pools"))
     implementation(project(":itg-log"))
     implementation(libs.okio)
+    implementation("com.github.luozhiran.toolnet:itg-net-flow:0.0.7.4")
+    implementation("com.google.code.gson:gson:2.9.0")
+
 }
 
 // JitPack 兼容：outter 是纯聚合模块（无 src/main 源码），其 AAR 的 classes.jar 为空，
