@@ -14,6 +14,13 @@
     "params": {}
   },
   {
+    "path": "itg/file/test/Activity",
+    "className": "com.itg.itgtools.testfile.TestFileActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  },
+  {
     "path": "itg/ui/Activity",
     "className": "com.itg.itgtools.pages.itgui.ItgUiExamplesActivity",
     "action": "",
