@@ -45,6 +45,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:text="itg-file 文件功能测试" />
+
+            <Button
+                android:id="@+id/openConcurrentTestButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="itg-concurrent-core 并发测试" />
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

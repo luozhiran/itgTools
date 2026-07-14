@@ -35,6 +35,13 @@
     "params": {}
   },
   {
+    "path": "itg/concurrent/test/Activity",
+    "className": "com.itg.itgtools.concurrent.ConcurrentTestActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  },
+  {
     "path": "main/home/activity",
     "className": "com.itg.itgtools.MainActivity",
     "action": "",

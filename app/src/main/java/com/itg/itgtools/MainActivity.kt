@@ -7,6 +7,7 @@ import com.itg.itgtools.pages.itgui.ItgUiExamplesActivity
 import com.itg.itgtools.databinding.ActivityMainBinding
 import com.itg.itgtools.route.RoutePath
 import com.itg.itgtools.route.RoutePath.ITG_UI_ACTIVITY
+import com.itg.itgtools.route.RoutePath.ITG_CONCURRENT_TEST_ACTIVITY
 import com.itg.itgtools.route.RoutePath.ITG_FILE_TEST_ACTIVITY
 import com.itg.itgtools.route.RoutePath.ITG_WEB_CACHE_ACTIVITY
 import com.itg.itgtools.webcache.WebCacheDemoActivity
@@ -27,6 +28,10 @@ class MainActivity : AutoBindingBaseActivity<ActivityMainBinding, MainModel>() {
 
         findViewById<android.view.View>(R.id.openFileTestButton).setOnClickListener {
             TheRouter.build(ITG_FILE_TEST_ACTIVITY).navigation(this)
+        }
+
+        findViewById<android.view.View>(R.id.openConcurrentTestButton).setOnClickListener {
+            TheRouter.build(ITG_CONCURRENT_TEST_ACTIVITY).navigation(this)
         }
     }
 }

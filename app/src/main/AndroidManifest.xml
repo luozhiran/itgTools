@@ -36,6 +36,7 @@
             android:name=".webcache.WebCacheDemoActivity"
             android:exported="false" />
         <activity android:name=".testfile.TestFileActivity" android:exported="false"/>
+        <activity android:name=".concurrent.ConcurrentTestActivity" android:exported="false"/>
         <activity
             android:name=".MainActivity"
             android:exported="true">
