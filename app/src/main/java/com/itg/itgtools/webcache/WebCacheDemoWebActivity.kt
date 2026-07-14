@@ -12,7 +12,10 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.itg.itg_web_cache.WebCacheRuntime
 import com.itg.itgtools.R
+import com.itg.itgtools.route.RoutePath.ITG_WEB_CONTAINER_ACTIVITY
+import com.therouter.router.Route
 
+@Route(path = ITG_WEB_CONTAINER_ACTIVITY)
 class WebCacheDemoWebActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progress: ProgressBar

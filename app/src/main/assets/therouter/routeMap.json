@@ -1,5 +1,26 @@
 [
   {
+    "path": "itg/web/WebContainer",
+    "className": "com.itg.itgtools.webcache.WebCacheDemoWebActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  },
+  {
+    "path": "itg/web/WebCacheActivity",
+    "className": "com.itg.itgtools.webcache.WebCacheDemoActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  },
+  {
+    "path": "itg/ui/Activity",
+    "className": "com.itg.itgtools.pages.itgui.ItgUiExamplesActivity",
+    "action": "",
+    "description": "",
+    "params": {}
+  },
+  {
     "path": "itg/string/activity",
     "className": "com.itg.itgtools.pages.itgstring.ItgStringActivity",
     "action": "",

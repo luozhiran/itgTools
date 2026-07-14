@@ -4,7 +4,10 @@ import android.content.Intent
 import android.os.Bundle
 import com.itg.itg_base.AutoBindingBaseActivity
 import com.itg.itgtools.databinding.ActivityItgUiExamplesBinding
+import com.itg.itgtools.route.RoutePath.ITG_UI_ACTIVITY
+import com.therouter.router.Route
 
+@Route(path = ITG_UI_ACTIVITY)
 class ItgUiExamplesActivity :
     AutoBindingBaseActivity<ActivityItgUiExamplesBinding, ItgUiDemoModel>() {
 

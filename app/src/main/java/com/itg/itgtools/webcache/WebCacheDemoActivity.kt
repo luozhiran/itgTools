@@ -13,7 +13,11 @@ import com.itg.itg_web_cache.WebCacheClearPolicy
 import com.itg.itg_web_cache.WebCacheCleaner
 import com.itg.itg_web_cache.WebCachePreloadManager
 import com.itg.itgtools.R
+import com.itg.itgtools.route.RoutePath.ITG_WEB_CACHE_ACTIVITY
+import com.therouter.router.Route
 
+
+@Route(path = ITG_WEB_CACHE_ACTIVITY)
 class WebCacheDemoActivity : AppCompatActivity() {
     private lateinit var urlEdit: EditText
     private lateinit var preloadSwitch: Switch
