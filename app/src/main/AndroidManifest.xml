@@ -26,21 +26,13 @@
         <activity android:name=".pages.itgui.AdvancedTabStylesActivity" android:exported="false" />
         <activity android:name=".pages.itgui.BasicTabsActivity" android:exported="false" />
         <activity android:name=".pages.itgui.ItgUiExamplesActivity" android:exported="false" />
-        <activity
-            android:name=".pages.itgstring.ItgStringActivity"
-            android:exported="false" />
-        <activity
-            android:name=".webcache.WebCacheDemoWebActivity"
-            android:exported="false" />
-        <activity
-            android:name=".webcache.WebCacheDemoActivity"
-            android:exported="false" />
+        <activity android:name=".pages.itgstring.ItgStringActivity" android:exported="false" />
+        <activity android:name=".webcache.WebCacheDemoWebActivity" android:exported="false" />
+        <activity android:name=".webcache.WebCacheDemoActivity" android:exported="false" />
         <activity android:name=".testfile.TestFileActivity" android:exported="false"/>
         <activity android:name=".concurrent.ConcurrentTestActivity" android:exported="false"/>
         <activity android:name=".log.LogTestActivity" android:exported="false"/>
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

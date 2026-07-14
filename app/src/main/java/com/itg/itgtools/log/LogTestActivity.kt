@@ -25,7 +25,7 @@ import com.therouter.router.Route
 @Route(path = ITG_LOG_TEST_ACTIVITY)
 class LogTestActivity : AppCompatActivity() {
 
-    private val model = LogTestModel(cacheDir)
+    private lateinit var model: LogTestModel
     private lateinit var container: LinearLayout
     private lateinit var logView: TextView
     private lateinit var logScroll: ScrollView
@@ -33,6 +33,7 @@ class LogTestActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_log_test)
+        model = LogTestModel(cacheDir)
 
         container = findViewById(R.id.testContainer)
         logView = findViewById(R.id.logTextView)
