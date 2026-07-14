@@ -32,11 +32,6 @@
                 android:layout_marginTop="16dp"
                 android:text="打开 itg-ui 示例" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ItgTools" />
-
             <Button
                 android:id="@+id/openWebCacheDemoButton"
                 android:layout_width="wrap_content"
