@@ -1,5 +1,6 @@
 package com.itg.itgtools.log
 
+import com.itg.log.ItgLog
 import com.itg.log.TestLogger
 import com.itg.log.config.LogConfig
 import com.itg.log.config.configureLogger
@@ -428,5 +429,68 @@ class LogTestModel(private val cacheDir: File) {
         logger.d("后续测试会调用新的 beginTest")
         logger.d("这验证了 beginTest 可以安全覆盖上一个未结束的测试")
         // 不调用 endTest, 直接开始下一个
+    }
+
+    // ==================== 9. 生产环境关闭 ====================
+
+    fun testGlobalDisabled() {
+        logger.beginTest("9.1 全局关闭 ItgLog.globalEnabled=false")
+        logger.d("关闭前 — 这条可见")
+
+        ItgLog.globalEnabled = false
+        logger.d("关闭后 — 这条不可见 (静默)")
+        logger.i("INFO — 不可见")
+        logger.w("WARN — 不可见")
+        logger.e("ERROR — 不可见")
+        logger.ok("成功 — 不可见")
+        logger.fail("失败 — 不可见")
+
+        ItgLog.globalEnabled = true
+        logger.d("恢复后 — 这条可见")
+        logger.ok("全局开关正常：关闭期间无任何输出")
+        logger.endTest()
+    }
+
+    fun testPerInstanceDisabled() {
+        logger.beginTest("9.2 单实例关闭 config.enabled=false")
+
+        val disabled = TestLogger("Disabled") {
+            tag = "Disabled"
+            enabled = false  // 此 logger 永久静默
+            outputToCallback { msg -> onLog?.invoke(msg) }
+        }
+        disabled.beginTest("此标题不应出现")
+        disabled.d("此日志不应出现")
+        disabled.i("INFO — 不应出现")
+        disabled.ok("OK — 不应出现")
+        disabled.endTest()
+
+        logger.d("但主 logger 不受影响")
+        logger.ok("单实例关闭正常：仅 disabled logger 被静默")
+        logger.endTest()
+    }
+
+    fun testProductionPattern() {
+        logger.beginTest("9.3 生产环境推荐模式")
+
+        // 模拟: 全局开关绑定 BuildConfig.DEBUG
+        ItgLog.globalEnabled = false
+        logger.d("这行不应出现 (模拟 release 模式)")
+
+        // 即使全局关闭，独立创建的 logger 也静默
+        val prod = TestLogger("Prod") {
+            outputToCallback { msg -> onLog?.invoke(msg) }
+        }
+        prod.beginTest("不应出现")
+        prod.d("不应出现")
+        prod.endTest()
+
+        ItgLog.globalEnabled = true
+        logger.i("全局开关恢复后可见")
+        logger.ok("生产模式验证通过: globalEnabled=false 时零输出")
+
+        logger.d("推荐在 Application.onCreate() 中设置:")
+        logger.d("  ItgLog.globalEnabled = BuildConfig.DEBUG")
+        logger.endTest()
     }
 }

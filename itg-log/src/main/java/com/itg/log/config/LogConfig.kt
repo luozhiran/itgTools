@@ -22,6 +22,7 @@ import com.itg.log.output.*
 class LogConfig private constructor(
     val tag: String,
     val minLevel: LogLevel,
+    val enabled: Boolean,
     val formatter: LogFormatter,
     val outputs: List<LogOutput>,
     val headerFormatter: (String) -> String
@@ -30,6 +31,7 @@ class LogConfig private constructor(
     class Builder {
         var tag: String = "TestLog"
         var minLevel: LogLevel = LogLevel.DEBUG
+        var enabled: Boolean = true
         var formatter: LogFormatter = CompactFormatter()
         private val outputs = mutableListOf<LogOutput>()
         var headerFormatter: (String) -> String = { "===== $it =====" }
@@ -58,7 +60,7 @@ class LogConfig private constructor(
             } else {
                 outputs.toList()
             }
-            return LogConfig(tag, minLevel, formatter, finalOutputs, headerFormatter)
+            return LogConfig(tag, minLevel, enabled, formatter, finalOutputs, headerFormatter)
         }
     }
 

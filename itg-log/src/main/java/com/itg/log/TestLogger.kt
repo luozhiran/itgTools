@@ -124,20 +124,29 @@ class TestLogger private constructor(
     val elapsedMs: Long get() = timer.elapsedMs
     val isStarted: Boolean get() = timer.isStarted
 
+    // ==================== 是否激活 ====================
+
+    /** 此 logger 是否生效（全局 + 实例双重控制） */
+    private val isActive: Boolean
+        get() = ItgLog.globalEnabled && config.enabled
+
     // ==================== 内部方法 ====================
 
     private fun log(msg: String, level: LogLevel) {
+        if (!isActive) return
         if (level.ordinal < config.minLevel.ordinal) return
         val entry = timer.step(msg, level, config.tag)
         logEntry(entry)
     }
 
     private fun logEntry(entry: com.itg.log.core.LogEntry) {
+        if (!isActive) return
         val formatted = config.formatter.format(entry)
         config.outputs.forEach { it.write(entry, formatted) }
     }
 
     private fun rawOutput(msg: String, level: LogLevel) {
+        if (!isActive) return
         val entry = com.itg.log.core.LogEntry(
             step = 0,
             deltaMs = 0,

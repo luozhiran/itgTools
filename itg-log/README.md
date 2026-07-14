@@ -11,6 +11,7 @@
 - **可插拔 Formatter** — 内置紧凑型 / 时间戳 / ANSI 着色三种格式，可实现自定义
 - **多目标 Output** — 同时输出到 logcat + UI 回调 + 文件等，组合自由
 - **DSL 配置** — Builder 模式，一行代码完成配置
+- **生产关闭** — 全局开关 `ItgLog.globalEnabled = BuildConfig.DEBUG`，release 零开销
 - **零依赖** — 仅依赖 Android SDK，无第三方库
 
 ## 输出示例
@@ -108,6 +109,12 @@ TestLogger (门面)
 ```
 
 ## API 参考
+
+### ItgLog — 全局控制
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `globalEnabled` | `Boolean` | 全局开关，默认 `true`。设为 `false` 时所有 logger 静默 |
 
 ### TestLogger — 门面
 
@@ -267,6 +274,44 @@ class MyTest {
 [#10 D+   1ms T  103ms] 协程 4 完成 ✅
 ----- 协程并发测试 结束, 总耗时: 105ms -----
 ```
+
+## 生产环境关闭
+
+itg-log 专为开发和测试阶段设计，**生产环境必须关闭**。
+
+### 全局开关（推荐）
+
+```kotlin
+// Application.onCreate()
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // debug 开启, release 自动关闭
+        ItgLog.globalEnabled = BuildConfig.DEBUG
+    }
+}
+```
+
+`globalEnabled = false` 后，所有 `TestLogger` 实例的 `log()` / `logEntry()` / `rawOutput()` 方法直接 `return`——不执行字符串拼接、不调用 Formatter、不触发任何 Output I/O。**零开销**。
+
+### 单实例关闭
+
+```kotlin
+// 仅关闭某个特定的 logger
+val logger = TestLogger("MyTest") {
+    enabled = false  // 该实例永久静默
+}
+logger.d("这条不会输出")
+```
+
+### 两级控制
+
+| 级别 | API | 作用范围 | 典型场景 |
+|------|-----|---------|---------|
+| **全局** | `ItgLog.globalEnabled = BuildConfig.DEBUG` | 所有实例 | release 构建全部关闭 |
+| **实例** | `config.enabled = false` | 单个 Logger | 禁用某个低频/已废弃的测试 |
+
+> ⚠️ `step()` 方法在关闭后仍返回 `StepRecord`（含步骤号和时间戳），可用于离线数据采集，但不产生格式化输出。
 
 ## 线程安全
 

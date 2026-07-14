@@ -112,6 +112,12 @@ class LogTestActivity : AppCompatActivity() {
             button("不调用 beginTest 直接输出") { model.testNoBeginTest() }
             button("beginTest 后不调用 endTest") { model.testBeginWithoutEnd() }
         }
+
+        buildSection("9. 生产环境关闭") {
+            button("全局关闭 ItgLog.globalEnabled=false") { model.testGlobalDisabled() }
+            button("单实例关闭 config.enabled=false") { model.testPerInstanceDisabled() }
+            button("生产模式: globalEnabled=BuildConfig.DEBUG") { model.testProductionPattern() }
+        }
     }
 
     // ==================== UI 构建 ====================
