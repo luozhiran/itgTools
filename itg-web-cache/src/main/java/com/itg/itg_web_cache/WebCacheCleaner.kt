@@ -31,25 +31,34 @@ object WebCacheCleaner {
         onComplete: ((Boolean) -> Unit)? = null
     ) {
         runOnMain {
-            emit(eventListener, logger, WebCacheEvent(name = "web_cache_clear_start", reason = "http_cache"))
-            val success = runCatching {
+            clearHttpCacheInternal(eventListener, logger, onComplete) {
                 val webView = WebView(context.applicationContext)
-                webView.clearCache(true)
-                webView.clearFormData()
-                webView.clearHistory()
-                webView.destroy()
-            }.onFailure {
-                WebCacheSafeCallbacks.log(logger, "Failed to clear WebView HTTP cache.", it)
-            }.isSuccess
-            emit(
-                eventListener,
-                logger,
-                WebCacheEvent(
-                    name = if (success) "web_cache_clear_finish" else "web_cache_clear_error",
-                    reason = "http_cache"
-                )
-            )
-            WebCacheSafeCallbacks.complete(onComplete, success, logger)
+                try {
+                    clearHttpCacheOnWebView(webView)
+                    webView.clearFormData()
+                    webView.clearHistory()
+                } finally {
+                    webView.destroy()
+                }
+            }
+        }
+    }
+
+    /**
+     * Clears WebView HTTP cache by reusing an existing WebView instance.
+     *
+     * The caller owns the passed [webView]. This method does not stop loading, clear history, or destroy it.
+     */
+    fun clearHttpCache(
+        webView: WebView,
+        eventListener: WebCacheEventListener = NoOpWebCacheEventListener,
+        logger: WebCacheLogger = NoOpWebCacheLogger,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        runOnMain {
+            clearHttpCacheInternal(eventListener, logger, onComplete) {
+                clearHttpCacheOnWebView(webView)
+            }
         }
     }
 
@@ -84,6 +93,33 @@ object WebCacheCleaner {
                 WebCacheSafeCallbacks.complete(onComplete, finalSuccess, logger)
             }
         }
+    }
+
+    private fun clearHttpCacheInternal(
+        eventListener: WebCacheEventListener,
+        logger: WebCacheLogger,
+        onComplete: ((Boolean) -> Unit)?,
+        clearAction: () -> Unit
+    ) {
+        emit(eventListener, logger, WebCacheEvent(name = "web_cache_clear_start", reason = "http_cache"))
+        val success = runCatching {
+            clearAction()
+        }.onFailure {
+            WebCacheSafeCallbacks.log(logger, "Failed to clear WebView HTTP cache.", it)
+        }.isSuccess
+        emit(
+            eventListener,
+            logger,
+            WebCacheEvent(
+                name = if (success) "web_cache_clear_finish" else "web_cache_clear_error",
+                reason = "http_cache"
+            )
+        )
+        WebCacheSafeCallbacks.complete(onComplete, success, logger)
+    }
+
+    private fun clearHttpCacheOnWebView(webView: WebView) {
+        webView.clearCache(true)
     }
 
     private fun emit(
