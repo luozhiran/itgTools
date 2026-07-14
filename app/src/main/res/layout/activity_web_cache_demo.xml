@@ -39,6 +39,18 @@
             android:text="Enable container cache policy" />
 
         <Switch
+            android:id="@+id/webCacheForceOverrideSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Force override container cacheMode" />
+
+        <Switch
+            android:id="@+id/webCacheBusinessNoCacheSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Preset business LOAD_NO_CACHE" />
+
+        <Switch
             android:id="@+id/webCacheParallelSwitch"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

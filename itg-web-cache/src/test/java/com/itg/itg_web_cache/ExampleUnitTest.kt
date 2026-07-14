@@ -98,4 +98,37 @@ class WebCachePolicyResolverTest {
         assertEquals(2, wifiCount)
         assertEquals(1, cellularCount)
     }
+
+    @Test
+    fun circuitBreakerBlocksUrlAfterConsecutiveFailuresAndSuccessClearsIt() {
+        val breaker = WebCacheCircuitBreaker(maxFailuresPerUrl = 3, blockDurationMs = 1_000L)
+        val rule = PreloadUrlRule(id = "home", url = "https://m.example.com/job/home")
+
+        breaker.recordFailure(rule, nowMs = 1_000L)
+        breaker.recordFailure(rule, nowMs = 1_100L)
+        assertFalse(breaker.isBlocked(rule, nowMs = 1_200L))
+
+        breaker.recordFailure(rule, nowMs = 1_300L)
+        assertTrue(breaker.isBlocked(rule, nowMs = 1_400L))
+
+        breaker.recordSuccess(rule)
+        assertFalse(breaker.isBlocked(rule, nowMs = 1_500L))
+    }
+
+    @Test
+    fun circuitBreakerTotalFailuresCanBeResetForLaunch() {
+        val breaker = WebCacheCircuitBreaker(maxFailuresPerUrl = 10, maxTotalFailuresPerLaunch = 2)
+        val first = PreloadUrlRule(id = "first", url = "https://m.example.com/first")
+        val second = PreloadUrlRule(id = "second", url = "https://m.example.com/second")
+        val third = PreloadUrlRule(id = "third", url = "https://m.example.com/third")
+
+        breaker.recordFailure(first)
+        assertFalse(breaker.isBlocked(third))
+
+        breaker.recordFailure(second)
+        assertTrue(breaker.isBlocked(third))
+
+        breaker.resetLaunchFailures()
+        assertFalse(breaker.isBlocked(third))
+    }
 }

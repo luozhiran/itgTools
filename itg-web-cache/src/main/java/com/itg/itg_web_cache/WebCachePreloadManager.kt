@@ -10,14 +10,13 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.util.ArrayDeque
-import java.util.WeakHashMap
 
 object WebCachePreloadManager {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val resolver = WebCachePolicyResolver()
     private val circuitBreaker = WebCacheCircuitBreaker()
     private val lastPreloadTimes = mutableMapOf<String, Long>()
-    private val activeWebViews = WeakHashMap<WebView, ActivePreload>()
+    private val activeWebViews = mutableMapOf<WebView, ActivePreload>()
     private val pendingQueue = ArrayDeque<PreloadUrlRule>()
 
     private var appContext: Context? = null
@@ -27,6 +26,7 @@ object WebCachePreloadManager {
     private var logger: WebCacheLogger = NoOpWebCacheLogger
     private var configured = false
     private var cancelled = false
+    private var scheduledStartRunnable: Runnable? = null
 
     fun configure(
         context: Context,
@@ -48,13 +48,24 @@ object WebCachePreloadManager {
             WebCacheSafeCallbacks.log(logger, "WebCachePreloadManager is not configured.")
             return
         }
+        cancelScheduledStart()
         val config = readConfig()
-        mainHandler.postDelayed({ startNow() }, config.preloadDelayMs.coerceAtLeast(0L))
+        val startRunnable = Runnable {
+            scheduledStartRunnable = null
+            startNow()
+        }
+        scheduledStartRunnable = startRunnable
+        mainHandler.postDelayed(startRunnable, config.preloadDelayMs.coerceAtLeast(0L))
     }
 
     fun startNow() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post { startNow() }
+            return
+        }
+        cancelScheduledStart()
+        if (activeWebViews.isNotEmpty() || pendingQueue.isNotEmpty()) {
+            emit(WebCacheEvent(name = "web_cache_preload_disabled", reason = "already_running"))
             return
         }
         val context = appContext ?: return
@@ -86,11 +97,12 @@ object WebCachePreloadManager {
             mainHandler.post { cancel(reason) }
             return
         }
+        cancelScheduledStart()
         cancelled = true
         pendingQueue.clear()
         val snapshot = activeWebViews.keys.toList()
         snapshot.forEach { webView ->
-            finishPreload(webView, success = false, reason = reason)
+            finishPreload(webView, success = false, reason = reason, countAsFailure = false)
         }
         emit(WebCacheEvent(name = "web_cache_preload_cancel", reason = reason))
     }
@@ -109,7 +121,7 @@ object WebCachePreloadManager {
             .filter { entry -> isConflictUrl(entry.value.rule.url, url, targetHost) }
             .map { it.key }
         activeSnapshot.forEach { webView ->
-            finishPreload(webView, success = false, reason = reason)
+            finishPreload(webView, success = false, reason = reason, countAsFailure = false)
         }
         if (removedPending || activeSnapshot.isNotEmpty()) {
             emit(
@@ -133,6 +145,10 @@ object WebCachePreloadManager {
 
     private fun startNext(context: Context, config: WebCacheConfig) {
         if (cancelled) return
+        if (isPreloadDisabled(config)) {
+            pendingQueue.clear()
+            return
+        }
         val rule = pendingQueue.pollFirst() ?: return
         val startMs = System.currentTimeMillis()
         emit(
@@ -161,7 +177,7 @@ object WebCachePreloadManager {
         }
         activeWebViews[webView] = ActivePreload(rule, startMs, timeoutRunnable)
         if (!applyPreloadSettings(webView)) {
-            finishPreload(webView, success = false, reason = "apply_settings_failed")
+            finishPreload(webView, success = false, reason = "apply_settings_failed", countAsFailure = true)
             return
         }
         webView.webViewClient = object : WebViewClient() {
@@ -203,7 +219,7 @@ object WebCachePreloadManager {
         runCatching {
             webView.loadUrl(rule.url)
         }.onFailure {
-            finishPreload(webView, success = false, reason = "load_url_failed:${it.message}")
+            finishPreload(webView, success = false, reason = "load_url_failed:${it.message}", countAsFailure = true)
         }
     }
 
@@ -224,7 +240,12 @@ object WebCachePreloadManager {
         }.isSuccess
     }
 
-    private fun finishPreload(webView: WebView, success: Boolean, reason: String) {
+    private fun finishPreload(
+        webView: WebView,
+        success: Boolean,
+        reason: String,
+        countAsFailure: Boolean = shouldRecordFailure(reason)
+    ) {
         val active = activeWebViews.remove(webView) ?: return
         mainHandler.removeCallbacks(active.timeoutRunnable)
         runCatching { webView.stopLoading() }
@@ -238,7 +259,7 @@ object WebCachePreloadManager {
         if (success) {
             circuitBreaker.recordSuccess(active.rule)
             lastPreloadTimes[active.rule.id.ifBlank { active.rule.url }] = System.currentTimeMillis()
-        } else {
+        } else if (countAsFailure) {
             circuitBreaker.recordFailure(active.rule)
         }
         emit(
@@ -252,7 +273,12 @@ object WebCachePreloadManager {
         )
         if (!cancelled) {
             val context = appContext ?: return
-            startNext(context, readConfig())
+            val nextConfig = readConfig()
+            if (isPreloadDisabled(nextConfig)) {
+                pendingQueue.clear()
+                return
+            }
+            startNext(context, nextConfig)
         }
     }
 
@@ -260,6 +286,25 @@ object WebCachePreloadManager {
         return if (reason == "timeout") "web_cache_preload_timeout" else "web_cache_preload_error"
     }
 
+    private fun shouldRecordFailure(reason: String): Boolean {
+        return reason == "timeout" ||
+            reason == "apply_settings_failed" ||
+            reason == "render_process_crash" ||
+            reason == "render_process_gone" ||
+            reason.startsWith("error_") ||
+            reason.startsWith("load_url_failed") ||
+            reason.startsWith("create_webview_failed")
+    }
+
+    private fun isPreloadDisabled(config: WebCacheConfig): Boolean {
+        return config.killSwitch || !config.preloadEnable
+    }
+
+    private fun cancelScheduledStart() {
+        val runnable = scheduledStartRunnable ?: return
+        mainHandler.removeCallbacks(runnable)
+        scheduledStartRunnable = null
+    }
 
     private fun isConflictUrl(preloadUrl: String, containerUrl: String, containerHost: String?): Boolean {
         if (preloadUrl.equals(containerUrl, ignoreCase = true)) return true

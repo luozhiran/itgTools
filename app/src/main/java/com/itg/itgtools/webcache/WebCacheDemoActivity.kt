@@ -20,6 +20,8 @@ class WebCacheDemoActivity : AppCompatActivity() {
     private lateinit var containerSwitch: Switch
     private lateinit var parallelSwitch: Switch
     private lateinit var killSwitch: Switch
+    private lateinit var forceOverrideSwitch: Switch
+    private lateinit var businessNoCacheSwitch: Switch
     private lateinit var logView: TextView
     private lateinit var logScroll: ScrollView
 
@@ -52,6 +54,8 @@ class WebCacheDemoActivity : AppCompatActivity() {
         containerSwitch = findViewById(R.id.webCacheContainerSwitch)
         parallelSwitch = findViewById(R.id.webCacheParallelSwitch)
         killSwitch = findViewById(R.id.webCacheKillSwitch)
+        forceOverrideSwitch = findViewById(R.id.webCacheForceOverrideSwitch)
+        businessNoCacheSwitch = findViewById(R.id.webCacheBusinessNoCacheSwitch)
         logView = findViewById(R.id.webCacheLogText)
         logScroll = findViewById(R.id.webCacheLogScroll)
     }
@@ -62,6 +66,8 @@ class WebCacheDemoActivity : AppCompatActivity() {
         containerSwitch.isChecked = WebCacheDemoConfig.containerCacheEnabled
         parallelSwitch.isChecked = WebCacheDemoConfig.parallelEnabled
         killSwitch.isChecked = WebCacheDemoConfig.killSwitch
+        forceOverrideSwitch.isChecked = WebCacheDemoConfig.containerForceOverride
+        businessNoCacheSwitch.isChecked = WebCacheDemoConfig.businessNoCachePreset
     }
 
     private fun bindActions() {
@@ -69,6 +75,8 @@ class WebCacheDemoActivity : AppCompatActivity() {
         containerSwitch.setOnCheckedChangeListener(updateSwitch { WebCacheDemoConfig.containerCacheEnabled = it })
         parallelSwitch.setOnCheckedChangeListener(updateSwitch { WebCacheDemoConfig.parallelEnabled = it })
         killSwitch.setOnCheckedChangeListener(updateSwitch { WebCacheDemoConfig.killSwitch = it })
+        forceOverrideSwitch.setOnCheckedChangeListener(updateSwitch { WebCacheDemoConfig.containerForceOverride = it })
+        businessNoCacheSwitch.setOnCheckedChangeListener(updateSwitch { WebCacheDemoConfig.businessNoCachePreset = it })
 
         findViewById<Button>(R.id.webCacheStartPreloadButton).setOnClickListener {
             syncUrl()

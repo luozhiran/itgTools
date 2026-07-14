@@ -28,12 +28,14 @@ class WebCacheDemoWebActivity : AppCompatActivity() {
 
         initWebView()
         val url = WebCacheDemoConfig.targetUrl
+        val beforeMode = webView.settings.cacheMode
         val policy = WebCacheRuntime.applyToContainer(
             webView = webView,
             url = url,
             scene = WebCacheDemoConfig.DEFAULT_SCENE
         )
-        policyText.text = "policy=${policy.enabled}, mode=${policy.cacheMode.configValue}, reason=${policy.reason}"
+        val afterMode = webView.settings.cacheMode
+        policyText.text = "policy=${policy.enabled}, mode=${policy.cacheMode.configValue}, reason=${policy.reason}, before=${cacheModeName(beforeMode)}, after=${cacheModeName(afterMode)}"
         webView.loadUrl(url)
     }
 
@@ -46,13 +48,27 @@ class WebCacheDemoWebActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    private fun cacheModeName(cacheMode: Int): String {
+        return when (cacheMode) {
+            WebSettings.LOAD_DEFAULT -> "default"
+            WebSettings.LOAD_CACHE_ELSE_NETWORK -> "cache_else_network"
+            WebSettings.LOAD_NO_CACHE -> "no_cache"
+            WebSettings.LOAD_CACHE_ONLY -> "cache_only"
+            else -> cacheMode.toString()
+        }
+    }
+
     private fun initWebView() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         @Suppress("DEPRECATION")
         settings.databaseEnabled = true
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        settings.cacheMode = if (WebCacheDemoConfig.businessNoCachePreset) {
+            WebSettings.LOAD_NO_CACHE
+        } else {
+            WebSettings.LOAD_DEFAULT
+        }
         settings.loadsImagesAutomatically = true
 
         webView.webChromeClient = object : WebChromeClient() {

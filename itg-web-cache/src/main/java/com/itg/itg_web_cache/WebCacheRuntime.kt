@@ -1,5 +1,6 @@
 package com.itg.itg_web_cache
 
+import android.webkit.WebSettings
 import android.webkit.WebView
 import java.util.WeakHashMap
 
@@ -27,23 +28,11 @@ object WebCacheRuntime : WebCacheRuntimeApi {
             WebCacheSafeCallbacks.log(logger, "Failed to read Web cache config.", it)
             WebCacheConfig()
         }
-        val policy = resolver.resolveContainerPolicy(url, scene, config)
-        if (policy.enabled) {
-            runCatching {
-                webView.settings.cacheMode = policy.cacheMode.toWebSettingsCacheMode()
-            }.onFailure {
-                WebCacheSafeCallbacks.log(logger, "Failed to apply WebView cache mode.", it)
-                WebCacheSafeCallbacks.emit(
-                    eventListener,
-                    WebCacheEvent(
-                        name = "web_cache_container_apply_error",
-                        url = url,
-                        scene = scene,
-                        reason = it.message
-                    ),
-                    logger
-                )
-            }
+        val resolvedPolicy = resolver.resolveContainerPolicy(url, scene, config)
+        val policy = if (resolvedPolicy.enabled) {
+            applyContainerPolicy(webView, url, scene, config, resolvedPolicy)
+        } else {
+            resolvedPolicy
         }
         appliedPolicies[webView] = policy
         WebCacheSafeCallbacks.emit(
@@ -58,6 +47,43 @@ object WebCacheRuntime : WebCacheRuntimeApi {
             logger
         )
         return policy
+    }
+
+    private fun applyContainerPolicy(
+        webView: WebView,
+        url: String,
+        scene: String?,
+        config: WebCacheConfig,
+        policy: WebCachePolicy
+    ): WebCachePolicy {
+        val settings = runCatching { webView.settings }.getOrElse {
+            emitApplyError(url, scene, it)
+            return WebCachePolicy(false, policy.cacheMode, "apply_error")
+        }
+        if (!config.containerForceOverride && settings.cacheMode != WebSettings.LOAD_DEFAULT) {
+            return WebCachePolicy(false, policy.cacheMode, "business_cache_mode_exists")
+        }
+        return runCatching {
+            settings.cacheMode = policy.cacheMode.toWebSettingsCacheMode()
+            policy
+        }.getOrElse {
+            emitApplyError(url, scene, it)
+            WebCachePolicy(false, policy.cacheMode, "apply_error")
+        }
+    }
+
+    private fun emitApplyError(url: String, scene: String?, throwable: Throwable) {
+        WebCacheSafeCallbacks.log(logger, "Failed to apply WebView cache mode.", throwable)
+        WebCacheSafeCallbacks.emit(
+            eventListener,
+            WebCacheEvent(
+                name = "web_cache_container_apply_error",
+                url = url,
+                scene = scene,
+                reason = throwable.message
+            ),
+            logger
+        )
     }
 
     override fun onContainerPageStarted(webView: WebView, url: String) {

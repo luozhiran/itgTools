@@ -19,7 +19,7 @@ import java.util.Date
 import java.util.Locale
 
 object WebCacheDemoConfig {
-    const val DEFAULT_URL = "https://www.example.com/"
+    const val DEFAULT_URL = "https://www.baidu.com/"
     const val DEFAULT_SCENE = "demo_home"
 
     var targetUrl: String = DEFAULT_URL
@@ -27,6 +27,8 @@ object WebCacheDemoConfig {
     var containerCacheEnabled: Boolean = true
     var parallelEnabled: Boolean = false
     var killSwitch: Boolean = false
+    var containerForceOverride: Boolean = false
+    var businessNoCachePreset: Boolean = false
 
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val events = mutableListOf<String>()
@@ -114,7 +116,8 @@ object WebCacheDemoConfig {
             ),
             preloadUrlBlacklist = emptyList(),
             containerCacheEnable = containerCacheEnabled,
-            containerCacheMode = CacheModeOption.DEFAULT,
+            containerCacheMode = CacheModeOption.CACHE_ELSE_NETWORK,
+            containerForceOverride = containerForceOverride,
             containerUrlWhitelist = listOf(targetUrl),
             containerSceneWhitelist = listOf(DEFAULT_SCENE),
             allowedHosts = host.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty()
