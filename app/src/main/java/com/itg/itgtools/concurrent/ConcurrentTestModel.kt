@@ -2,10 +2,14 @@ package com.itg.itgtools.concurrent
 
 import com.itg.concurrent.*
 import com.itg.concurrent.util.ConcurrentUtils
+import com.itg.log.TestLogger
+import com.itg.log.config.LogConfig
+import com.itg.log.output.CallbackOutput
+import com.itg.log.output.CompositeOutput
+import com.itg.log.output.LogcatOutput
 import kotlinx.coroutines.*
 import java.util.concurrent.CancellationException
 import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -25,28 +29,35 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class ConcurrentTestModel {
 
-    // ==================== 日志 ====================
+    // ==================== 日志 (基于 itg-log) ====================
 
     var onLog: ((String) -> Unit)? = null
 
-    private fun log(msg: String) {
-        android.util.Log.d("ConcurrentTest", msg)
-        onLog?.invoke("  $msg")
-    }
+    private val logger: TestLogger = TestLogger(
+        "ConcurrentTest",
+        LogConfig.builder().apply {
+            tag = "ConcurrentTest"
+            addOutput(CompositeOutput(
+                LogcatOutput("ConcurrentTest"),
+                CallbackOutput { msg -> onLog?.invoke(msg) }
+            ))
+        }.build()
+    )
 
+    private fun beginTest(name: String) = logger.beginTest(name)
+    private fun log(msg: String) = logger.d(msg)
     private fun logOk(label: String, result: Any? = null) {
         val extra = if (result != null) ": $result" else ""
-        log("$label ✅$extra")
+        logger.ok("$label$extra")
     }
-
     private fun logFail(label: String, msg: String = "") {
-        log("$label ❌ $msg")
+        logger.fail(if (msg.isNotEmpty()) "$label — $msg" else label)
     }
 
     // ==================== 1. 基本任务提交 ====================
 
     fun testBasicSubmitIO() {
-        log("=== 1.1 IO 任务提交 ===")
+        beginTest("1.1 IO 任务提交")
         val flag = AtomicInteger(0)
         val future = Concurrent.io<Int> {
             log("  [IO线程] 执行中... thread=${Thread.currentThread().name}")
@@ -59,7 +70,7 @@ class ConcurrentTestModel {
     }
 
     fun testBasicSubmitCompute() {
-        log("=== 1.2 Compute 任务提交 ===")
+        beginTest("1.2 Compute 任务提交")
         val future = Concurrent.compute<String> {
             log("  [Compute线程] 执行计算... thread=${Thread.currentThread().name}")
             var sum = 0L
@@ -71,7 +82,7 @@ class ConcurrentTestModel {
     }
 
     fun testBasicSubmitBackground() {
-        log("=== 1.3 Background 任务提交 ===")
+        beginTest("1.3 Background 任务提交")
         val future = Concurrent.background<Long> {
             log("  [Background线程] thread=${Thread.currentThread().name}")
             System.currentTimeMillis()
@@ -81,7 +92,7 @@ class ConcurrentTestModel {
     }
 
     fun testMainThread() {
-        log("=== 1.4 Main 线程切换 ===")
+        beginTest("1.4 Main 线程切换")
         val isMainBefore = ConcurrentUtils.isMainThread()
         log("  调用前是否主线程: $isMainBefore")
         // Concurrent.main 在非主线程环境下会 post 到主线程
@@ -93,7 +104,7 @@ class ConcurrentTestModel {
     }
 
     fun testSubmitMultipleTasks() {
-        log("=== 1.5 批量任务提交 ===")
+        beginTest("1.5 批量任务提交")
         val futures = (1..5).map { i ->
             Concurrent.io<Int> {
                 Thread.sleep(50)
@@ -112,7 +123,7 @@ class ConcurrentTestModel {
     // ==================== 2. Future 操作 ====================
 
     fun testFutureAwait() {
-        log("=== 2.1 Future.await ===")
+        beginTest("2.1 Future.await")
         val future = Concurrent.io<String> {
             Thread.sleep(100)
             "awaited-value"
@@ -124,7 +135,7 @@ class ConcurrentTestModel {
     }
 
     fun testFutureAwaitTimeout() {
-        log("=== 2.2 Future.await 超时 ===")
+        beginTest("2.2 Future.await 超时")
         val future = Concurrent.io<String> {
             Thread.sleep(5000)  // 很长
             "never-returned"
@@ -134,7 +145,7 @@ class ConcurrentTestModel {
     }
 
     fun testFutureCancel() {
-        log("=== 2.3 Future.cancel ===")
+        beginTest("2.3 Future.cancel")
         val future = Concurrent.io<String> {
             try {
                 Thread.sleep(3000)
@@ -151,7 +162,7 @@ class ConcurrentTestModel {
     }
 
     fun testFutureIsDone() {
-        log("=== 2.4 Future.isDone ===")
+        beginTest("2.4 Future.isDone")
         val fast = Concurrent.io<Int> { 1 + 1 }
         ConcurrentUtils.await(fast, 2000)
         logOk("已完成任务 isDone", fast.isDone)
@@ -165,7 +176,7 @@ class ConcurrentTestModel {
     // ==================== 3. 延迟执行 ====================
 
     fun testIoDelayed() {
-        log("=== 3.1 ioDelayed ===")
+        beginTest("3.1 ioDelayed")
         val start = System.currentTimeMillis()
         val future = Concurrent.ioDelayed({
             val elapsed = System.currentTimeMillis() - start
@@ -177,7 +188,7 @@ class ConcurrentTestModel {
     }
 
     fun testBackgroundDelayed() {
-        log("=== 3.2 backgroundDelayed ===")
+        beginTest("3.2 backgroundDelayed")
         val start = System.currentTimeMillis()
         val future = Concurrent.backgroundDelayed({
             val elapsed = System.currentTimeMillis() - start
@@ -188,7 +199,7 @@ class ConcurrentTestModel {
     }
 
     fun testMainDelayed() {
-        log("=== 3.3 mainDelayed ===")
+        beginTest("3.3 mainDelayed")
         val future = Concurrent.mainDelayed({
             logOk("mainDelayed 在主线程执行", "isMain=${ConcurrentUtils.isMainThread()}")
         }, delayMs = 100)
@@ -197,7 +208,7 @@ class ConcurrentTestModel {
     }
 
     fun testDelayedCancellation() {
-        log("=== 3.4 延迟任务取消 ===")
+        beginTest("3.4 延迟任务取消")
         val future = Concurrent.ioDelayed({
             logFail("不应执行", "被取消的任务不应触发")
         }, delayMs = 5000)
@@ -209,7 +220,7 @@ class ConcurrentTestModel {
     // ==================== 4. 后端切换 ====================
 
     fun testSwitchToCoroutine() {
-        log("=== 4.1 switchTo(COROUTINE) ===")
+        beginTest("4.1 switchTo(COROUTINE)")
         ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE)
         log("  已切换到 COROUTINE 后端")
         val future = Concurrent.io<String> {
@@ -225,7 +236,7 @@ class ConcurrentTestModel {
     }
 
     fun testSwitchToThreadPool() {
-        log("=== 4.2 switchTo(THREAD_POOL) ===")
+        beginTest("4.2 switchTo(THREAD_POOL)")
         ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL)
         log("  已切换到 THREAD_POOL 后端")
         val future = Concurrent.compute<Int> {
@@ -240,7 +251,7 @@ class ConcurrentTestModel {
     }
 
     fun testAutoDetection() {
-        log("=== 4.3 AUTO 自动检测 ===")
+        beginTest("4.3 AUTO 自动检测")
         ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.AUTO)
         val coroAvailable = ConcurrentFactory.isCoroutineAvailable()
         val threadAvailable = ConcurrentFactory.isThreadPoolAvailable()
@@ -255,7 +266,7 @@ class ConcurrentTestModel {
     // ==================== 5. 混合模式 ====================
 
     fun testMixedMode() {
-        log("=== 5.1 useMixed 混合模式 ===")
+        beginTest("5.1 useMixed 混合模式")
         ConcurrentFactory.useMixed(mapOf(
             DispatcherType.IO to ConcurrentFactory.BackendType.COROUTINE,
             DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL,
@@ -276,7 +287,7 @@ class ConcurrentTestModel {
     }
 
     fun testCustomRegister() {
-        log("=== 5.2 自定义分发器注册 ===")
+        beginTest("5.2 自定义分发器注册")
         // 获取默认的 IO 分发器包装一下
         val defaultIO = ConcurrentFactory.getDispatcher(DispatcherType.IO)
         val counter = AtomicInteger(0)
@@ -310,7 +321,7 @@ class ConcurrentTestModel {
     // ==================== 6. 可用性检测 ====================
 
     fun testAvailabilityDetection() {
-        log("=== 6.1 可用性检测 ===")
+        beginTest("6.1 可用性检测")
         val coroAvail = ConcurrentFactory.isCoroutineAvailable()
         val threadAvail = ConcurrentFactory.isThreadPoolAvailable()
         val availableList = ConcurrentFactory.getAvailableBackends()
@@ -322,7 +333,7 @@ class ConcurrentTestModel {
     }
 
     fun testGetDispatcher() {
-        log("=== 6.2 getDispatcher ===")
+        beginTest("6.2 getDispatcher")
         listOf(
             DispatcherType.IO,
             DispatcherType.COMPUTE,
@@ -336,7 +347,7 @@ class ConcurrentTestModel {
     }
 
     fun testGetCoroutineDispatcher() {
-        log("=== 6.3 getCoroutineDispatcher ===")
+        beginTest("6.3 getCoroutineDispatcher")
         ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE)
         val disp = Concurrent.getCoroutineDispatcher(DispatcherType.IO)
         logOk("CoroutineDispatcher(IO)", disp.toString())
@@ -346,7 +357,7 @@ class ConcurrentTestModel {
     // ==================== 7. 协程原生 API ====================
 
     fun testSuspendAPI() {
-        log("=== 7.1 协程原生 suspend API ===")
+        beginTest("7.1 协程原生 suspend API")
         runBlocking {
             val result1 = Concurrent.ioSuspend {
                 delay(50)
@@ -370,7 +381,7 @@ class ConcurrentTestModel {
     }
 
     fun testMainSuspend() {
-        log("=== 7.2 mainSuspend ===")
+        beginTest("7.2 mainSuspend")
         runBlocking {
             val result = Concurrent.mainSuspend {
                 log("  mainSuspend 在线程: ${Thread.currentThread().name}")
@@ -381,7 +392,7 @@ class ConcurrentTestModel {
     }
 
     fun testSuspendWithException() {
-        log("=== 7.3 suspend 异常处理 ===")
+        beginTest("7.3 suspend 异常处理")
         runBlocking {
             try {
                 Concurrent.ioSuspend<String> {
@@ -396,7 +407,7 @@ class ConcurrentTestModel {
     }
 
     fun testSuspendCancellation() {
-        log("=== 7.4 suspend 取消 ===")
+        beginTest("7.4 suspend 取消")
         runBlocking {
             val job = launch {
                 try {
@@ -417,13 +428,13 @@ class ConcurrentTestModel {
     // ==================== 8. ConcurrentUtils 工具类 ====================
 
     fun testIsMainThread() {
-        log("=== 8.1 isMainThread / isBackgroundThread ===")
+        beginTest("8.1 isMainThread / isBackgroundThread")
         logOk("isMainThread", ConcurrentUtils.isMainThread())
         logOk("isBackgroundThread", ConcurrentUtils.isBackgroundThread())
     }
 
     fun testAssertMainThread() {
-        log("=== 8.2 assertMainThread / assertBackgroundThread ===")
+        beginTest("8.2 assertMainThread / assertBackgroundThread")
         // 当前在测试线程（非主线程），assertBackgroundThread 应通过
         try {
             ConcurrentUtils.assertBackgroundThread()
@@ -442,7 +453,7 @@ class ConcurrentTestModel {
     }
 
     fun testAssertBackgroundThread() {
-        log("=== 8.3 assertBackgroundThread 反例 ===")
+        beginTest("8.3 assertBackgroundThread 反例")
         try {
             ConcurrentUtils.assertBackgroundThread("自定义消息")
             logOk("assertBackgroundThread 通过 (非主线程)")
@@ -452,7 +463,7 @@ class ConcurrentTestModel {
     }
 
     fun testSleep() {
-        log("=== 8.4 sleep ===")
+        beginTest("8.4 sleep")
         val start = System.currentTimeMillis()
         ConcurrentUtils.sleep(200)
         val elapsed = System.currentTimeMillis() - start
@@ -460,7 +471,7 @@ class ConcurrentTestModel {
     }
 
     fun testGetCurrentThreadInfo() {
-        log("=== 8.5 getCurrentThreadInfo / getCurrentThreadDescription ===")
+        beginTest("8.5 getCurrentThreadInfo / getCurrentThreadDescription")
         val desc = ConcurrentUtils.getCurrentThreadDescription()
         logOk("getCurrentThreadDescription", desc)
         val info = ConcurrentUtils.getCurrentThreadInfo()
@@ -468,7 +479,7 @@ class ConcurrentTestModel {
     }
 
     fun testAwaitAll() {
-        log("=== 8.6 等待多个 Future ===")
+        beginTest("8.6 等待多个 Future")
         val futures = (1..4).map { i ->
             Concurrent.io<Int> {
                 Thread.sleep((100 - i * 20).toLong())
@@ -485,7 +496,7 @@ class ConcurrentTestModel {
     }
 
     fun testAwaitAllWithTimeout() {
-        log("=== 8.7 await 超时返回 null ===")
+        beginTest("8.7 await 超时返回 null")
         val slow = Concurrent.io<String> {
             Thread.sleep(5000)
             "slow"
@@ -498,7 +509,7 @@ class ConcurrentTestModel {
     // ==================== 9. 生命周期 ====================
 
     fun testShutdown() {
-        log("=== 9.1 shutdown ===")
+        beginTest("9.1 shutdown")
         // 先记录当前状态
         log("  调用 shutdown...")
         ConcurrentFactory.shutdown()
@@ -509,7 +520,7 @@ class ConcurrentTestModel {
     }
 
     fun testMultipleSwitch() {
-        log("=== 9.2 多次切换后端 ===")
+        beginTest("9.2 多次切换后端")
         repeat(3) { i ->
             val backend = if (i % 2 == 0)
                 ConcurrentFactory.BackendType.COROUTINE
@@ -528,7 +539,7 @@ class ConcurrentTestModel {
     // ==================== 10. 边界场景 ====================
 
     fun testNullTaskHandling() {
-        log("=== 10.1 异常任务处理 ===")
+        beginTest("10.1 异常任务处理")
         val future = Concurrent.io<String> {
             throw IllegalArgumentException("故意抛出异常")
         }
@@ -541,7 +552,7 @@ class ConcurrentTestModel {
     }
 
     fun testConcurrentMainFromMainThread() {
-        log("=== 10.2 main 从主线程调用 ===")
+        beginTest("10.2 main 从主线程调用")
         // 从测试线程调用，验证不崩溃
         val flag = AtomicInteger(0)
         Concurrent.main { flag.set(1) }
@@ -551,7 +562,7 @@ class ConcurrentTestModel {
     }
 
     fun testGetAllDispatcherTypes() {
-        log("=== 10.3 所有 DispatcherType 遍历 ===")
+        beginTest("10.3 所有 DispatcherType 遍历")
         DispatcherType.entries.forEach { type ->
             val disp = Concurrent.get(type)
             val future = disp.submit<Boolean> { true }

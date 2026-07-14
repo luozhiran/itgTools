@@ -66,6 +66,7 @@ dependencies {
     implementation(project(":itg-web-cache"))
     implementation(project(":itg-file"))
     implementation(project(":itg-thread-pools"))
+    implementation(project(":itg-log"))
     implementation(libs.okio)
 }
 

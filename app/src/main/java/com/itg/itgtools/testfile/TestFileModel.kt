@@ -3,6 +3,11 @@ package com.itg.itgtools.testfile
 import android.content.Context
 import com.itg.concurrent.Concurrent
 import com.itg.itg_file.cleanup.*
+import com.itg.log.TestLogger
+import com.itg.log.config.LogConfig
+import com.itg.log.output.CallbackOutput
+import com.itg.log.output.CompositeOutput
+import com.itg.log.output.LogcatOutput
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_file.core.OkioFileUtils
 import com.itg.itg_file.hash.FileHashUtils
@@ -38,15 +43,24 @@ class TestFileModel(private val context: Context) {
     private val testFile2: String get() = File(testRoot, "test2.txt").absolutePath
     private val testSubDir: String get() = File(testRoot, "subdir").also { it.mkdirs() }.absolutePath
 
-    // ==================== 日志回调 ====================
+    // ==================== 日志 (基于 itg-log) ====================
 
     var onLog: ((String) -> Unit)? = null
 
+    private val logger: TestLogger = TestLogger(
+        "TestFile",
+        LogConfig.builder().apply {
+            tag = "TestFile"
+            addOutput(CompositeOutput(
+                LogcatOutput("TestFile"),
+                CallbackOutput { msg -> onLog?.invoke(msg) }
+            ))
+        }.build()
+    )
+
+    private fun beginTest(name: String) = logger.beginTest(name)
     private fun log(msg: String, isHeader: Boolean = false) {
-        val line = if (isHeader) "\n===== $msg ====="
-        else "  $msg"
-        android.util.Log.d("TestFile", line)
-        onLog?.invoke(line)
+        if (isHeader) logger.i("\n$msg") else logger.d(msg)
     }
 
     private fun logResult(label: String, result: Any?) {
@@ -65,7 +79,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 1. FileUtils — 基础文件操作 ====================
 
     fun testFileExists() {
-        log("=== testFileExists ===")
+        beginTest("testFileExists")
         File(testFile1).writeText("hello")
         logResult("exists", FileUtils.exists(testFile1))
         logResult("exists(null)", FileUtils.exists(null).toString() + " (正确)")
@@ -76,13 +90,13 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testFileExistsAsync() {
-        log("=== testFileExistsAsync ===")
+        beginTest("testFileExistsAsync")
         FileUtils.existsAsync(testFile1) { logResult("existsAsync", it) }
         FileUtils.isFile(null)  // 同步，仅验证不崩溃
     }
 
     fun testCreateFile() {
-        log("=== testCreateFile ===")
+        beginTest("testCreateFile")
         val newFile = File(testRoot, "created_${System.nanoTime()}.txt").absolutePath
         logResult("createFile", FileUtils.createFile(newFile))
         logResult("createDirectory", FileUtils.createDirectory(File(testSubDir, "new_dir").absolutePath))
@@ -91,14 +105,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCreateFileAsync() {
-        log("=== testCreateFileAsync ===")
+        beginTest("testCreateFileAsync")
         val newFile = File(testRoot, "created_async_${System.nanoTime()}.txt").absolutePath
         FileUtils.createFileAsync(newFile) { logResult("createFileAsync", it) }
         FileUtils.createDirectoryAsync(File(testSubDir, "async_dir").absolutePath) { logResult("createDirectoryAsync", it) }
     }
 
     fun testDelete() {
-        log("=== testDelete ===")
+        beginTest("testDelete")
         val delFile = File(testRoot, "to_delete.txt").also { it.writeText("temp") }
         logResult("delete(文件)", FileUtils.delete(delFile.absolutePath))
         val delDir = File(testRoot, "to_delete_dir").also { it.mkdirs(); File(it, "f.txt").writeText("x") }
@@ -108,26 +122,26 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testDeleteAsync() {
-        log("=== testDeleteAsync ===")
+        beginTest("testDeleteAsync")
         val delFile = File(testRoot, "to_delete_async.txt").also { it.writeText("temp") }
         FileUtils.deleteAsync(delFile.absolutePath) { logResult("deleteAsync", it) }
     }
 
     fun testClearDirectory() {
-        log("=== testClearDirectory ===")
+        beginTest("testClearDirectory")
         val clearDir = File(testRoot, "clear_test").also { it.mkdirs(); File(it, "f1.txt").writeText("a"); File(it, "f2.txt").writeText("b") }
         logResult("clearDirectory", FileUtils.clearDirectory(clearDir.absolutePath))
         logResult("目录已空", FileUtils.isEmpty(clearDir.absolutePath))
     }
 
     fun testClearDirectoryAsync() {
-        log("=== testClearDirectoryAsync ===")
+        beginTest("testClearDirectoryAsync")
         val clearDir = File(testRoot, "clear_async").also { it.mkdirs(); File(it, "f.txt").writeText("x") }
         FileUtils.clearDirectoryAsync(clearDir.absolutePath) { logResult("clearDirectoryAsync", it) }
     }
 
     fun testRename() {
-        log("=== testRename ===")
+        beginTest("testRename")
         val oldFile = File(testRoot, "old_name.txt").also { it.writeText("rename me") }
         val result = FileUtils.rename(oldFile.absolutePath, "new_name.txt")
         logResult("rename", result)
@@ -136,13 +150,13 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testRenameAsync() {
-        log("=== testRenameAsync ===")
+        beginTest("testRenameAsync")
         val oldFile = File(testRoot, "old_async.txt").also { it.writeText("rename async") }
         FileUtils.renameAsync(oldFile.absolutePath, "new_async.txt") { logResult("renameAsync", it) }
     }
 
     fun testCopy() {
-        log("=== testCopy ===")
+        beginTest("testCopy")
         File(testFile1).writeText("copy source content")
         val dest = File(testRoot, "copy_dest.txt").absolutePath
         logResult("copy", FileUtils.copy(testFile1, dest))
@@ -150,7 +164,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCopyWithProgress() {
-        log("=== testCopyWithProgress ===")
+        beginTest("testCopyWithProgress")
         val src = File(testRoot, "copy_progress_src.txt").also { it.writeText("A".repeat(100_000)) }
         val dest = File(testRoot, "copy_progress_dest.txt")
         FileUtils.copyWithProgress(src.absolutePath, dest.absolutePath,
@@ -159,14 +173,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCopyAsync() {
-        log("=== testCopyAsync ===")
+        beginTest("testCopyAsync")
         File(testFile1).writeText("async copy source")
         val dest = File(testRoot, "copy_async_dest.txt").absolutePath
         FileUtils.copyAsync(testFile1, dest, onResult = { logResult("copyAsync", it) })
     }
 
     fun testCopyWithProgressAsync() {
-        log("=== testCopyWithProgressAsync ===")
+        beginTest("testCopyWithProgressAsync")
         File(testFile2).writeText("B".repeat(50_000))
         val dest = File(testRoot, "copy_progress_async_dest.txt")
         FileUtils.copyWithProgressAsync(testFile2, dest.absolutePath,
@@ -175,7 +189,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCopyDirectory() {
-        log("=== testCopyDirectory ===")
+        beginTest("testCopyDirectory")
         val srcDir = File(testRoot, "copy_src_dir").also {
             it.mkdirs(); File(it, "a.txt").writeText("aaa"); File(it, "b.txt").writeText("bbb")
         }
@@ -185,7 +199,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testMove() {
-        log("=== testMove ===")
+        beginTest("testMove")
         val src = File(testRoot, "move_src.txt").also { it.writeText("move me") }
         val dest = File(testRoot, "move_dest.txt").absolutePath
         logResult("move", FileUtils.move(src.absolutePath, dest))
@@ -194,14 +208,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testMoveAsync() {
-        log("=== testMoveAsync ===")
+        beginTest("testMoveAsync")
         val src = File(testRoot, "move_async_src.txt").also { it.writeText("move async") }
         val dest = File(testRoot, "move_async_dest.txt").absolutePath
         FileUtils.moveAsync(src.absolutePath, dest, onResult = { logResult("moveAsync", it) })
     }
 
     fun testListFiles() {
-        log("=== testListFiles ===")
+        beginTest("testListFiles")
         File(testRoot, "list_a.txt").writeText("a")
         File(testRoot, "list_b.txt").writeText("b")
         File(testRoot, "list_c.jpg").writeText("img")
@@ -216,12 +230,12 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testListFilesRecursiveAsync() {
-        log("=== testListFilesRecursiveAsync ===")
+        beginTest("testListFilesRecursiveAsync")
         FileUtils.listFilesRecursiveAsync(testDir) { logResult("listFilesRecursiveAsync", "${it.size} 个") }
     }
 
     fun testGetFileInfo() {
-        log("=== testGetFileInfo ===")
+        beginTest("testGetFileInfo")
         File(testFile1).writeText("info content here!")
         logResult("getSize", "${FileUtils.getSize(testFile1)} bytes")
         logResult("getSizeFormatted", FileUtils.getSizeFormatted(testFile1))
@@ -237,13 +251,13 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testGetFileInfoAsync() {
-        log("=== testGetFileInfoAsync ===")
+        beginTest("testGetFileInfoAsync")
         FileUtils.getSizeAsync(testFile1) { logResult("getSizeAsync", "$it bytes") }
         FileUtils.getFileInfoAsync(testFile1) { logResult("getFileInfoAsync", "keys=${it.keys}") }
     }
 
     fun testStorageSpace() {
-        log("=== testStorageSpace ===")
+        beginTest("testStorageSpace")
         logResult("getAvailableSpace", FileUtils.getAvailableSpace(testDir).let { "${it / 1024 / 1024} MB" })
         logResult("getTotalSpace", FileUtils.getTotalSpace(testDir).let { "${it / 1024 / 1024} MB" })
         logResult("getInternalAvailableSpace", FileUtils.getInternalAvailableSpace().let { "${it / 1024 / 1024} MB" })
@@ -253,20 +267,20 @@ class TestFileModel(private val context: Context) {
     // ==================== 2. FileWriteUtils — 文件写入 ====================
 
     fun testWriteText() {
-        log("=== testWriteText ===")
+        beginTest("testWriteText")
         val path = File(testRoot, "write_text.txt").absolutePath
         logResult("writeText", FileWriteUtils.writeText(path, "Hello, 世界!"))
         logResult("读取验证", File(path).readText())
     }
 
     fun testWriteTextAsync() {
-        log("=== testWriteTextAsync ===")
+        beginTest("testWriteTextAsync")
         val path = File(testRoot, "write_text_async.txt").absolutePath
         FileWriteUtils.writeTextAsync(path, "Async Hello!", onResult = { logResult("writeTextAsync", it) })
     }
 
     fun testAppendText() {
-        log("=== testAppendText ===")
+        beginTest("testAppendText")
         val path = File(testRoot, "append_text.txt").absolutePath
         FileWriteUtils.writeText(path, "Line1\n")
         logResult("appendText", FileWriteUtils.appendText(path, "Line2\n"))
@@ -274,14 +288,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testAppendTextAsync() {
-        log("=== testAppendTextAsync ===")
+        beginTest("testAppendTextAsync")
         val path = File(testRoot, "append_async.txt").absolutePath
         FileWriteUtils.writeText(path, "First\n")
         FileWriteUtils.appendTextAsync(path, "Second\n", onResult = { logResult("appendTextAsync", it) })
     }
 
     fun testWriteBytes() {
-        log("=== testWriteBytes ===")
+        beginTest("testWriteBytes")
         val path = File(testRoot, "write_bytes.bin").absolutePath
         val data = byteArrayOf(0x01, 0x02, 0x03, 0xFF.toByte())
         logResult("writeBytes", FileWriteUtils.writeBytes(path, data))
@@ -289,14 +303,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testWriteBytesAsync() {
-        log("=== testWriteBytesAsync ===")
+        beginTest("testWriteBytesAsync")
         val path = File(testRoot, "write_bytes_async.bin").absolutePath
         FileWriteUtils.writeBytesAsync(path, byteArrayOf(0xAA.toByte(), 0xBB.toByte()),
             onResult = { logResult("writeBytesAsync", it) })
     }
 
     fun testAppendBytes() {
-        log("=== testAppendBytes ===")
+        beginTest("testAppendBytes")
         val path = File(testRoot, "append_bytes.bin").absolutePath
         FileWriteUtils.writeBytes(path, byteArrayOf(0x01, 0x02))
         logResult("appendBytes", FileWriteUtils.appendBytes(path, byteArrayOf(0x03, 0x04)))
@@ -304,7 +318,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testWriteFromStream() {
-        log("=== testWriteFromStream ===")
+        beginTest("testWriteFromStream")
         val path = File(testRoot, "from_stream.txt").absolutePath
         val stream = ByteArrayInputStream("stream data".toByteArray())
         logResult("writeFromStream", FileWriteUtils.writeFromStream(path, stream))
@@ -312,33 +326,33 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testWriteFromStreamAsync() {
-        log("=== testWriteFromStreamAsync ===")
+        beginTest("testWriteFromStreamAsync")
         val path = File(testRoot, "from_stream_async.txt").absolutePath
         val stream = ByteArrayInputStream("async stream".toByteArray())
         FileWriteUtils.writeFromStreamAsync(path, stream, onResult = { logResult("writeFromStreamAsync", it) })
     }
 
     fun testWriteTextAtomic() {
-        log("=== testWriteTextAtomic ===")
+        beginTest("testWriteTextAtomic")
         val path = File(testRoot, "atomic_text.txt").absolutePath
         logResult("writeTextAtomic", FileWriteUtils.writeTextAtomic(path, "atomic content"))
         logResult("内容", File(path).readText())
     }
 
     fun testWriteTextAtomicAsync() {
-        log("=== testWriteTextAtomicAsync ===")
+        beginTest("testWriteTextAtomicAsync")
         val path = File(testRoot, "atomic_async.txt").absolutePath
         FileWriteUtils.writeTextAtomicAsync(path, "atomic async", onResult = { logResult("writeTextAtomicAsync", it) })
     }
 
     fun testWriteBytesAtomic() {
-        log("=== testWriteBytesAtomic ===")
+        beginTest("testWriteBytesAtomic")
         val path = File(testRoot, "atomic_bytes.bin").absolutePath
         logResult("writeBytesAtomic", FileWriteUtils.writeBytesAtomic(path, byteArrayOf(0xDE.toByte(), 0xAD.toByte())))
     }
 
     fun testWriteBytesInChunks() {
-        log("=== testWriteBytesInChunks ===")
+        beginTest("testWriteBytesInChunks")
         val path = File(testRoot, "chunks.bin").absolutePath
         val bigData = ByteArray(200_000) { (it % 256).toByte() }
         var progressCalls = 0
@@ -349,7 +363,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testWriteBytesInChunksAsync() {
-        log("=== testWriteBytesInChunksAsync ===")
+        beginTest("testWriteBytesInChunksAsync")
         val path = File(testRoot, "chunks_async.bin").absolutePath
         val data = ByteArray(64 * 1024) { (it % 128).toByte() }
         FileWriteUtils.writeBytesInChunksAsync(path, data, chunkSize = 16 * 1024,
@@ -360,14 +374,14 @@ class TestFileModel(private val context: Context) {
     // ==================== 3. FileReadUtils — 文件读取 ====================
 
     fun testReadText() {
-        log("=== testReadText ===")
+        beginTest("testReadText")
         File(testFile1).writeText("读取测试内容 📖")
         logResult("readText", FileReadUtils.readText(testFile1))
         logResult("readText(GBK)", FileReadUtils.readText(testFile1, Charsets.UTF_8)?.take(20))
     }
 
     fun testReadTextAsync() {
-        log("=== testReadTextAsync ===")
+        beginTest("testReadTextAsync")
         FileReadUtils.readTextAsync(testFile1, onResult = { text, err ->
             logResult("readTextAsync", text)
             if (err != null) logError("readTextAsync error", err)
@@ -375,14 +389,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadBytes() {
-        log("=== testReadBytes ===")
+        beginTest("testReadBytes")
         File(testFile1).writeText("byte test")
         val bytes = FileReadUtils.readBytes(testFile1)
         logResult("readBytes", bytes?.let { "${it.size} bytes" })
     }
 
     fun testReadBytesAsync() {
-        log("=== testReadBytesAsync ===")
+        beginTest("testReadBytesAsync")
         FileReadUtils.readBytesAsync(testFile1, onResult = { bytes, err ->
             logResult("readBytesAsync", bytes?.let { "${it.size} bytes" })
             if (err != null) logError("readBytesAsync error", err)
@@ -390,14 +404,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadLines() {
-        log("=== testReadLines ===")
+        beginTest("testReadLines")
         File(testFile1).writeText("Line A\nLine B\nLine C")
         val lines = FileReadUtils.readLines(testFile1)
         logResult("readLines", lines?.joinToString(", "))
     }
 
     fun testReadLinesAsync() {
-        log("=== testReadLinesAsync ===")
+        beginTest("testReadLinesAsync")
         FileReadUtils.readLinesAsync(testFile1, onResult = { lines, err ->
             logResult("readLinesAsync", lines?.joinToString(", "))
             if (err != null) logError("readLinesAsync error", err)
@@ -405,7 +419,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadLinesStreaming() {
-        log("=== testReadLinesStreaming ===")
+        beginTest("testReadLinesStreaming")
         File(testFile1).writeText("1\n2\n3\n4\n5")
         var count = 0
         val total = FileReadUtils.readLinesStreaming(testFile1) { line, idx ->
@@ -417,7 +431,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadLinesStreamingAsync() {
-        log("=== testReadLinesStreamingAsync ===")
+        beginTest("testReadLinesStreamingAsync")
         FileReadUtils.readLinesStreamingAsync(
             testFile1,
             onEachLine = { line, _ -> log("  $line"); true },
@@ -426,7 +440,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadChunks() {
-        log("=== testReadChunks ===")
+        beginTest("testReadChunks")
         File(testFile1).writeText("0123456789".repeat(500))
         var chunkCount = 0
         val total = FileReadUtils.readChunks(testFile1, chunkSize = 1024) { chunk, idx, totalChunks ->
@@ -438,7 +452,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadChunksAsync() {
-        log("=== testReadChunksAsync ===")
+        beginTest("testReadChunksAsync")
         FileReadUtils.readChunksAsync(
             testFile1, chunkSize = 512,
             onChunk = { _, idx, total -> log("  chunk $idx/$total"); true },
@@ -447,7 +461,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testReadHeadTailBytes() {
-        log("=== testReadHeadTailBytes ===")
+        beginTest("testReadHeadTailBytes")
         File(testFile1).writeText("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
         val head = FileReadUtils.readHeadBytes(testFile1, 4)
         logResult("readHeadBytes(4)", head?.let { String(it) })
@@ -460,7 +474,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 4. FileHashUtils — 哈希校验 ====================
 
     fun testHashFile() {
-        log("=== testHashFile ===")
+        beginTest("testHashFile")
         File(testFile1).writeText("hash me please!")
         logResult("md5", FileHashUtils.md5(testFile1))
         logResult("sha1", FileHashUtils.sha1(testFile1))
@@ -470,7 +484,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testHashFileAsync() {
-        log("=== testHashFileAsync ===")
+        beginTest("testHashFileAsync")
         FileHashUtils.md5Async(testFile1) { hash, err ->
             logResult("md5Async", hash)
             if (err != null) logError("md5Async error", err)
@@ -481,7 +495,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testHashFileWithProgress() {
-        log("=== testHashFileWithProgress ===")
+        beginTest("testHashFileWithProgress")
         File(testFile1).writeText("X".repeat(200_000))
         FileHashUtils.hashFileWithProgress(testFile1, FileHashUtils.Algorithm.SHA256,
             onProgress = { processed, total -> log("进度: $processed / $total") })
@@ -489,21 +503,21 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testHashFileWithProgressAsync() {
-        log("=== testHashFileWithProgressAsync ===")
+        beginTest("testHashFileWithProgressAsync")
         FileHashUtils.hashFileWithProgressAsync(testFile1, FileHashUtils.Algorithm.MD5,
             onProgress = { processed, total -> log("进度: $processed / $total") },
             onResult = { hash, err -> logResult("hashFileWithProgressAsync", hash) })
     }
 
     fun testHashBytesAndString() {
-        log("=== testHashBytesAndString ===")
+        beginTest("testHashBytesAndString")
         logResult("hashBytes", FileHashUtils.hashBytes("test data".toByteArray()))
         logResult("hashString", FileHashUtils.hashString("test string"))
         logResult("crc32(data)", FileHashUtils.crc32("crc test".toByteArray()))
     }
 
     fun testVerify() {
-        log("=== testVerify ===")
+        beginTest("testVerify")
         File(testFile1).writeText("verify target")
         val hash = FileHashUtils.sha256(testFile1)!!
         logResult("verify(正确哈希)", FileHashUtils.verify(testFile1, hash))
@@ -511,7 +525,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testVerifyAsync() {
-        log("=== testVerifyAsync ===")
+        beginTest("testVerifyAsync")
         val hash = FileHashUtils.sha256(testFile1)!!
         FileHashUtils.verifyAsync(testFile1, hash, onResult = { valid, actual ->
             logResult("verifyAsync", "$valid, hash=$actual")
@@ -519,7 +533,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCompareFiles() {
-        log("=== testCompareFiles ===")
+        beginTest("testCompareFiles")
         File(testFile1).writeText("same content")
         File(testFile2).writeText("same content")
         logResult("compareFiles(相同)", FileHashUtils.compareFiles(testFile1, testFile2))
@@ -528,7 +542,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCompareFilesAsync() {
-        log("=== testCompareFilesAsync ===")
+        beginTest("testCompareFilesAsync")
         File(testFile1).writeText("cmp async")
         File(testFile2).writeText("cmp async")
         FileHashUtils.compareFilesAsync(testFile1, testFile2, onResult = { logResult("compareFilesAsync", it) })
@@ -537,7 +551,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 5. AssetUtils — 资源操作 ====================
 
     fun testAssetList() {
-        log("=== testAssetList ===")
+        beginTest("testAssetList")
         runCatching {
             val files = AssetUtils.listAssets(context, "")
             logResult("listAssets(root)", "${files.size} 个")
@@ -548,7 +562,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testAssetRead() {
-        log("=== testAssetRead ===")
+        beginTest("testAssetRead")
         runCatching {
             val files = AssetUtils.listAssets(context, "")
             if (files.isNotEmpty()) {
@@ -565,7 +579,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testAssetReadAsync() {
-        log("=== testAssetReadAsync ===")
+        beginTest("testAssetReadAsync")
         runCatching {
             val files = AssetUtils.listAssets(context, "")
             val firstFile = files.firstOrNull { !it.endsWith("/") }
@@ -580,7 +594,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCopyAssetToFile() {
-        log("=== testCopyAssetToFile ===")
+        beginTest("testCopyAssetToFile")
         runCatching {
             val files = AssetUtils.listAssets(context, "")
             val firstFile = files.firstOrNull { !it.endsWith("/") }
@@ -595,7 +609,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCopyRawToFile() {
-        log("=== testCopyRawToFile ===")
+        beginTest("testCopyRawToFile")
         // raw 资源由资源 ID 标识，这里使用 0 (无效ID) 测试边界行为
         runCatching {
             val dest = File(testRoot, "raw_copy_test.dat").absolutePath
@@ -607,18 +621,18 @@ class TestFileModel(private val context: Context) {
     // ==================== 6. OkioFileUtils — Okio 文件操作 ====================
 
     fun testOkioFileExists() {
-        log("=== testOkioFileExists ===")
+        beginTest("testOkioFileExists")
         logResult("exists", OkioFileUtils.exists(testFile1))
         logResult("exists(不存在)", OkioFileUtils.exists("/no/such/file").toString() + " (正确)")
     }
 
     fun testOkioFileExistsAsync() {
-        log("=== testOkioFileExistsAsync ===")
+        beginTest("testOkioFileExistsAsync")
         OkioFileUtils.existsAsync(testFile1) { logResult("existsAsync", it) }
     }
 
     fun testOkioCopy() {
-        log("=== testOkioCopy ===")
+        beginTest("testOkioCopy")
         File(testFile1).writeText("okio copy test")
         val dest = File(testRoot, "okio_copy_dest.txt").absolutePath
         logResult("copy", OkioFileUtils.copy(testFile1, dest))
@@ -626,51 +640,51 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioCopyAsync() {
-        log("=== testOkioCopyAsync ===")
+        beginTest("testOkioCopyAsync")
         val dest = File(testRoot, "okio_copy_async.txt").absolutePath
         OkioFileUtils.copyAsync(testFile1, dest, onResult = { logResult("copyAsync", it) })
     }
 
     fun testOkioMove() {
-        log("=== testOkioMove ===")
+        beginTest("testOkioMove")
         val src = File(testRoot, "okio_move_src.txt").also { it.writeText("okio move") }
         val dest = File(testRoot, "okio_move_dest.txt").absolutePath
         logResult("move", OkioFileUtils.move(src.absolutePath, dest))
     }
 
     fun testOkioMoveAsync() {
-        log("=== testOkioMoveAsync ===")
+        beginTest("testOkioMoveAsync")
         val src = File(testRoot, "okio_move_async_src.txt").also { it.writeText("move") }
         val dest = File(testRoot, "okio_move_async_dest.txt").absolutePath
         OkioFileUtils.moveAsync(src.absolutePath, dest, onResult = { logResult("moveAsync", it) })
     }
 
     fun testOkioDelete() {
-        log("=== testOkioDelete ===")
+        beginTest("testOkioDelete")
         val del = File(testRoot, "okio_delete.txt").also { it.writeText("del") }
         logResult("delete", OkioFileUtils.delete(del.absolutePath))
     }
 
     fun testOkioDeleteAsync() {
-        log("=== testOkioDeleteAsync ===")
+        beginTest("testOkioDeleteAsync")
         val del = File(testRoot, "okio_delete_async.txt").also { it.writeText("del") }
         OkioFileUtils.deleteAsync(del.absolutePath) { logResult("deleteAsync", it) }
     }
 
     fun testOkioCreateDirectory() {
-        log("=== testOkioCreateDirectory ===")
+        beginTest("testOkioCreateDirectory")
         val dir = File(testRoot, "okio_created_dir").absolutePath
         logResult("createDirectory", OkioFileUtils.createDirectory(dir))
     }
 
     fun testOkioCreateDirectoryAsync() {
-        log("=== testOkioCreateDirectoryAsync ===")
+        beginTest("testOkioCreateDirectoryAsync")
         val dir = File(testRoot, "okio_created_async_dir").absolutePath
         OkioFileUtils.createDirectoryAsync(dir) { logResult("createDirectoryAsync", it) }
     }
 
     fun testOkioFileInfo() {
-        log("=== testOkioFileInfo ===")
+        beginTest("testOkioFileInfo")
         logResult("getSize", "${OkioFileUtils.getSize(testFile1)} bytes")
         val list = OkioFileUtils.listRecursively(testDir)
         logResult("listRecursively", "${list.size} 个文件")
@@ -679,7 +693,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioWithTimeout() {
-        log("=== testOkioWithTimeout ===")
+        beginTest("testOkioWithTimeout")
         val result = OkioFileUtils.withTimeout(5000) {
             File(testFile1).readText()
         }
@@ -689,7 +703,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 7. OkioWriteUtils — Okio 写入 ====================
 
     fun testOkioWriteByteString() {
-        log("=== testOkioWriteByteString ===")
+        beginTest("testOkioWriteByteString")
         val path = File(testRoot, "okio_byte_string.bin").absolutePath
         val bs = ByteString.of(*"Okio ByteString 测试".toByteArray(Charsets.UTF_8))
         logResult("writeByteString", OkioWriteUtils.writeByteString(path, bs))
@@ -697,53 +711,53 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioWriteUtf8() {
-        log("=== testOkioWriteUtf8 ===")
+        beginTest("testOkioWriteUtf8")
         val path = File(testRoot, "okio_utf8.txt").absolutePath
         logResult("writeUtf8", OkioWriteUtils.writeUtf8(path, "Okio UTF-8 内容"))
     }
 
     fun testOkioWriteUtf8Async() {
-        log("=== testOkioWriteUtf8Async ===")
+        beginTest("testOkioWriteUtf8Async")
         val path = File(testRoot, "okio_utf8_async.txt").absolutePath
         OkioWriteUtils.writeUtf8Async(path, "Okio async", onResult = { logResult("writeUtf8Async", it) })
     }
 
     fun testOkioAppendUtf8() {
-        log("=== testOkioAppendUtf8 ===")
+        beginTest("testOkioAppendUtf8")
         val path = File(testRoot, "okio_append.txt").absolutePath
         OkioWriteUtils.writeUtf8(path, "First\n")
         logResult("appendUtf8", OkioWriteUtils.appendUtf8(path, "Second\n"))
     }
 
     fun testOkioAppendUtf8Async() {
-        log("=== testOkioAppendUtf8Async ===")
+        beginTest("testOkioAppendUtf8Async")
         val path = File(testRoot, "okio_append_async.txt").absolutePath
         OkioWriteUtils.writeUtf8(path, "A\n")
         OkioWriteUtils.appendUtf8Async(path, "B\n", onResult = { logResult("appendUtf8Async", it) })
     }
 
     fun testOkioWriteFromStream() {
-        log("=== testOkioWriteFromStream ===")
+        beginTest("testOkioWriteFromStream")
         val path = File(testRoot, "okio_stream.txt").absolutePath
         val stream = ByteArrayInputStream("okio stream input".toByteArray())
         logResult("writeFromStream", OkioWriteUtils.writeFromStream(path, stream))
     }
 
     fun testOkioWriteFromStreamAsync() {
-        log("=== testOkioWriteFromStreamAsync ===")
+        beginTest("testOkioWriteFromStreamAsync")
         val path = File(testRoot, "okio_stream_async.txt").absolutePath
         OkioWriteUtils.writeFromStreamAsync(path, ByteArrayInputStream("async".toByteArray()),
             onResult = { logResult("writeFromStreamAsync", it) })
     }
 
     fun testOkioWriteWithTimeout() {
-        log("=== testOkioWriteWithTimeout ===")
+        beginTest("testOkioWriteWithTimeout")
         val path = File(testRoot, "okio_timeout.txt").absolutePath
         logResult("writeWithTimeout", OkioWriteUtils.writeWithTimeout(path, "timeout test".toByteArray(), 5000))
     }
 
     fun testOkioWriteWithProgress() {
-        log("=== testOkioWriteWithProgress ===")
+        beginTest("testOkioWriteWithProgress")
         val path = File(testRoot, "okio_progress.txt").absolutePath
         val data = "Progress ".repeat(5000).toByteArray()
         var cbCount = 0
@@ -753,13 +767,13 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioWriteGzip() {
-        log("=== testOkioWriteGzip ===")
+        beginTest("testOkioWriteGzip")
         val path = File(testRoot, "okio_gzip.gz").absolutePath
         logResult("writeGzip", OkioWriteUtils.writeGzip(path, "gzip compressed data!".toByteArray()))
     }
 
     fun testOkioWriteAtomic() {
-        log("=== testOkioWriteAtomic ===")
+        beginTest("testOkioWriteAtomic")
         val path = File(testRoot, "okio_atomic.txt").absolutePath
         logResult("writeAtomic", OkioWriteUtils.writeAtomic(path, "okio atomic write".toByteArray()))
         logResult("内容", File(path).readText())
@@ -768,43 +782,43 @@ class TestFileModel(private val context: Context) {
     // ==================== 8. OkioReadUtils — Okio 读取 ====================
 
     fun testOkioReadByteString() {
-        log("=== testOkioReadByteString ===")
+        beginTest("testOkioReadByteString")
         File(testFile1).writeText("Okio read test")
         val bs = OkioReadUtils.readByteString(testFile1)
         logResult("readByteString", bs?.utf8())
     }
 
     fun testOkioReadByteStringAsync() {
-        log("=== testOkioReadByteStringAsync ===")
+        beginTest("testOkioReadByteStringAsync")
         OkioReadUtils.readByteStringAsync(testFile1) { bs, err ->
             logResult("readByteStringAsync", bs?.utf8()?.take(50))
         }
     }
 
     fun testOkioReadUtf8() {
-        log("=== testOkioReadUtf8 ===")
+        beginTest("testOkioReadUtf8")
         logResult("readUtf8", OkioReadUtils.readUtf8(testFile1)?.take(100))
     }
 
     fun testOkioReadUtf8Async() {
-        log("=== testOkioReadUtf8Async ===")
+        beginTest("testOkioReadUtf8Async")
         OkioReadUtils.readUtf8Async(testFile1) { text, err -> logResult("readUtf8Async", text?.take(50)) }
     }
 
     fun testOkioReadLines() {
-        log("=== testOkioReadLines ===")
+        beginTest("testOkioReadLines")
         File(testFile1).writeText("A\nB\nC\nD")
         val lines = OkioReadUtils.readLines(testFile1)
         logResult("readLines", lines?.joinToString(", "))
     }
 
     fun testOkioReadLinesAsync() {
-        log("=== testOkioReadLinesAsync ===")
+        beginTest("testOkioReadLinesAsync")
         OkioReadUtils.readLinesAsync(testFile1) { lines, err -> logResult("readLinesAsync", lines?.joinToString(", ")) }
     }
 
     fun testOkioReadLinesStreaming() {
-        log("=== testOkioReadLinesStreaming ===")
+        beginTest("testOkioReadLinesStreaming")
         File(testFile1).writeText("O1\nO2\nO3\nO4\nO5")
         var count = 0
         val total = OkioReadUtils.readLinesStreaming(testFile1) { line, idx ->
@@ -814,13 +828,13 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioReadWithTimeout() {
-        log("=== testOkioReadWithTimeout ===")
+        beginTest("testOkioReadWithTimeout")
         val result = OkioReadUtils.readWithTimeout(testFile1, 5000)
         logResult("readWithTimeout", result?.utf8()?.take(50))
     }
 
     fun testOkioReadWithProgress() {
-        log("=== testOkioReadWithProgress ===")
+        beginTest("testOkioReadWithProgress")
         var lastProgress = 0L
         val result = OkioReadUtils.readWithProgress(testFile1, onProgress = { read, total ->
             lastProgress = read; log("进度: $read / $total")
@@ -829,7 +843,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioReadGzip() {
-        log("=== testOkioReadGzip ===")
+        beginTest("testOkioReadGzip")
         // 测试 Gzip 解压读取（需要一个 gzip 文件，这里仅验证 API 不崩溃）
         val result = OkioReadUtils.readGzip(testFile1)
         logResult("readGzip", if (result == null) "⚠️ 非 gzip 文件返回 null (正常)" else "${result.size} bytes")
@@ -840,7 +854,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 9. OkioHashUtils — Okio 哈希 ====================
 
     fun testOkioHashFile() {
-        log("=== testOkioHashFile ===")
+        beginTest("testOkioHashFile")
         File(testFile1).writeText("okio hash test data")
         logResult("hashFile(MD5)", OkioHashUtils.hashFile(testFile1, MessageDigest.getInstance("MD5")))
         logResult("hashFile(SHA-1)", OkioHashUtils.hashFile(testFile1, MessageDigest.getInstance("SHA-1")))
@@ -849,14 +863,14 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioHashFileAsync() {
-        log("=== testOkioHashFileAsync ===")
+        beginTest("testOkioHashFileAsync")
         OkioHashUtils.hashFileAsync(testFile1, MessageDigest.getInstance("SHA-256")) { hash, err ->
             logResult("hashFileAsync(SHA-256)", hash)
         }
     }
 
     fun testOkioCopyAndHash() {
-        log("=== testOkioCopyAndHash ===")
+        beginTest("testOkioCopyAndHash")
         File(testFile1).writeText("copy and hash source")
         val dest = File(testRoot, "okio_copy_hash_dest.txt").absolutePath
         val hash = OkioHashUtils.copyAndHash(testFile1, dest, MessageDigest.getInstance("SHA-256"))
@@ -865,7 +879,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioCopyAndHashAsync() {
-        log("=== testOkioCopyAndHashAsync ===")
+        beginTest("testOkioCopyAndHashAsync")
         val dest = File(testRoot, "okio_copy_hash_async.txt").absolutePath
         OkioHashUtils.copyAndHashAsync(testFile1, dest, MessageDigest.getInstance("MD5")) { hash, err ->
             logResult("copyAndHashAsync", hash)
@@ -873,7 +887,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioHashFileWithProgress() {
-        log("=== testOkioHashFileWithProgress ===")
+        beginTest("testOkioHashFileWithProgress")
         File(testFile1).writeText("H".repeat(150_000))
         var cbCount = 0
         OkioHashUtils.hashFileWithProgress(testFile1, MessageDigest.getInstance("SHA-256"),
@@ -883,21 +897,21 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioHashFileWithProgressAsync() {
-        log("=== testOkioHashFileWithProgressAsync ===")
+        beginTest("testOkioHashFileWithProgressAsync")
         OkioHashUtils.hashFileWithProgressAsync(testFile1, MessageDigest.getInstance("MD5"),
             onProgress = { p, t -> log("进度: $p/$t") },
             onResult = { hash, err -> logResult("hashFileWithProgressAsync", hash) })
     }
 
     fun testOkioHashByteString() {
-        log("=== testOkioHashByteString ===")
+        beginTest("testOkioHashByteString")
         val bs = ByteString.of(*"stream hashing example".toByteArray(Charsets.UTF_8))
         val hash = OkioHashUtils.hashByteString(bs, MessageDigest.getInstance("SHA-256"))
         logResult("hashByteString", hash)
     }
 
     fun testOkioHashString() {
-        log("=== testOkioHashString ===")
+        beginTest("testOkioHashString")
         val hash = OkioHashUtils.hashString("okio string hash", MessageDigest.getInstance("MD5"))
         logResult("hashString", hash)
     }
@@ -905,7 +919,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 10. OkioAssetUtils — Okio 资源操作 ====================
 
     fun testOkioAssetRead() {
-        log("=== testOkioAssetRead ===")
+        beginTest("testOkioAssetRead")
         runCatching {
             val files = AssetUtils.listAssets(context, "")
             val firstFile = files.firstOrNull { !it.endsWith("/") }
@@ -920,7 +934,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testOkioAssetCopy() {
-        log("=== testOkioAssetCopy ===")
+        beginTest("testOkioAssetCopy")
         runCatching {
             val files = AssetUtils.listAssets(context, "")
             val firstFile = files.firstOrNull { !it.endsWith("/") }
@@ -936,7 +950,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 11. FileCleanupManager — 文件清理 ====================
 
     fun testCleanupRunNow() {
-        log("=== testCleanupRunNow ===")
+        beginTest("testCleanupRunNow")
         val clearDir = File(testRoot, "cleanup_test_dir").also {
             it.mkdirs()
             File(it, "c1.txt").writeText("clear me")
@@ -953,7 +967,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCleanupDeleteOnAppStart() {
-        log("=== testCleanupDeleteOnAppStart ===")
+        beginTest("testCleanupDeleteOnAppStart")
         val delDir = File(testRoot, "cleanup_delete_dir").also {
             it.mkdirs()
             File(it, "delete_me.txt").writeText("to be deleted")
@@ -969,7 +983,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCleanupAfterDelay() {
-        log("=== testCleanupAfterDelay ===")
+        beginTest("testCleanupAfterDelay")
         val delayDir = File(testRoot, "cleanup_delay_dir").also {
             it.mkdirs()
             File(it, "d.txt").writeText("delayed cleanup")
@@ -985,7 +999,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCleanupCancel() {
-        log("=== testCleanupCancel ===")
+        beginTest("testCleanupCancel")
         // 注册一个不会立即执行的延迟清理，然后取消
         val dir = File(testRoot, "cleanup_cancel_dir").also { it.mkdirs(); File(it, "keep.txt").writeText("keep") }
         val config = FileCleanupManager.builder()
@@ -997,13 +1011,13 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testCleanupCancelAll() {
-        log("=== testCleanupCancelAll ===")
+        beginTest("testCleanupCancelAll")
         FileCleanupManager.cancelAll()
         log("cancelAll 已调用（清理所有待执行任务）")
     }
 
     fun testCleanupBuilder() {
-        log("=== testCleanupBuilder ===")
+        beginTest("testCleanupBuilder")
         val dir = File(testRoot, "cleanup_builder_test").also { it.mkdirs() }
         val config = FileCleanupManager.builder()
             .clearOnAppStart("k1", dir.absolutePath)
@@ -1020,7 +1034,7 @@ class TestFileModel(private val context: Context) {
     // ==================== 12. 综合/边界测试 ====================
 
     fun testEdgeCases() {
-        log("=== 边界场景测试 ===")
+        beginTest("边界场景测试")
         // 空路径
         logResult("writeText(空路径)", FileWriteUtils.writeText("", "content").toString() + " (正确)")
         logResult("readText(空路径)", FileReadUtils.readText("").toString() + " (正确)")
@@ -1042,7 +1056,7 @@ class TestFileModel(private val context: Context) {
     }
 
     fun testLargeFileOperations() {
-        log("=== 大文件操作测试 ===")
+        beginTest("大文件操作测试")
         val path = File(testRoot, "large_file.bin").absolutePath
         // 写入 500KB
         val data = ByteArray(500_000) { (it % 256).toByte() }

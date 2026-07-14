@@ -67,7 +67,8 @@ class TestLogger private constructor(
 
     // ==================== 生命周期 ====================
 
-    /** 开始一项测试，输出标题并重置计时器 */
+    /** 开始一项测试，输出标题并重置计时器。线程安全 */
+    @Synchronized
     fun beginTest(name: String? = null) {
         timer.begin()
         currentTitle = name ?: timer.testName
@@ -75,7 +76,8 @@ class TestLogger private constructor(
         rawOutput(title, LogLevel.INFO)
     }
 
-    /** 结束测试，输出总耗时 */
+    /** 结束测试，输出总耗时。线程安全 */
+    @Synchronized
     fun endTest(): Long {
         val elapsed = timer.elapsedMs
         rawOutput(

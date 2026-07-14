@@ -191,7 +191,10 @@ class ConcurrentTestActivity : AppCompatActivity() {
             Thread {
                 try {
                     log("\n▶ $label")
+                    val start = System.currentTimeMillis()
                     action()
+                    val cost = System.currentTimeMillis() - start
+                    log("⏱ 耗时: ${cost}ms")
                 } catch (e: Exception) {
                     log("❌ 异常: ${e.javaClass.simpleName}: ${e.message}")
                 }

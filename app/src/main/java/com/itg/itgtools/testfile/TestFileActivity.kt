@@ -263,7 +263,10 @@ class TestFileActivity : AppCompatActivity() {
 
         btn.setOnClickListener {
             log("\n▶ $label")
+            val start = System.currentTimeMillis()
             action()
+            val cost = System.currentTimeMillis() - start
+            log("⏱ 耗时: ${cost}ms")
         }
         addView(btn)
     }
