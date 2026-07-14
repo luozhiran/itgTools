@@ -52,6 +52,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:text="itg-concurrent-core 并发测试" />
+
+            <Button
+                android:id="@+id/openLogTestButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="itg-log 日志库测试" />
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

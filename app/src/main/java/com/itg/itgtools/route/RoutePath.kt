@@ -11,4 +11,5 @@ object RoutePath {
     const val ITG_UI_ACTIVITY = "itg/ui/Activity"
     const val ITG_FILE_TEST_ACTIVITY = "itg/file/test/Activity"
     const val ITG_CONCURRENT_TEST_ACTIVITY = "itg/concurrent/test/Activity"
+    const val ITG_LOG_TEST_ACTIVITY = "itg/log/test/Activity"
 }
