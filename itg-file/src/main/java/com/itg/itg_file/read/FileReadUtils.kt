@@ -2,7 +2,7 @@ package com.itg.itg_file.read
 
 import android.net.Uri
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -17,7 +17,7 @@ import java.util.concurrent.Future
  * 文件读取工具类
  *
  * 提供多种文件读取方式，涵盖文本、字节、按行读取、大文件分块读取等场景。
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * 核心特性:
  * - 读取为 String（指定编码）
@@ -101,7 +101,7 @@ object FileReadUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readText(path, charset)
                 safeCallback {
@@ -151,7 +151,7 @@ object FileReadUtils {
         path: String,
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readBytes(path)
                 safeCallback {
@@ -210,7 +210,7 @@ object FileReadUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (List<String>?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readLines(path, charset)
                 safeCallback {
@@ -282,7 +282,7 @@ object FileReadUtils {
         onEachLine: (line: String, index: Int) -> Boolean,
         onComplete: (totalLines: Int, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val count = readLinesStreaming(path, charset, onEachLine)
                 safeCallback {
@@ -435,7 +435,7 @@ object FileReadUtils {
         onChunk: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean,
         onComplete: (totalBytes: Long, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val total = readChunks(path, chunkSize, onChunk)
                 safeCallback {

@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.system.Os
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -17,7 +17,7 @@ import java.util.concurrent.Future
  * 文件写入工具类
  *
  * 提供多种文件写入方式，涵盖文本、字节、追加、流写入、大文件分块写入等场景。
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * 核心特性:
  * - 写入字符串（覆盖/追加）
@@ -82,7 +82,7 @@ object FileWriteUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeText(path, content, charset)) } }
+        return Concurrent.io { safeCallback { onResult(writeText(path, content, charset)) } }
     }
 
     /**
@@ -130,7 +130,7 @@ object FileWriteUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(appendText(path, content, charset)) } }
+        return Concurrent.io { safeCallback { onResult(appendText(path, content, charset)) } }
     }
 
     // ==================== 写入字节数组 ====================
@@ -158,7 +158,7 @@ object FileWriteUtils {
         bytes: ByteArray,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeBytes(path, bytes)) } }
+        return Concurrent.io { safeCallback { onResult(writeBytes(path, bytes)) } }
     }
 
     /**
@@ -218,7 +218,7 @@ object FileWriteUtils {
         onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(writeFromStream(path, inputStream, overwrite, onProgress)) }
         }
     }
@@ -335,7 +335,7 @@ object FileWriteUtils {
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeTextAtomic(path, content, charset)) } }
+        return Concurrent.io { safeCallback { onResult(writeTextAtomic(path, content, charset)) } }
     }
 
     /**
@@ -412,7 +412,7 @@ object FileWriteUtils {
         onProgress: ((written: Long, total: Long) -> Unit)? = null,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(writeBytesInChunks(path, data, chunkSize, overwrite, onProgress)) }
         }
     }

@@ -1,7 +1,7 @@
 package com.itg.itg_file.read
 
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import okio.Buffer
 import okio.BufferedSource
 import okio.ByteString
@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  * - 进度追踪 (ForwardingSource)
  * - Gzip 解压 (Okio.gzip)
  *
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * @author ITG Team
  * @since 1.0.0
@@ -81,7 +81,7 @@ object OkioReadUtils {
         path: String,
         onResult: (ByteString?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readByteString(path)
                 safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
@@ -134,7 +134,7 @@ object OkioReadUtils {
         charset: Charset = Charsets.UTF_8,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readUtf8(path, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
@@ -177,7 +177,7 @@ object OkioReadUtils {
         path: String,
         onResult: (Buffer?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readToBuffer(path)
                 safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
@@ -227,7 +227,7 @@ object OkioReadUtils {
         charset: Charset = Charsets.UTF_8,
         onResult: (List<String>?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readLines(path, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
@@ -324,7 +324,7 @@ object OkioReadUtils {
         timeoutMs: Long,
         onResult: (ByteString?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readWithTimeout(path, timeoutMs)
                 safeCallback { onResult(result, if (result == null) IOException("Read failed/timed out: $path") else null) }
@@ -411,7 +411,7 @@ object OkioReadUtils {
         onProgress: ((bytesRead: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readWithProgress(path, chunkSize, onProgress)
                 safeCallback { onResult(result, if (result == null) IOException("Read failed: $path") else null) }
@@ -455,7 +455,7 @@ object OkioReadUtils {
         path: String,
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readGzip(path)
                 safeCallback { onResult(result, if (result == null) IOException("Gzip read failed: $path") else null) }

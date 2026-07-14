@@ -30,7 +30,7 @@ android {
 }
 
 dependencies {
-    api(project(":itg-thread-pools"))
+    implementation(project(":itg-concurrent-core"))
     implementation(libs.androidx.fragment)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)

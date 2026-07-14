@@ -1,5 +1,6 @@
 package com.itg.itg_file.core
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
+import com.itg.concurrent.util.ConcurrentUtils
 import android.os.StatFs
 import okio.IOException
 import okio.buffer
@@ -8,7 +9,6 @@ import okio.source
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
 
 /**
  * Okio 文件基础操作工具类
@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
  * - 内置超时控制
  * - 原子性操作支持
  *
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * 核心特性:
  * - 快速复制（Okio Buffer 优化，零拷贝路径）
@@ -58,7 +58,7 @@ object OkioFileUtils {
      */
     @JvmStatic
     fun existsAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(exists(path)) } }
+        return Concurrent.io { safeCallback { onResult(exists(path)) } }
     }
 
     /**
@@ -168,7 +168,7 @@ object OkioFileUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
+        return Concurrent.io { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
     }
 
     // ==================== 移动 ====================
@@ -229,7 +229,7 @@ object OkioFileUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
+        return Concurrent.io { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
     }
 
     // ==================== 删除 ====================
@@ -256,7 +256,7 @@ object OkioFileUtils {
      */
     @JvmStatic
     fun deleteAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(delete(path)) } }
+        return Concurrent.io { safeCallback { onResult(delete(path)) } }
     }
 
     /**
@@ -281,7 +281,7 @@ object OkioFileUtils {
      */
     @JvmStatic
     fun createDirectoryAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(createDirectory(path)) } }
+        return Concurrent.io { safeCallback { onResult(createDirectory(path)) } }
     }
 
     // ==================== 目录遍历 ====================
@@ -311,7 +311,7 @@ object OkioFileUtils {
      */
     @JvmStatic
     fun listRecursivelyAsync(path: String, onResult: (List<String>) -> Unit): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             val files = listRecursively(path).map { it.absolutePath }
             safeCallback { onResult(files) }
         }
@@ -382,8 +382,8 @@ object OkioFileUtils {
     @JvmStatic
     fun <T> withTimeout(timeoutMs: Long, block: () -> T): T? {
         return try {
-            val future = TaskExecutor.io<T> { block() }
-            TaskExecutor.await(future, timeoutMs, TimeUnit.MILLISECONDS)
+            val future = Concurrent.io<T> { block() }
+            ConcurrentUtils.await(future, timeoutMs)
         } catch (e: java.util.concurrent.TimeoutException) {
             android.util.Log.w("OkioFileUtils", "Operation timed out after ${timeoutMs}ms")
             null
@@ -402,7 +402,7 @@ object OkioFileUtils {
         block: () -> T,
         onResult: (T?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             val result = withTimeout(timeoutMs, block)
             safeCallback { onResult(result) }
         }

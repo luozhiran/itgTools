@@ -10,7 +10,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
@@ -406,7 +406,7 @@ object FileCleanupManager {
         val rule = registered.rule
         if (activeTimedRules[rule.key] !== registered) return
         val futureRef = AtomicReference<Future<*>?>()
-        val future = TaskExecutor.ioDelayed(
+        val future = Concurrent.ioDelayed(
             task = {
                 futureRef.get()?.let { scheduledTasks.remove(rule.key, it) }
                 if (activeTimedRules[rule.key] !== registered) return@ioDelayed
@@ -475,7 +475,7 @@ object FileCleanupManager {
         immediateRules[key] = registered
         val futureRef = AtomicReference<Future<*>?>()
         val future = try {
-            TaskExecutor.io {
+            Concurrent.io {
                 try {
                     executeRegistered(registered, onTerminal)
                 } finally {
@@ -717,7 +717,7 @@ object FileCleanupManager {
 
     private fun postToMain(block: () -> Unit): Boolean {
         return try {
-            TaskExecutor.main { block() }
+            Concurrent.main { block() }
             true
         } catch (e: Throwable) {
             e.printStackTrace()

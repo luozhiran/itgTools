@@ -1,7 +1,7 @@
 package com.itg.itg_file.write
 
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import okio.Buffer
 import okio.ByteString
 import okio.ForwardingSink
@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * - Gzip 压缩 (Okio.gzip)
  * - 原子写入（写临时文件 → 重命名）
  *
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * @author ITG Team
  * @since 1.0.0
@@ -71,7 +71,7 @@ object OkioWriteUtils {
         byteString: ByteString,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeByteString(path, byteString)) } }
+        return Concurrent.io { safeCallback { onResult(writeByteString(path, byteString)) } }
     }
 
     // ==================== 写入字符串 ====================
@@ -106,7 +106,7 @@ object OkioWriteUtils {
         charset: Charset = Charsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeUtf8(path, content, charset)) } }
+        return Concurrent.io { safeCallback { onResult(writeUtf8(path, content, charset)) } }
     }
 
     /**
@@ -147,7 +147,7 @@ object OkioWriteUtils {
         charset: Charset = Charsets.UTF_8,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(appendUtf8(path, content, charset)) } }
+        return Concurrent.io { safeCallback { onResult(appendUtf8(path, content, charset)) } }
     }
 
     // ==================== 从 Buffer 写入 ====================
@@ -206,7 +206,7 @@ object OkioWriteUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeFromStream(path, inputStream, overwrite)) } }
+        return Concurrent.io { safeCallback { onResult(writeFromStream(path, inputStream, overwrite)) } }
     }
 
     // ==================== 超时控制的写入 ====================
@@ -243,7 +243,7 @@ object OkioWriteUtils {
         timeoutMs: Long,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeWithTimeout(path, bytes, timeoutMs)) } }
+        return Concurrent.io { safeCallback { onResult(writeWithTimeout(path, bytes, timeoutMs)) } }
     }
 
     // ==================== 带进度的写入 ====================
@@ -304,7 +304,7 @@ object OkioWriteUtils {
         onProgress: ((bytesWritten: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(writeWithProgress(path, data, chunkSize, onProgress)) }
         }
     }
@@ -347,7 +347,7 @@ object OkioWriteUtils {
         data: ByteArray,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeGzip(path, data)) } }
+        return Concurrent.io { safeCallback { onResult(writeGzip(path, data)) } }
     }
 
     /**
@@ -390,7 +390,7 @@ object OkioWriteUtils {
         data: ByteArray,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(writeAtomic(path, data)) } }
+        return Concurrent.io { safeCallback { onResult(writeAtomic(path, data)) } }
     }
 
     /**

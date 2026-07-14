@@ -1,7 +1,7 @@
 package com.itg.itg_file.hash
 
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import okio.Buffer
 import okio.BufferedSource
 import okio.ByteString
@@ -26,7 +26,7 @@ import java.util.concurrent.Future
  * - 进度+哈希: 一次 I/O 同时获得进度和哈希值
  * - 组合操作: copyAndHash / compressAndHash 等组合操作
  *
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * @author ITG Team
  * @since 1.0.0
@@ -100,7 +100,7 @@ object OkioHashUtils {
         onRead: ((buffer: Buffer, bytesRead: Long) -> Unit)? = null,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val hash = hashWhileReading(path, digest, onRead)
                 safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
@@ -158,7 +158,7 @@ object OkioHashUtils {
         digest: MessageDigest,
         onResult: (String?, Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = hashWhileWriting(path, data, digest)
                 if (result != null) {
@@ -264,7 +264,7 @@ object OkioHashUtils {
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (String?, Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = copyAndHash(srcPath, destPath, digest, overwrite, onProgress)
                 if (result != null) {
@@ -417,7 +417,7 @@ object OkioHashUtils {
         digest: MessageDigest,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val hash = hashFile(path, digest)
                 safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
@@ -481,7 +481,7 @@ object OkioHashUtils {
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val hash = hashFileWithProgress(path, digest, onProgress)
                 safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }

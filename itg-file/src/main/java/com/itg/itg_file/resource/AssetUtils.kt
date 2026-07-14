@@ -3,7 +3,7 @@ package com.itg.itg_file.resource
 import android.content.Context
 import android.content.res.Resources
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -89,7 +89,7 @@ object AssetUtils {
         onResult: (List<String>) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(listAssets(appContext, path)) }
         }
     }
@@ -135,7 +135,7 @@ object AssetUtils {
         onResult: (List<String>) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(listAssetsRecursive(appContext, path, maxDepth)) }
         }
     }
@@ -179,7 +179,7 @@ object AssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(assetExists(appContext, assetPath)) }
         }
     }
@@ -256,7 +256,7 @@ object AssetUtils {
         onResult: (Long) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(getAssetSize(appContext, assetPath)) }
         }
     }
@@ -333,7 +333,7 @@ object AssetUtils {
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetText(appContext, assetPath, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -387,7 +387,7 @@ object AssetUtils {
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetBytes(appContext, assetPath)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -449,7 +449,7 @@ object AssetUtils {
         onResult: (List<String>?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetLines(appContext, assetPath, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -520,7 +520,7 @@ object AssetUtils {
         onComplete: (totalLines: Int, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val count = readAssetLinesStreaming(appContext, assetPath, charset, onEachLine)
                 safeCallback { onComplete(count, if (count < 0) IOException("Read asset failed: $assetPath") else null) }
@@ -580,7 +580,7 @@ object AssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyAssetToFile(appContext, assetPath, destPath, overwrite)) }
         }
     }
@@ -648,7 +648,7 @@ object AssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyAssetToFileWithProgress(appContext, assetPath, destPath, overwrite, onProgress)) }
         }
     }
@@ -719,7 +719,7 @@ object AssetUtils {
         onResult: (Int) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyAssetDirToFile(appContext, assetDirPath, destDirPath, overwrite, onProgress)) }
         }
     }
@@ -768,7 +768,7 @@ object AssetUtils {
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readRawText(appContext, resId, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read raw failed: $resId") else null) }
@@ -831,7 +831,7 @@ object AssetUtils {
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readRawBytes(appContext, resId, maxBytes)
                 safeCallback { onResult(result, if (result == null) IOException("Read raw failed: $resId") else null) }
@@ -881,7 +881,7 @@ object AssetUtils {
         onResult: (Long) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(getRawSize(appContext, resId)) }
         }
     }
@@ -936,7 +936,7 @@ object AssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyRawToFile(appContext, resId, destPath, overwrite)) }
         }
     }
@@ -992,7 +992,7 @@ object AssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyRawToFileWithProgress(appContext, resId, destPath, overwrite, onProgress)) }
         }
     }

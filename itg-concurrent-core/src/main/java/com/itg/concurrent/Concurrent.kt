@@ -52,11 +52,6 @@ object Concurrent {
 
     // ==================== Fire-and-Forget ====================
 
-    @JvmStatic fun io(task: () -> Unit)        = get(DispatcherType.IO).execute(task)
-    @JvmStatic fun compute(task: () -> Unit)    = get(DispatcherType.COMPUTE).execute(task)
-    @JvmStatic fun background(task: () -> Unit) = get(DispatcherType.BACKGROUND).execute(task)
-    @JvmStatic fun single(task: () -> Unit)     = get(DispatcherType.SINGLE).execute(task)
-
     @JvmStatic
     fun main(task: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {

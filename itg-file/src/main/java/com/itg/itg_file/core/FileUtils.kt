@@ -6,7 +6,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.system.Os
 import android.webkit.MimeTypeMap
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -22,7 +22,7 @@ import kotlin.math.absoluteValue
  * 文件基础操作工具类
  *
  * 提供文件/目录的创建、删除、重命名、复制、移动、信息获取等核心操作。
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * 核心特性:
  * - 文件是否存在 / 是否为空 / 大小 / 类型判断
@@ -63,7 +63,7 @@ object FileUtils {
      */
     @JvmStatic
     fun existsAsync(path: String?, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(exists(path)) } }
+        return Concurrent.io { safeCallback { onResult(exists(path)) } }
     }
 
     /**
@@ -129,7 +129,7 @@ object FileUtils {
      */
     @JvmStatic
     fun createFileAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(createFile(path)) } }
+        return Concurrent.io { safeCallback { onResult(createFile(path)) } }
     }
 
     /**
@@ -156,7 +156,7 @@ object FileUtils {
      */
     @JvmStatic
     fun createDirectoryAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(createDirectory(path)) } }
+        return Concurrent.io { safeCallback { onResult(createDirectory(path)) } }
     }
 
     /**
@@ -210,7 +210,7 @@ object FileUtils {
      */
     @JvmStatic
     fun deleteAsync(path: String?, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(delete(path)) } }
+        return Concurrent.io { safeCallback { onResult(delete(path)) } }
     }
 
     /**
@@ -235,7 +235,7 @@ object FileUtils {
      */
     @JvmStatic
     fun clearDirectoryAsync(path: String, onResult: (Boolean) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(clearDirectory(path)) } }
+        return Concurrent.io { safeCallback { onResult(clearDirectory(path)) } }
     }
 
     // ==================== 重命名 ====================
@@ -260,7 +260,7 @@ object FileUtils {
      */
     @JvmStatic
     fun renameAsync(path: String, newName: String, onResult: (String?) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(rename(path, newName)) } }
+        return Concurrent.io { safeCallback { onResult(rename(path, newName)) } }
     }
 
     // ==================== 复制 ====================
@@ -385,7 +385,7 @@ object FileUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
+        return Concurrent.io { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
     }
 
     /**
@@ -399,7 +399,7 @@ object FileUtils {
         onProgress: ((copied: Long, total: Long) -> Unit)? = null,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyWithProgress(srcPath, destPath, overwrite, onProgress)) }
         }
     }
@@ -515,7 +515,7 @@ object FileUtils {
         overwrite: Boolean = true,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
+        return Concurrent.io { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
     }
 
     // ==================== 文件列表 ====================
@@ -593,7 +593,7 @@ object FileUtils {
      */
     @JvmStatic
     fun listFilesRecursiveAsync(path: String, onResult: (List<File>) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(listFilesRecursive(path)) } }
+        return Concurrent.io { safeCallback { onResult(listFilesRecursive(path)) } }
     }
 
     // ==================== 文件信息 ====================
@@ -628,7 +628,7 @@ object FileUtils {
      */
     @JvmStatic
     fun getSizeAsync(path: String?, onResult: (Long) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(getSize(path)) } }
+        return Concurrent.io { safeCallback { onResult(getSize(path)) } }
     }
 
     /**
@@ -781,7 +781,7 @@ object FileUtils {
      */
     @JvmStatic
     fun getFileInfoAsync(path: String, onResult: (Map<String, Any>) -> Unit): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(getFileInfo(path)) } }
+        return Concurrent.io { safeCallback { onResult(getFileInfo(path)) } }
     }
 
     // ==================== 存储空间 ====================

@@ -2,7 +2,7 @@ package com.itg.itg_file.resource
 
 import android.content.Context
 import android.content.res.Resources
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import okio.Buffer
 import okio.ByteString
 import okio.ForwardingSource
@@ -102,7 +102,7 @@ object OkioAssetUtils {
         onResult: (ByteString?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetByteString(appContext, assetPath)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -160,7 +160,7 @@ object OkioAssetUtils {
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetUtf8(appContext, assetPath, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -222,7 +222,7 @@ object OkioAssetUtils {
         onResult: (Buffer?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetToBuffer(appContext, assetPath)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -276,7 +276,7 @@ object OkioAssetUtils {
         onResult: (List<String>?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetLines(appContext, assetPath, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -373,7 +373,7 @@ object OkioAssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyAssetToFile(appContext, assetPath, destPath, overwrite)) }
         }
     }
@@ -451,7 +451,7 @@ object OkioAssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback {
                 onResult(copyAssetToFileWithProgress(appContext, assetPath, destPath, overwrite, chunkSize, onProgress))
             }
@@ -512,7 +512,7 @@ object OkioAssetUtils {
         onResult: (ByteString?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetWithTimeout(appContext, assetPath, timeoutMs)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed/timed out: $assetPath") else null) }
@@ -602,7 +602,7 @@ object OkioAssetUtils {
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetWithProgress(appContext, assetPath, chunkSize, onProgress)
                 safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
@@ -660,7 +660,7 @@ object OkioAssetUtils {
         onResult: (ByteArray?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readAssetGzip(appContext, assetPath)
                 safeCallback { onResult(result, if (result == null) IOException("Gzip read failed: $assetPath") else null) }
@@ -729,7 +729,7 @@ object OkioAssetUtils {
         onResult: (ByteString?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readRawByteString(appContext, resId)
                 safeCallback { onResult(result, if (result == null) IOException("Read raw failed: $resId") else null) }
@@ -787,7 +787,7 @@ object OkioAssetUtils {
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readRawUtf8(appContext, resId, charset)
                 safeCallback { onResult(result, if (result == null) IOException("Read raw failed: $resId") else null) }
@@ -872,7 +872,7 @@ object OkioAssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback { onResult(copyRawToFile(appContext, resId, destPath, overwrite)) }
         }
     }
@@ -947,7 +947,7 @@ object OkioAssetUtils {
         onResult: (Boolean) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             safeCallback {
                 onResult(copyRawToFileWithProgress(appContext, resId, destPath, overwrite, chunkSize, onProgress))
             }
@@ -1001,7 +1001,7 @@ object OkioAssetUtils {
         onResult: (ByteString?, Throwable?) -> Unit
     ): Future<*> {
         val appContext = context.applicationContext ?: context
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = readRawWithTimeout(appContext, resId, timeoutMs)
                 safeCallback { onResult(result, if (result == null) IOException("Read raw failed/timed out: $resId") else null) }

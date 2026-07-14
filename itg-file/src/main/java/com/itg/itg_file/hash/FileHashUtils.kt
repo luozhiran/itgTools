@@ -1,7 +1,7 @@
 package com.itg.itg_file.hash
 
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.concurrent.Concurrent
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -16,7 +16,7 @@ import java.util.zip.CheckedInputStream
  * 文件哈希/校验工具类
  *
  * 提供多种哈希算法计算文件摘要，用于文件完整性校验和去重识别。
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 所有同步方法直接阻塞执行；异步方法通过 [Concurrent] 在 I/O 线程池执行。
  *
  * 支持的算法:
  * - MD5（快速，适合去重）
@@ -104,7 +104,7 @@ object FileHashUtils {
      * ```kotlin
      * FileHashUtils.hashFileAsync("/sdcard/photo.jpg", Algorithm.MD5) { hash, error ->
      *     if (hash != null) {
-     *         TaskExecutor.main { textView.text = "MD5: $hash" }
+     *         Concurrent.main { textView.text = "MD5: $hash" }
      *     }
      * }
      * ```
@@ -116,7 +116,7 @@ object FileHashUtils {
         algorithm: Algorithm = Algorithm.SHA256,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val hash = hashFile(path, algorithm)
                 safeCallback {
@@ -186,7 +186,7 @@ object FileHashUtils {
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val hash = hashFileWithProgress(path, algorithm, onProgress)
                 safeCallback {
@@ -288,7 +288,7 @@ object FileHashUtils {
         path: String,
         onResult: (String?, Throwable?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             try {
                 val result = crc32(path)
                 safeCallback {
@@ -388,7 +388,7 @@ object FileHashUtils {
         ignoreCase: Boolean = true,
         onResult: (Boolean, String?) -> Unit
     ): Future<*> {
-        return TaskExecutor.io {
+        return Concurrent.io {
             val actual = hashFile(path, algorithm)
             val valid = actual != null && actual.equals(expectedHash, ignoreCase)
             safeCallback { onResult(valid, actual) }
@@ -426,7 +426,7 @@ object FileHashUtils {
         algorithm: Algorithm = Algorithm.SHA256,
         onResult: (Boolean) -> Unit
     ): Future<*> {
-        return TaskExecutor.io { safeCallback { onResult(compareFiles(path1, path2, algorithm)) } }
+        return Concurrent.io { safeCallback { onResult(compareFiles(path1, path2, algorithm)) } }
     }
 
     // ==================== 内部方法 ====================
