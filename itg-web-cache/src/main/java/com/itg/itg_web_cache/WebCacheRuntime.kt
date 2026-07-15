@@ -154,5 +154,9 @@ object WebCacheRuntime : WebCacheRuntimeApi {
         )
     }
 
+    internal fun hasActiveContainerLoads(): Boolean {
+        return isMainThread() && pageStartTimes.isNotEmpty()
+    }
+
     private fun isMainThread(): Boolean = Looper.myLooper() == Looper.getMainLooper()
 }

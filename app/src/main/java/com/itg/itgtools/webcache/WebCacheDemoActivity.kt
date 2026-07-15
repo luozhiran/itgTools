@@ -96,7 +96,7 @@ class WebCacheDemoActivity : AppCompatActivity() {
             WebCachePreloadManager.cancel("demo_cancel")
         }
         findViewById<Button>(R.id.webCacheClearHttpButton).setOnClickListener {
-            WebCacheCleaner.clearByPolicy(
+            WebCacheCleaner.clearByPolicyWhenIdle(
                 context = this,
                 policy = WebCacheClearPolicy.HTTP_CACHE
             )
