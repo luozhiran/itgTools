@@ -125,14 +125,77 @@ val config = WebCacheConfig(
 )
 ```
 
+## `preloadMaxUrlCount` 与 `preloadParallelEnable` 区别
+
+这两个配置经常容易混淆：`preloadMaxUrlCount` 控制“选多少个 URL 进入本轮预热队列”，`preloadParallelEnable` 控制“队列里的 URL 是否并行执行”。
+
+| 配置项 | 控制对象 | 生效位置 | 影响结果 | 推荐默认值 |
+| --- | --- | --- | --- | --- |
+| `preloadMaxUrlCount` | 候选规则数量 | `selectPreloadRules()` 中 `.take(maxCount)` | 本轮最多预热多少个 URL | 灰度初期 `1`，稳定后再评估 `2~3` |
+| `preloadParallelEnable` | 执行并发方式 | `resolvePreloadParallelCount()` 和 `repeat(parallelCount)` | 是否同时创建多个隐藏 WebView 执行预热 | 默认 `false`，生产谨慎开启 |
+| `preloadParallelCount` | 并行数量上限 | `resolvePreloadParallelCount()` | 开启并行后同时跑几个预热任务 | 当前源码会限制在 `1..2` |
+
+执行链路可以理解为两步：
+
+```text
+1. 先选队列：preloadUrls + preloadUrlRules -> 过滤 -> 按 priority 排序 -> take(preloadMaxUrlCount)
+2. 再执行：如果 preloadParallelEnable 通过运行态约束 -> repeat(parallelCount) 同时 startNext
+```
+
+因此：
+
+- `preloadMaxUrlCount = 1` 时，即使 `preloadParallelEnable = true`，本轮也只有 1 个 URL 可预热，不会产生真正并行。
+- `preloadMaxUrlCount = 3` 且 `preloadParallelEnable = false` 时，本轮最多会预热 3 个 URL，但按串行方式一个接一个执行。
+- `preloadMaxUrlCount = 3` 且 `preloadParallelEnable = true` 时，本轮最多会预热 3 个 URL，但源码当前最多同时跑 2 个，完成一个后再从队列取下一个。
+- `preloadMaxUrlCount = 0` 会直接返回空队列，相当于本轮不预热。
+- `preloadParallelEnable = true` 仍可能退化为串行：非 WiFi、非高内存设备、低内存、低电量或非前台都会让并行数回到 1。
+
+## 数量与并行配置 Demo
+
+保守串行配置，适合灰度初期：
+
+```kotlin
+val config = WebCacheConfig(
+    preloadEnable = true,
+    preloadMaxUrlCount = 1,
+    preloadParallelEnable = false,
+    allowedHosts = listOf("h5.example.com")
+)
+```
+
+多个 URL 串行预热，适合资源风险可控但不想增加内存峰值：
+
+```kotlin
+val config = WebCacheConfig(
+    preloadEnable = true,
+    preloadMaxUrlCount = 3,
+    preloadParallelEnable = false,
+    allowedHosts = listOf("h5.example.com")
+)
+```
+
+实验性并行预热，适合高内存设备和 WiFi 条件下的小流量灰度：
+
+```kotlin
+val config = WebCacheConfig(
+    preloadEnable = true,
+    preloadMaxUrlCount = 3,
+    preloadParallelEnable = true,
+    preloadParallelCount = 2,
+    preloadParallelWifiOnly = true,
+    preloadParallelHighMemoryOnly = true,
+    allowedHosts = listOf("h5.example.com")
+)
+```
+
 ## 关键说明
 
 - 黑名单优先级高于 `preloadUrls` 和 `preloadUrlRules`。
 - `preloadUrls` 和 `preloadUrlRules` 会合并，不会互相覆盖；同一个 URL 不建议两边重复配置。
-- `preloadMaxUrlCount` 控制单次启动最多预热数量。
+- `preloadMaxUrlCount` 控制本轮最多选入队列的 URL 数量，不控制并发数。
 - `preloadMinIntervalMs` 或 rule 的 `ttlMs` 控制冷却时间。
 - `preloadUrls` 自动生成的规则优先级为 0；如果要和高优先级业务页竞争，请改用 `preloadUrlRules`。
-- `preloadParallelEnable` 是实验能力，会增加内存峰值。
+- `preloadParallelEnable` 是执行方式开关，只在队列数量大于 1 且运行态允许时才会产生并行；它会增加内存峰值。
 - 支付、登录、下单、隐私授权、一次性 token 页面不应预热。
 
 ## 验证方式
