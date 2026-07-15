@@ -12,6 +12,7 @@
 | [配置预热 URL](./docs/03-preload-rules.md) | `preloadUrls`、`preloadUrlRules` | 只允许业务域名 | 首页稳定后预热 H5 资源 | Resolver 按 enable、黑名单、网络、登录、优先级筛选规则 |
 | [控制并行预热和资源预算](./docs/03-preload-rules.md) | `preloadParallelEnable/count` | 实验功能，高内存设备慎用 | 多个低风险页面需要更快预热 | 并发 WebView 会增加内存峰值，配置中有 WiFi/高内存约束 |
 | [学习复杂配置字段](./docs/05-config-field-guide.md) | `WebCacheConfig` 字段分组 | 远程配置、本地兜底、默认值都适用 | 不确定某个字段该怎么配、和其他字段怎么组合 | 字段按源码生效链路拆分，说明优先级、默认值、远程 key 和验证方式 |
+| [接入运行态状态](./docs/06-runtime-state.md) | `WebCacheRuntimeState`、`WebCacheStateProvider` | 预热启动前读取状态快照 | 需要把前后台、首页就绪、登录态、网络、低内存、低电量消息接入预热判断 | `startNow()` 会读取 stateProvider，Resolver 用状态字段筛选规则和决定是否并行 |
 | [清理 WebView 缓存](./docs/04-clean-clear-api.md) | `WebCacheCleaner`、`clearCacheVersion` | 应用级 WebView 缓存 | 缓存污染、灰度回滚、关闭预热后按策略清理 | 版本号保证一次性执行，策略避免误清理 |
 | [查看 API 速查](./docs/04-clean-clear-api.md) | API 表 | 所有使用者 | 查配置字段和运行时 API | 汇总源码中的公开数据类和入口 |
 
@@ -24,6 +25,7 @@
 | [03. 预热规则](./docs/03-preload-rules.md) | preloadUrls、PreloadUrlRule、并行预热限制 |
 | [04. 清理与 API](./docs/04-clean-clear-api.md) | 缓存清理、版本号、API 速查 |
 | [05. 复杂配置字段学习](./docs/05-config-field-guide.md) | WebCacheConfig 字段分组、优先级、配置 Demo 和常见误区 |
+| [06. 运行态状态接入](./docs/06-runtime-state.md) | WebCacheRuntimeState 字段用途、消息更新示例和常见误区 |
 
 ## 依赖
 
