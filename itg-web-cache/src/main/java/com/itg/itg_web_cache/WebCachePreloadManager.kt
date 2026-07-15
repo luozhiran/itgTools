@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.MessageQueue
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -27,6 +28,7 @@ object WebCachePreloadManager {
     private var configured = false
     private var cancelled = false
     private var scheduledStartRunnable: Runnable? = null
+    private var scheduledIdleHandler: MessageQueue.IdleHandler? = null
 
     fun configure(
         context: Context,
@@ -44,6 +46,10 @@ object WebCachePreloadManager {
     }
 
     fun startAfterHomeReady() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { startAfterHomeReady() }
+            return
+        }
         if (!configured) {
             WebCacheSafeCallbacks.log(logger, "WebCachePreloadManager is not configured.")
             return
@@ -52,7 +58,7 @@ object WebCachePreloadManager {
         val config = readConfig()
         val startRunnable = Runnable {
             scheduledStartRunnable = null
-            startNow()
+            scheduleStartWhenMainQueueIdle()
         }
         scheduledStartRunnable = startRunnable
         mainHandler.postDelayed(startRunnable, config.preloadDelayMs.coerceAtLeast(0L))
@@ -137,6 +143,14 @@ object WebCachePreloadManager {
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             cancel("low_memory")
         }
+    }
+
+    fun markContainerLoaded(url: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { markContainerLoaded(url) }
+            return
+        }
+        markUrlCooldown(url)
     }
 
     fun resetLaunchFailures() {
@@ -264,7 +278,9 @@ object WebCachePreloadManager {
         val elapsed = System.currentTimeMillis() - active.startMs
         if (success) {
             circuitBreaker.recordSuccess(active.rule)
-            lastPreloadTimes[active.rule.id.ifBlank { active.rule.url }] = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            lastPreloadTimes[active.rule.id.ifBlank { active.rule.url }] = now
+            markUrlCooldown(active.rule.url, now)
         } else if (countAsFailure) {
             circuitBreaker.recordFailure(active.rule)
         }
@@ -328,10 +344,19 @@ object WebCachePreloadManager {
         config: WebCacheConfig,
         nowMs: Long
     ): Boolean {
-        val key = rule.id.ifBlank { rule.url }
-        val last = lastPreloadTimes[key] ?: return true
+        val ruleKey = rule.id.ifBlank { rule.url }
+        val urlKey = UrlRuleMatcher.cooldownKeyOf(rule.url)
+        val last = listOfNotNull(
+            lastPreloadTimes[ruleKey],
+            urlKey?.let { lastPreloadTimes[it] }
+        ).maxOrNull() ?: return true
         val ttl = rule.ttlMs ?: config.preloadMinIntervalMs
         return nowMs - last >= ttl
+    }
+
+    private fun markUrlCooldown(url: String, nowMs: Long = System.currentTimeMillis()) {
+        val urlKey = UrlRuleMatcher.cooldownKeyOf(url) ?: return
+        lastPreloadTimes[urlKey] = nowMs
     }
 
     private fun eventNameForFailure(reason: String): String {
@@ -348,10 +373,22 @@ object WebCachePreloadManager {
             reason.startsWith("create_webview_failed")
     }
 
+    private fun scheduleStartWhenMainQueueIdle() {
+        if (scheduledIdleHandler != null) return
+        val idleHandler = MessageQueue.IdleHandler {
+            scheduledIdleHandler = null
+            startNow()
+            false
+        }
+        scheduledIdleHandler = idleHandler
+        Looper.myQueue().addIdleHandler(idleHandler)
+    }
+
     private fun cancelScheduledStart() {
-        val runnable = scheduledStartRunnable ?: return
-        mainHandler.removeCallbacks(runnable)
+        scheduledStartRunnable?.let { mainHandler.removeCallbacks(it) }
         scheduledStartRunnable = null
+        scheduledIdleHandler?.let { Looper.myQueue().removeIdleHandler(it) }
+        scheduledIdleHandler = null
     }
 
     private fun isConflictUrl(preloadUrl: String, containerUrl: String, containerHost: String?): Boolean {
