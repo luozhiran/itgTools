@@ -126,6 +126,7 @@ object WebCacheRuntime : WebCacheRuntimeApi {
             return
         }
         val start = pageStartTimes.remove(webView)
+        WebCachePreloadManager.markContainerLoaded(url)
         WebCacheSafeCallbacks.emit(
             eventListener,
             WebCacheEvent(

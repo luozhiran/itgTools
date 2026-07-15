@@ -140,6 +140,31 @@ class WebCachePolicyResolverTest {
     }
 
     @Test
+    fun containerLoadedUrlKeyParticipatesInPreloadCooldown() {
+        val rules = resolver.selectPreloadRules(
+            config = WebCacheConfig(
+                preloadEnable = true,
+                preloadUrlRules = listOf(
+                    PreloadUrlRule(
+                        id = "home_rule",
+                        url = "https://m.example.com/home?from=preload"
+                    )
+                ),
+                preloadMinIntervalMs = 30 * 60 * 1000L,
+                allowedHosts = listOf("m.example.com")
+            ),
+            state = WebCacheRuntimeState(isLoggedIn = true),
+            nowMs = 2_000L,
+            lastPreloadTimes = mapOf(
+                "https://m.example.com/home" to 1_000L
+            ),
+            isBlocked = { false }
+        )
+
+        assertTrue(rules.isEmpty())
+    }
+
+    @Test
     fun emptyAllowedHostsRejectsPreloadRules() {
         val rules = resolver.selectPreloadRules(
             config = WebCacheConfig(

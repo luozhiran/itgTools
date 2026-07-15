@@ -46,7 +46,7 @@ data class WebCacheRuntimeState(
      * 图片解码等关键任务争抢主线程和网络资源。
      *
      * 建议绑定：
-     *   - true  → 首页首帧绘制完成 + 核心接口返回 + 延迟 preloadDelayMs 后
+     *   - true  → 首页首帧绘制完成 + 核心接口返回；预热会在 preloadDelayMs 后等待主线程空闲再启动
      *   - false → 首页未就绪 / 离开首页
      */
     val isHomeReady: Boolean = true,

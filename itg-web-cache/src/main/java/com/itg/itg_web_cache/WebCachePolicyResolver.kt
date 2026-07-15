@@ -94,8 +94,12 @@ class WebCachePolicyResolver {
         nowMs: Long,
         lastPreloadTimes: Map<String, Long>
     ): Boolean {
-        val key = rule.id.ifBlank { rule.url }
-        val last = lastPreloadTimes[key] ?: return true
+        val ruleKey = rule.id.ifBlank { rule.url }
+        val urlKey = UrlRuleMatcher.cooldownKeyOf(rule.url)
+        val last = listOfNotNull(
+            lastPreloadTimes[ruleKey],
+            urlKey?.let { lastPreloadTimes[it] }
+        ).maxOrNull() ?: return true
         val ttl = rule.ttlMs ?: config.preloadMinIntervalMs
         return nowMs - last >= ttl
     }

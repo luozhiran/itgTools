@@ -27,7 +27,7 @@ import com.itg.itg_web_cache.WebCacheConfig
 | 开启后台预热 | `preloadEnable` | 隐藏 WebView 预热 | 灰度验证低风险 H5 页面预热收益 | `selectPreloadRules()` 只有在开关开启且运行态满足时才选择 URL |
 | 选择预热 URL | `preloadUrls`、`preloadUrlRules`、`preloadUrlBlacklist`、`allowedHosts` | 预热候选队列 | 需要配置固定 URL、复杂规则或排除高风险页面 | 源码会合并 URL 与规则，再经过域名、黑名单、登录态、网络和优先级筛选 |
 | 控制本轮预热数量 | `preloadMaxUrlCount` | 单次预热触发 | 候选 URL 多，但希望控制资源消耗 | 筛选后按 `priority` 降序执行 `.take(preloadMaxUrlCount)` |
-| 控制预热时序 | `preloadDelayMs`、`preloadTimeoutMs`、`preloadPostFinishDelayMs`、`preloadMinIntervalMs` | 单个预热任务和冷却 | 避免抢首页资源、避免隐藏 WebView 长时间存活、避免重复预热 | 预热管理器按延迟、超时、完成后等待和冷却时间调度任务 |
+| 控制预热时序 | `preloadDelayMs`、`preloadTimeoutMs`、`preloadPostFinishDelayMs`、`preloadMinIntervalMs` | 单个预热任务和冷却 | 避免抢首页资源、避免隐藏 WebView 长时间存活、避免重复预热 | 预热管理器按延迟、主线程空闲、超时、完成后等待和冷却时间调度任务 |
 | 限制网络和登录态 | `preloadWifiOnly`、`preloadLoginRequired`、规则级 `wifiOnly/loginRequired` | 预热筛选 | 页面依赖登录态或不希望消耗移动流量 | Resolver 在入队前过滤不满足网络和登录条件的规则 |
 | 实验性并行预热 | `preloadParallelEnable`、`preloadParallelCount`、`preloadParallelWifiOnly`、`preloadParallelHighMemoryOnly` | 预热执行方式 | 多个页面都低风险且希望缩短预热总耗时 | `resolvePreloadParallelCount()` 在运行态允许时返回并行数，当前源码限制在 `1..2` |
 | 一次性清理缓存 | `clearCacheVersion`、`disableClearPolicy`、`disableClearVersion` | 应用级 WebView 缓存 | 缓存污染、灰度回滚、关闭预热后需要处理历史缓存 | 版本号用于保证一次性执行，策略区分通用清理和关闭预热后的清理 |
@@ -142,10 +142,10 @@ val config = WebCacheConfig(
 
 | 字段 | 默认值 | 远程配置 key | 说明 |
 | --- | --- | --- | --- |
-| `preloadDelayMs` | `2000L` | `web_cache_preload_delay_ms` | 首页进入后延迟多久开始预热 |
+| `preloadDelayMs` | `2000L` | `web_cache_preload_delay_ms` | 首页进入后延迟多久允许预热；延迟结束后还会等待主线程空闲再启动 |
 | `preloadTimeoutMs` | `15000L` | `web_cache_preload_timeout_ms` | 单个 URL 预热加载超时时间 |
 | `preloadPostFinishDelayMs` | `3000L` | `web_cache_preload_post_finish_delay_ms` | `onPageFinished` 后继续等待异步资源的时间 |
-| `preloadMinIntervalMs` | `30 * 60 * 1000L` | `web_cache_preload_min_interval_ms` | 全局冷却时间，规则级 `ttlMs` 为空时使用 |
+| `preloadMinIntervalMs` | `30 * 60 * 1000L` | `web_cache_preload_min_interval_ms` | 全局冷却时间，规则级 `ttlMs` 为空时使用；预热成功和正式容器加载成功都会参与冷却 |
 
 保守资源配置：
 
@@ -361,7 +361,7 @@ val config = WebCacheConfig(
 
 - 通过 `WebCacheEvent.reason` 确认策略是否命中，例如 `kill_switch`、`container_disabled`、`url_not_in_container_whitelist`、`scene_blacklisted`。
 - 配置 `allowedHosts` 后，用非白名单 host 验证预热和容器策略都不会生效。
-- 配置 `preloadMaxUrlCount = 1` 后，确认本轮只选优先级最高的规则。
+- 配置 `preloadMaxUrlCount = 1` 后，确认本轮只选优先级最高的规则。`n- 正式容器打开并加载成功后，再触发同 URL 预热，应因为 URL 冷却被跳过。
 - 配置 `containerForceOverride = false` 后，先由业务设置非默认 `cacheMode`，确认 Runtime 返回 `business_cache_mode_exists`。
 - 缓存清理版本号变化后，应只执行一次清理，并记录已处理版本。
 

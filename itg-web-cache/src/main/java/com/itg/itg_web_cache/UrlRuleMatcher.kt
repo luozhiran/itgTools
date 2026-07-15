@@ -33,6 +33,14 @@ internal object UrlRuleMatcher {
 
     fun hostOf(url: String): String? = parse(url)?.host
 
+    fun cooldownKeyOf(url: String): String? {
+        val uri = parse(url) ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (scheme != "https" || host.isBlank()) return null
+        return "$scheme://$host${uri.path.orEmpty()}"
+    }
+
     private fun matchesPattern(url: String, pattern: String): Boolean {
         val cleanPattern = pattern.trim()
         if (cleanPattern.isEmpty()) return false

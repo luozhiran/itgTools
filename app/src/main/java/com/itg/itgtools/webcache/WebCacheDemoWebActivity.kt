@@ -89,6 +89,9 @@ class WebCacheDemoWebActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 progress.visibility = View.GONE
                 WebCacheRuntime.onContainerPageFinished(view, url)
+                WebCacheDemoConfig.appendDemoEvent(
+                    "container loaded success, same URL enters preload cooldown: $url"
+                )
             }
         }
     }

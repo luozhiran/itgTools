@@ -88,6 +88,10 @@ object WebCacheDemoConfig {
         notifySinks()
     }
 
+    fun appendDemoEvent(message: String) {
+        appendEvent("demo: $message")
+    }
+
     fun currentLog(): String = events.joinToString(separator = "\n")
 
     private fun buildConfig(): WebCacheConfig {

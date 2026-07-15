@@ -199,7 +199,7 @@ val config = WebCacheConfig(
 - 黑名单优先级高于 `preloadUrls` 和 `preloadUrlRules`。
 - `preloadUrls` 和 `preloadUrlRules` 会合并，不会互相覆盖；同一个 URL 不建议两边重复配置。
 - `preloadMaxUrlCount` 控制本轮最多选入队列的 URL 数量，不控制并发数。
-- `preloadMinIntervalMs` 或 rule 的 `ttlMs` 控制冷却时间。
+- `preloadMinIntervalMs` 或 rule 的 `ttlMs` 控制冷却时间；预热成功和正式容器加载成功都会让同 URL/path 进入冷却，预热失败不进入冷却但会进入熔断计数。
 - `preloadUrls` 自动生成的规则优先级为 0；如果要和高优先级业务页竞争，请改用 `preloadUrlRules`。
 - `preloadParallelEnable` 是执行方式开关，只在队列数量大于 1 且运行态允许时才会产生并行；它会增加内存峰值。
 - 支付、登录、下单、隐私授权、一次性 token 页面不应预热。
