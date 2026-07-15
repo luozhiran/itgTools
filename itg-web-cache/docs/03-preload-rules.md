@@ -150,6 +150,12 @@ val config = WebCacheConfig(
 - `preloadMaxUrlCount = 0` 会直接返回空队列，相当于本轮不预热。
 - `preloadParallelEnable = true` 仍可能退化为串行：非 WiFi、非高内存设备、低内存、低电量或非前台都会让并行数回到 1。
 
+“本轮”指一次触发预热流程，例如调用一次 `WebCachePreloadManager.startNow()`。这一轮会从当前符合条件的候选规则里按 `priority` 降序排序，然后执行 `.take(preloadMaxUrlCount)`。
+
+如果 `preloadMaxUrlCount = 3`，但当前符合条件的候选 URL 有 10 条，那么本轮只会选优先级最高的 3 条进入预热队列，剩下 7 条不会在本轮排队等待，也不会在前 3 条完成后继续补上。
+
+剩下的 7 条不是永久不能预热。下次再次触发预热时会重新筛选和排序；如果原来的前 3 条还在冷却时间内、被熔断、被黑名单命中，或者因为登录态、网络、内存等条件不再满足，后面的 URL 才可能进入新的前 3。
+
 ## 数量与并行配置 Demo
 
 保守串行配置，适合灰度初期：
