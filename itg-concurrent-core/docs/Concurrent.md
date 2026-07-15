@@ -58,29 +58,27 @@
 
 ## 可复制 Demo
 
-下面是一个组合使用 demo：普通后台任务、计算任务、主线程更新、托管 scope 都包含在内。需要替换 `binding.resultText`。
+下面是一个组合使用 demo：普通后台任务、计算任务、主线程回调、托管 scope 都包含在内。需要传入你的 `onResult` 回调。
 
 ```kotlin
 import com.itg.concurrent.Concurrent
 import com.itg.concurrent.DispatcherType
 
-class ConcurrentApiDemo {
+class ConcurrentApiDemo(
+    private val onResult: (String) -> Unit
+) {
     private val scope = Concurrent.createScope(DispatcherType.IO, "api-demo")
 
     fun run() {
-        val future = Concurrent.io {
-            "raw-data"
-        }
+        scope.launch {
+            val raw = Concurrent.io { "raw-data" }.get()
 
-        Concurrent.launchBackground {
-            val raw = future.get()
             val formatted = Concurrent.computeSuspend {
                 raw.uppercase()
             }
 
             Concurrent.mainSuspend {
-                // TODO: 替换成你的 UI 更新逻辑
-                binding.resultText.text = formatted
+                onResult(formatted)
             }
         }
     }

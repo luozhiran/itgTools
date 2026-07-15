@@ -53,31 +53,25 @@ Concurrent.main {
 
 ## 可复制 Demo
 
-下面示例演示：后台读取字符串、计算摘要、切回主线程更新 UI。需要替换 `binding.resultText`。
+下面示例演示：后台读取字符串、计算摘要、切回主线程回调。需要传入你的 `onResult` 回调。
 
 ```kotlin
-import android.os.Bundle
 import com.itg.concurrent.Concurrent
 import java.security.MessageDigest
 
-class BasicTaskDemoActivity : AppCompatActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+fun runBasicTaskDemo(onResult: (String) -> Unit) {
+    Concurrent.io {
+        val content = "demo-content"
 
-        Concurrent.io {
-            val content = "demo-content"
+        val digestFuture = Concurrent.compute {
+            val bytes = MessageDigest.getInstance("MD5").digest(content.toByteArray())
+            bytes.joinToString("") { "%02x".format(it) }
+        }
 
-            val digestFuture = Concurrent.compute {
-                val bytes = MessageDigest.getInstance("MD5").digest(content.toByteArray())
-                bytes.joinToString("") { "%02x".format(it) }
-            }
+        val digest = digestFuture.get()
 
-            val digest = digestFuture.get()
-
-            Concurrent.main {
-                // TODO: 替换成你的 UI 更新逻辑
-                binding.resultText.text = digest
-            }
+        Concurrent.main {
+            onResult(digest)
         }
     }
 }

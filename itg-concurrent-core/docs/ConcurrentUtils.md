@@ -27,16 +27,19 @@ val cancelled = ConcurrentUtils.cancel(future)
 
 ## 可复制 Demo
 
-下面示例展示后台等待任务结果、线程断言和主线程回调。需要替换 `loadUserName()` 和 `binding.nameText`。
+下面示例展示后台等待任务结果、线程断言和主线程回调。需要传入你的 `loadUserName` 逻辑和 `onResult` 回调。
 
 ```kotlin
 import com.itg.concurrent.Concurrent
 import com.itg.concurrent.util.ConcurrentUtils
 
-fun loadUserNameDemo() {
+fun loadUserNameDemo(
+    loadUserName: () -> String,
+    onResult: (String) -> Unit
+) {
     val future = Concurrent.io {
         ConcurrentUtils.assertBackgroundThread()
-        loadUserName() // TODO: 替换成你的 I/O 逻辑
+        loadUserName()
     }
 
     Concurrent.io {
@@ -44,8 +47,7 @@ fun loadUserNameDemo() {
 
         Concurrent.main {
             ConcurrentUtils.assertMainThread()
-            // TODO: 替换成你的 UI 更新逻辑
-            binding.nameText.text = name ?: "load failed"
+            onResult(name ?: "load failed")
         }
     }
 }

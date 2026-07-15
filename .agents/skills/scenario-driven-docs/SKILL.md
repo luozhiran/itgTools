@@ -146,6 +146,7 @@ A good demo should:
 - If a complete demo is not possible, provide a realistic snippet and explicitly state what is omitted.
 
 Use language-specific fences when possible: `kotlin`, `java`, `bash`, `json`, `yaml`, `xml`, `sql`, `text`.
+
 ## Writing Rules
 
 - Prefer concrete instructions over conceptual exposition.

@@ -51,14 +51,17 @@ ConcurrentUtils.assertBackgroundThread()
 
 ## 可复制 Demo
 
-下面示例实现搜索防抖。需要替换 `search(keyword)` 和 `binding.resultText`。
+下面示例实现搜索防抖。需要传入你的 `search` 搜索逻辑和 `onResult` 结果回调。
 
 ```kotlin
 import com.itg.concurrent.Concurrent
 import com.itg.concurrent.util.ConcurrentUtils
 import java.util.concurrent.Future
 
-class SearchPresenter {
+class SearchPresenter(
+    private val search: (String) -> List<String>,
+    private val onResult: (List<String>) -> Unit
+) {
     private var searchFuture: Future<*>? = null
 
     fun onSearchTextChanged(keyword: String) {
@@ -67,11 +70,10 @@ class SearchPresenter {
         searchFuture = Concurrent.ioDelayed({
             ConcurrentUtils.assertBackgroundThread()
 
-            val result = search(keyword) // TODO: 替换成你的搜索逻辑
+            val result = search(keyword)
 
             Concurrent.main {
-                // TODO: 替换成你的 UI 更新逻辑
-                binding.resultText.text = result.joinToString("\n")
+                onResult(result)
             }
         }, delayMs = 300L)
     }

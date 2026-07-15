@@ -54,26 +54,20 @@ Concurrent.io {
 
 ## 可复制 Demo
 
-把下面代码放进任意 Activity 的 `onCreate` 中即可验证。需要把 `binding.statusText` 替换成你自己的 TextView 或 UI 更新逻辑。
+下面代码可以放进任意 Kotlin 类中验证。需要传入你的 `onResult` 回调，例如在 Activity 中更新 TextView。
 
 ```kotlin
-import android.os.Bundle
 import com.itg.concurrent.Concurrent
 import com.itg.concurrent.ConcurrentFactory
 
-class DemoActivity : AppCompatActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+fun runConcurrentQuickStartDemo(onResult: (String) -> Unit) {
+    ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.AUTO)
 
-        ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.AUTO)
+    Concurrent.io {
+        val configText = "loaded on ${Thread.currentThread().name}"
 
-        Concurrent.io {
-            val configText = "loaded on ${Thread.currentThread().name}"
-
-            Concurrent.main {
-                // TODO: 替换成你的 UI 更新逻辑
-                binding.statusText.text = configText
-            }
+        Concurrent.main {
+            onResult(configText)
         }
     }
 }
