@@ -1,87 +1,59 @@
-# Concurrent — 统一入口 + 工厂
+# API 速查表
 
-`Concurrent` 是中间件门面，API 与 `TaskExecutor`/`CoroutineExecutor` 一致。`ConcurrentFactory` 负责后端注册、切换、生命周期。
+本文件只列出当前源码中真实存在的 API。
 
-## Concurrent 教程
+## Concurrent
 
-### 基础用法
+| API | 返回 | 说明 |
+| --- | --- | --- |
+| `main(task)` | `Unit` | 主线程执行，已在主线程时直接执行 |
+| `io<T>(task)` | `Future<T>` | I/O 分发器执行普通任务 |
+| `compute<T>(task)` | `Future<T>` | COMPUTE 分发器执行普通任务 |
+| `background<T>(task)` | `Future<T>` | BACKGROUND 分发器执行普通任务 |
+| `mainDelayed(task, delayMs)` | `Future<*>` | 主线程延迟执行 |
+| `ioDelayed(task, delayMs)` | `Future<*>` | I/O 延迟执行 |
+| `backgroundDelayed(task, delayMs)` | `Future<*>` | 后台延迟执行 |
+| `createScope(type, name)` | `ConcurrentScope` | 创建可手动取消的托管协程 scope |
+| `launch(type, name, block)` | `Job` | 一次性启动 suspend 任务 |
+| `launchIo(name, block)` | `Job` | 在 IO 分发器启动 suspend 任务 |
+| `launchCompute(name, block)` | `Job` | 在 COMPUTE 分发器启动 suspend 任务 |
+| `launchBackground(name, block)` | `Job` | 在 BACKGROUND 分发器启动 suspend 任务 |
+| `launchMain(name, block)` | `Job` | 在 MAIN 分发器启动 suspend 任务 |
+| `ioSuspend(task)` | `T` | suspend 环境中切到 IO |
+| `computeSuspend(task)` | `T` | suspend 环境中切到 COMPUTE |
+| `backgroundSuspend(task)` | `T` | suspend 环境中切到 BACKGROUND |
+| `mainSuspend(task)` | `T` | suspend 环境中切到 MAIN |
+| `get(type)` | `TaskDispatcher` | 获取底层任务分发器 |
+| `getCoroutineDispatcher(type)` | `CoroutineDispatcher` | 获取或桥接协程 dispatcher |
 
-```kotlin
-Concurrent.io { }         // I/O
-Concurrent.compute { }    // 计算
-Concurrent.background { } // 后台
-Concurrent.single { }     // 串行
-Concurrent.main { }       // 主线程
-```
+## ConcurrentScope
 
-### Future
+| API | 返回 | 说明 |
+| --- | --- | --- |
+| `launch(block)` | `Job` | 在 scope 内启动 suspend 任务 |
+| `cancel()` | `Unit` | 取消 scope 及其子任务 |
+| `close()` | `Unit` | 等同于 `cancel()` |
 
-```kotlin
-val f = Concurrent.io<Int> { calculate() }
-val r = ConcurrentUtils.await(f, timeoutMs = 5000)
-```
+## ConcurrentFactory
 
-### 延迟
+| API | 说明 |
+| --- | --- |
+| `switchTo(backend)` | 全局切换后端，并清空手动注册表 |
+| `useMixed(config)` | 按 `DispatcherType` 使用不同后端 |
+| `register(type, dispatcher)` | 手动注册指定类型的分发器 |
+| `isCoroutineAvailable()` | 检查协程后端是否可用 |
+| `isThreadPoolAvailable()` | 检查线程池后端是否可用 |
+| `getAvailableBackends()` | 返回当前 classpath 可用后端 |
+| `shutdown()` | 关闭已注册且支持关闭的分发器，并清空注册表 |
 
-```kotlin
-Concurrent.mainDelayed(2000L) { show() }
-Concurrent.ioDelayed(5000L) { sync() }
-```
+## DispatcherType
 
-### Suspend
+| 类型 | 说明 |
+| --- | --- |
+| `IO` | 网络、文件、数据库等 I/O 密集任务 |
+| `COMPUTE` | CPU 密集计算 |
+| `BACKGROUND` | 通用后台任务 |
+| `SINGLE` | 单线程串行分发器类型，当前 `Concurrent` 门面没有单独快捷方法 |
+| `MAIN` | Android 主线程 |
 
-```kotlin
-lifecycleScope.launch {
-    val d = Concurrent.ioSuspend { api.fetch() }
-    updateUI(d)
-}
-```
-
-## ConcurrentFactory 教程
-
-### 后端切换
-
-```kotlin
-ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE)
-ConcurrentFactory.useMixed(mapOf(
-    DispatcherType.IO to ConcurrentFactory.BackendType.COROUTINE,
-    DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL
-))
-```
-
-### 自定义分发器
-
-```kotlin
-ConcurrentFactory.register(DispatcherType.IO, myCustomDispatcher)
-```
-
-### 检测后端
-
-```kotlin
-ConcurrentFactory.isCoroutineAvailable()
-ConcurrentFactory.getAvailableBackends()
-```
-
-## API
-
-### Concurrent
-
-| 方法 | 说明 |
-|------|------|
-| `io { }` / `compute { }` / `background { }` / `single { }` / `main { }` | Fire-and-forget |
-| `io<T> { }: Future<T>` / `compute<T> { }` / `background<T> { }` | 有返回值 |
-| `mainDelayed(ms) { }` / `ioDelayed(ms) { }` / `backgroundDelayed(ms) { }` | 延迟 |
-| `scheduleAtFixedRate(...)` / `scheduleWithFixedDelay(...)` | 定时 |
-| `ioSuspend { }` / `computeSuspend { }` / `mainSuspend { }` | suspend |
-| `get(type)` / `getCoroutineDispatcher(type)` | 分发器 |
-
-### ConcurrentFactory
-
-| 方法 | 说明 |
-|------|------|
-| `switchTo(backend)` | 全局切换 |
-| `useMixed(config)` | 混合模式 |
-| `register(type, disp)` | 注册自定义 |
-| `isCoroutineAvailable()` / `isThreadPoolAvailable()` | 可用性 |
-| `getAvailableBackends()` | 列表 |
-| `shutdown()` | 关闭 |
+[返回 README](../README.md)

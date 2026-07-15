@@ -1,46 +1,61 @@
-# ConcurrentUtils — 通用并发工具
+# ConcurrentUtils
 
-后端无关的公共方法。无论底层是线程池还是协程，行为一致。
+`ConcurrentUtils` 提供后端无关的工具方法。
 
-## 教程
-
-### 线程检测
+## 线程检测
 
 ```kotlin
 ConcurrentUtils.isMainThread()
 ConcurrentUtils.isBackgroundThread()
+```
+
+## 线程断言
+
+```kotlin
 ConcurrentUtils.assertMainThread("UI only")
-ConcurrentUtils.assertBackgroundThread("Network on background")
+ConcurrentUtils.assertBackgroundThread("Do not run on main thread")
 ```
 
-### Future 辅助
+不满足条件时会抛出 `IllegalStateException`。
+
+## Future 辅助
 
 ```kotlin
-val r = ConcurrentUtils.await(future, timeoutMs = 5000L)
-ConcurrentUtils.cancel(future)
+val result = ConcurrentUtils.await(future, timeoutMs = 5_000L)
+val cancelled = ConcurrentUtils.cancel(future)
 ```
 
-### 安全阻塞休眠
+注意：`await` 会阻塞当前线程，不要在主线程调用。
+
+## 阻塞休眠
 
 ```kotlin
-// 后台线程正常阻塞，主线程自动跳过+警告
-ConcurrentUtils.sleep(1000)
+Concurrent.io {
+    ConcurrentUtils.sleep(1_000L)
+}
 ```
 
-### 线程信息
+主线程调用 `sleep` 会记录警告并返回，避免 ANR。
+
+## 线程信息
 
 ```kotlin
-println(ConcurrentUtils.getCurrentThreadDescription())
-// main (id=1, main=true)
+val desc = ConcurrentUtils.getCurrentThreadDescription()
 val info = ConcurrentUtils.getCurrentThreadInfo()
 ```
 
-## API
+## API 速查
 
 | 方法 | 说明 |
-|------|------|
-| `isMainThread()` / `isBackgroundThread()` | 检测 |
-| `assertMainThread(msg)` / `assertBackgroundThread(msg)` | 断言 |
-| `await(f, ms)` / `cancel(f)` | Future 辅助 |
-| `sleep(ms)` | 安全休眠 |
-| `getCurrentThreadDescription()` / `getCurrentThreadInfo()` | 调试 |
+| --- | --- |
+| `isMainThread()` | 当前是否主线程 |
+| `isBackgroundThread()` | 当前是否后台线程 |
+| `assertMainThread(message)` | 断言主线程 |
+| `assertBackgroundThread(message)` | 断言后台线程 |
+| `await(future, timeoutMs)` | 阻塞等待 Future |
+| `cancel(future, mayInterrupt)` | 取消 Future |
+| `sleep(ms)` | 后台阻塞休眠 |
+| `getCurrentThreadDescription()` | 当前线程描述 |
+| `getCurrentThreadInfo()` | 当前线程信息 Map |
+
+[返回 README](../README.md)

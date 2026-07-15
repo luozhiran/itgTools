@@ -1,71 +1,86 @@
-# Backend 适配器
+# BackendAdapters
 
-将不同并发实现（线程池/协程）统一桥接到 `TaskDispatcher` 接口。
+本节说明底层适配器如何把线程池和协程统一成 `TaskDispatcher`。
 
-## 架构
+## 核心抽象
 
+```kotlin
+interface TaskDispatcher {
+    val name: String
+    fun execute(task: () -> Unit)
+    fun <T> submit(task: () -> T): Future<T>
+    fun schedule(task: () -> Unit, delayMs: Long): Future<*>
+    val supportsCoroutineNative: Boolean
+}
 ```
+
+协程原生分发器额外实现：
+
+```kotlin
+interface CoroutineTaskDispatcher : TaskDispatcher {
+    suspend fun <T> executeSuspend(task: suspend () -> T): T
+    val coroutineDispatcher: CoroutineDispatcher
+}
+```
+
+## 适配器关系
+
+```text
 ConcurrentFactory
-  ├── THREAD_POOL → ThreadPoolAdapter → itg-thread-pools
-  ├── COROUTINE   → CoroutineAdapter  → itg-coroutine-pools
-  └── AUTO        → 自动检测 classpath
+  -> CoroutineAdapter  -> itg-coroutine-pools
+  -> ThreadPoolAdapter -> itg-thread-pools
 ```
 
-## ThreadPoolAdapter
-
-包装 `itg-thread-pools`，**不改原代码**：
+## 获取底层分发器
 
 ```kotlin
-ThreadPoolAdapter.create(DispatcherType.IO)
-// → 内部使用 ThreadPoolManager.ioPool
+val dispatcher = Concurrent.get(DispatcherType.IO)
+dispatcher.execute { doWork() }
 ```
 
-## CoroutineAdapter
-
-包装 `itg-coroutine-pools`，支持 `suspend`：
+## 获取协程 Dispatcher
 
 ```kotlin
-CoroutineAdapter.create(DispatcherType.IO)
-// → 内部使用 CoroutineDispatcherManager.ioDispatcher
-// → supportsCoroutineNative = true
+val ioDispatcher = Concurrent.getCoroutineDispatcher(DispatcherType.IO)
+
+CoroutineScope(SupervisorJob() + ioDispatcher).launch {
+    doSuspendWork()
+}
 ```
 
-## 扩展方法
+协程后端返回原生 dispatcher；线程池后端通过 `toCoroutineDispatcher()` 桥接。
 
-### toCoroutineDispatcher()
-
-```kotlin
-val td = Concurrent.get(DispatcherType.IO)
-val cd = if (td is CoroutineTaskDispatcher) td.coroutineDispatcher
-         else td.toCoroutineDispatcher()
-withContext(cd) { doWork() }
-```
-
-### Deferred.asFuture()
+## 自定义分发器
 
 ```kotlin
-val d = scope.async { fetch() }
-val f: Future<Data> = d.asFuture()
-// f.get() 内部用 runBlocking，不可在主线程调用
-```
+class LoggingDispatcher(
+    private val delegate: TaskDispatcher
+) : TaskDispatcher {
+    override val name: String = "logging-${delegate.name}"
+    override val supportsCoroutineNative: Boolean = delegate.supportsCoroutineNative
 
-## 自定义适配器
-
-```kotlin
-class VirtualThreadAdapter : TaskDispatcher {
-    override val name = "vt-io"
-    override val supportsCoroutineNative = false
-    override fun execute(task: () -> Unit) { Thread.startVirtualThread(task) }
-    override fun <T> submit(task: () -> T): Future<T> {
-        val f = FutureTask(Callable { task() })
-        Thread.startVirtualThread { f.run() }
-        return f
+    override fun execute(task: () -> Unit) {
+        delegate.execute {
+            val start = System.currentTimeMillis()
+            try {
+                task()
+            } finally {
+                Log.d("Concurrent", "$name cost=${System.currentTimeMillis() - start}ms")
+            }
+        }
     }
-    override fun schedule(task: () -> Unit, ms: Long): Future<*> {
-        val f = FutureTask<Void>(Callable { Thread.sleep(ms); task(); null })
-        Thread.startVirtualThread { f.run() }
-        return f
+
+    override fun <T> submit(task: () -> T): Future<T> = delegate.submit(task)
+
+    override fun schedule(task: () -> Unit, delayMs: Long): Future<*> {
+        return delegate.schedule(task, delayMs)
     }
 }
-ConcurrentFactory.register(DispatcherType.IO, VirtualThreadAdapter())
+
+val origin = Concurrent.get(DispatcherType.IO)
+ConcurrentFactory.register(DispatcherType.IO, LoggingDispatcher(origin))
 ```
+
+如果自定义分发器要原生支持 `suspend`，实现 `CoroutineTaskDispatcher`。
+
+[返回 README](../README.md)
