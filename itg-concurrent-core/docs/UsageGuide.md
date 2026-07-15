@@ -6,39 +6,39 @@
 
 ## 使用场景总览
 
-| 使用场景 | 推荐 API | 什么情况下使用 | 为什么可以用 |
-| --- | --- | --- | --- |
-| 主线程更新 UI | `Concurrent.main { }` | 需要从后台线程切回 UI 线程，或者当前不确定是否在主线程 | 内部会判断当前线程；已在主线程时直接执行，否则分发到 `DispatcherType.MAIN` |
-| 普通 I/O 阻塞任务 | `Concurrent.io { }` | 文件读写、同步网络调用、数据库同步读写等普通非 suspend 任务 | 返回 `Future<T>`，底层通过当前 IO 分发器执行，可随后等待或取消 |
-| CPU 密集计算 | `Concurrent.compute { }` | 图片压缩、加解密、大量数据转换、排序等计算任务 | 使用 `DispatcherType.COMPUTE`，和 I/O 任务隔离，避免计算任务占满 I/O 通道 |
-| 通用后台任务 | `Concurrent.background { }` | 不明显属于 I/O 或计算的后台清理、统计、预处理任务 | 使用 `DispatcherType.BACKGROUND`，语义独立，便于后端混合配置 |
-| 后台任务需要结果 | `Concurrent.io/compute/background<T> { }` | 调用方需要拿到任务结果，或需要保存任务句柄 | 统一返回 `Future<T>`，可以配合 `ConcurrentUtils.await/cancel` 使用 |
-| 主线程延迟执行 | `Concurrent.mainDelayed({ }, delayMs)` | 延迟显示 UI、延迟回调、主线程防抖 | 通过 MAIN 分发器延迟执行，并返回 `Future<*>` 便于取消 |
-| I/O 延迟执行 | `Concurrent.ioDelayed({ }, delayMs)` | 延迟同步、搜索防抖、延迟读取或清理文件 | 通过 IO 分发器延迟执行，任务体仍是普通非 suspend lambda |
-| 后台延迟执行 | `Concurrent.backgroundDelayed({ }, delayMs)` | 延迟埋点、后台清理、非关键异步任务 | 通过 BACKGROUND 分发器延迟执行，和主线程及 I/O 语义分开 |
-| 取消 Future 任务 | `ConcurrentUtils.cancel(future)` | 页面退出、请求过期、防抖替换旧任务 | `Future.cancel` 是同步任务 API 的统一取消句柄，线程池和协程后端都做了适配 |
-| 阻塞等待结果 | `ConcurrentUtils.await(future, timeoutMs)` | 已经在后台线程中，需要等待 `Future` 完成 | 封装 `Future.get/get(timeout)`，中断或取消返回 `null`；不能在主线程调用 |
-| 判断当前线程 | `ConcurrentUtils.isMainThread/isBackgroundThread` | 需要决定是否直接更新 UI 或切线程 | 基于 Android `Looper` 判断，和具体后端无关 |
-| 线程调用约束 | `ConcurrentUtils.assertMainThread/assertBackgroundThread` | API 要求必须在主线程或后台线程调用 | 不满足时立即抛出异常，能尽早暴露调用错误 |
-| 后台阻塞 sleep | `ConcurrentUtils.sleep(ms)` | 普通后台线程里需要短暂阻塞等待 | 封装 `Thread.sleep` 并处理中断；主线程调用会告警并返回，避免 ANR |
-| 已在协程中切到 I/O | `Concurrent.ioSuspend { }` | `lifecycleScope/viewModelScope/launch` 内执行 suspend 或阻塞 I/O 包装 | 使用当前 IO 分发器的协程上下文；线程池后端会桥接成 `CoroutineDispatcher` |
-| 已在协程中切到计算线程 | `Concurrent.computeSuspend { }` | 协程内执行 CPU 密集计算 | 使用 COMPUTE 分发器，避免把计算放在主线程或 I/O 通道 |
-| 已在协程中切到后台线程 | `Concurrent.backgroundSuspend { }` | 协程内执行普通后台逻辑 | 使用 BACKGROUND 分发器，保留任务语义并支持后端切换 |
-| 已在协程中切回主线程 | `Concurrent.mainSuspend { }` | suspend 流程中需要更新 UI 或调用主线程 API | 使用 MAIN 分发器，以 suspend 方式切回主线程，不需要嵌套普通回调 |
-| 普通类一次性启动 suspend 任务 | `Concurrent.launchIo/launchCompute/launchBackground { }` | 不在 Activity、Fragment、ViewModel 中，没有 `lifecycleScope`，但要调用 suspend 函数 | 内部创建临时 `ConcurrentScope` 并返回 `Job`；任务完成或取消后释放临时 scope |
-| 普通类一次性启动主线程 suspend 任务 | `Concurrent.launchMain { }` | 没有外部 scope，但需要启动主线程协程，例如只做 UI 回调或主线程 API 调用 | 使用 MAIN 分发器创建协程；任务体和 `collect` 下游默认在主线程执行 |
-| 指定任意分发器启动 suspend 任务 | `Concurrent.launch(type, name) { }` | 运行时才决定任务类型，或者需要给任务命名便于调试 | 统一走 `getCoroutineDispatcher(type)`，支持协程后端和线程池后端 |
-| 普通类长期管理多个 suspend 任务 | `Concurrent.createScope(type, name)` | Manager、Repository、SDK 组件会多次启动任务，需要统一释放 | 返回 `ConcurrentScope`，内部使用 `SupervisorJob`，owner 调用 `cancel()` 可取消全部子任务 |
-| Flow 收集 | `Concurrent.launchIo { flow.collect { } }` 或 `scope.launch { }` | 需要调用 `Flow.collect`，例如网络 Flow、订阅消息流 | `collect` 是 suspend 函数，必须在协程中调用；`launchIo/createScope` 提供协程上下文 |
-| Flow 结果更新 UI | `Concurrent.launchIo { ... Concurrent.mainSuspend { } }` | Flow 上游或数据处理在后台，最终只把 UI 更新放主线程 | 上游收集和处理不占主线程，UI 部分通过 MAIN 分发器切回 |
-| 线程池后端运行 suspend/Flow | `launch*/createScope/ioSuspend` | 全局切到 `THREAD_POOL`，但业务仍然使用 suspend 或 Flow | 线程池 `TaskDispatcher` 会桥接成 `CoroutineDispatcher`，所以 suspend API 仍能运行 |
-| 按任务类型混合后端 | `ConcurrentFactory.useMixed(...)` | 希望 IO 用协程、计算用线程池，或不同类型任务使用不同后端 | `DispatcherType` 到后端的映射在工厂层完成，业务层调用方式不变 |
-| 全局切换后端 | `ConcurrentFactory.switchTo(...)` | App 初始化、性能实验、按版本切换线程池或协程实现 | `Concurrent` 只依赖 `TaskDispatcher` 抽象，切换后端不会改变业务调用 API |
-| 自定义分发器 | `ConcurrentFactory.register(type, dispatcher)` | 需要埋点、限流、替换某类任务执行器、接入特殊线程模型 | 注册表优先级高于默认后端，可只覆盖某个 `DispatcherType` |
-| 获取底层任务分发器 | `Concurrent.get(type)` | 高级场景需要直接访问 `TaskDispatcher` | 暴露统一分发器抽象，可直接 `execute/submit/schedule` |
-| 获取协程 Dispatcher | `Concurrent.getCoroutineDispatcher(type)` | 需要和原生 Kotlin 协程 API、第三方协程库组合 | 协程后端返回原生 dispatcher；线程池后端自动桥接成 dispatcher |
-| 进程或测试清理 | `ConcurrentFactory.shutdown()` | 测试结束、进程级资源清理、重置手动注册分发器 | 会关闭注册表中支持 `AutoCloseable` 的分发器并清空注册表 |
-| Java 侧普通异步任务 | `Concurrent.io(() -> ...)` | Java 代码需要提交后台任务或拿 `Future` | 普通函数 API 对 Java 友好；suspend API 不适合 Java 直接调用 |
+| 使用场景 | 推荐 API | 后端支持（协程/线程池） | 什么情况下使用 | 为什么可以用 |
+| --- | --- | --- | --- | --- |
+| [主线程更新 UI](#5-主线程任务) | `Concurrent.main { }` | 两者都支持 | 需要从后台线程切回 UI 线程，或者当前不确定是否在主线程 | 内部会判断当前线程；已在主线程时直接执行，否则分发到 `DispatcherType.MAIN` |
+| [普通 I/O 阻塞任务](#4-普通后台任务) | `Concurrent.io { }` | 两者都支持 | 文件读写、同步网络调用、数据库同步读写等普通非 suspend 任务 | 返回 `Future<T>`，底层通过当前 IO 分发器执行，可随后等待或取消 |
+| [CPU 密集计算](#4-普通后台任务) | `Concurrent.compute { }` | 两者都支持 | 图片压缩、加解密、大量数据转换、排序等计算任务 | 使用 `DispatcherType.COMPUTE`，和 I/O 任务隔离，避免计算任务占满 I/O 通道 |
+| [通用后台任务](#4-普通后台任务) | `Concurrent.background { }` | 两者都支持 | 不明显属于 I/O 或计算的后台清理、统计、预处理任务 | 使用 `DispatcherType.BACKGROUND`，语义独立，便于后端混合配置 |
+| [后台任务需要结果](#6-future-返回值) | `Concurrent.io/compute/background<T> { }` | 两者都支持 | 调用方需要拿到任务结果，或需要保存任务句柄 | 统一返回 `Future<T>`，可以配合 `ConcurrentUtils.await/cancel` 使用 |
+| [主线程延迟执行](#7-延迟执行) | `Concurrent.mainDelayed({ }, delayMs)` | 两者都支持 | 延迟显示 UI、延迟回调、主线程防抖 | 通过 MAIN 分发器延迟执行，并返回 `Future<*>` 便于取消 |
+| [I/O 延迟执行](#7-延迟执行) | `Concurrent.ioDelayed({ }, delayMs)` | 两者都支持 | 延迟同步、搜索防抖、延迟读取或清理文件 | 通过 IO 分发器延迟执行，任务体仍是普通非 suspend lambda |
+| [后台延迟执行](#7-延迟执行) | `Concurrent.backgroundDelayed({ }, delayMs)` | 两者都支持 | 延迟埋点、后台清理、非关键异步任务 | 通过 BACKGROUND 分发器延迟执行，和主线程及 I/O 语义分开 |
+| [取消 Future 任务](#8-取消和等待-future) | `ConcurrentUtils.cancel(future)` | 两者都支持 | 页面退出、请求过期、防抖替换旧任务 | `Future.cancel` 是同步任务 API 的统一取消句柄，线程池和协程后端都做了适配 |
+| [阻塞等待结果](#8-取消和等待-future) | `ConcurrentUtils.await(future, timeoutMs)` | 两者都支持 | 已经在后台线程中，需要等待 `Future` 完成 | 封装 `Future.get/get(timeout)`，中断或取消返回 `null`；不能在主线程调用 |
+| [判断当前线程](#9-线程检测和断言) | `ConcurrentUtils.isMainThread/isBackgroundThread` | 后端无关 | 需要决定是否直接更新 UI 或切线程 | 基于 Android `Looper` 判断，和具体后端无关 |
+| [线程调用约束](#9-线程检测和断言) | `ConcurrentUtils.assertMainThread/assertBackgroundThread` | 后端无关 | API 要求必须在主线程或后台线程调用 | 不满足时立即抛出异常，能尽早暴露调用错误 |
+| [后台阻塞 sleep](#9-线程检测和断言) | `ConcurrentUtils.sleep(ms)` | 后端无关 | 普通后台线程里需要短暂阻塞等待 | 封装 `Thread.sleep` 并处理中断；主线程调用会告警并返回，避免 ANR |
+| [已在协程中切到 I/O](#10-在协程里切线程) | `Concurrent.ioSuspend { }` | 两者都支持 | `lifecycleScope/viewModelScope/launch` 内执行 suspend 或阻塞 I/O 包装 | 使用当前 IO 分发器的协程上下文；线程池后端会桥接成 `CoroutineDispatcher` |
+| [已在协程中切到计算线程](#10-在协程里切线程) | `Concurrent.computeSuspend { }` | 两者都支持 | 协程内执行 CPU 密集计算 | 使用 COMPUTE 分发器，避免把计算放在主线程或 I/O 通道 |
+| [已在协程中切到后台线程](#10-在协程里切线程) | `Concurrent.backgroundSuspend { }` | 两者都支持 | 协程内执行普通后台逻辑 | 使用 BACKGROUND 分发器，保留任务语义并支持后端切换 |
+| [已在协程中切回主线程](#10-在协程里切线程) | `Concurrent.mainSuspend { }` | 两者都支持 | suspend 流程中需要更新 UI 或调用主线程 API | 使用 MAIN 分发器，以 suspend 方式切回主线程，不需要嵌套普通回调 |
+| [普通类一次性启动 suspend 任务](#11-没有-lifecyclescope-时启动-suspend-任务) | `Concurrent.launchIo/launchCompute/launchBackground { }` | 两者都支持 | 不在 Activity、Fragment、ViewModel 中，没有 `lifecycleScope`，但要调用 suspend 函数 | 内部创建临时 `ConcurrentScope` 并返回 `Job`；任务完成或取消后释放临时 scope |
+| [普通类一次性启动主线程 suspend 任务](#11-没有-lifecyclescope-时启动-suspend-任务) | `Concurrent.launchMain { }` | 两者都支持 | 没有外部 scope，但需要启动主线程协程，例如只做 UI 回调或主线程 API 调用 | 使用 MAIN 分发器创建协程；任务体和 `collect` 下游默认在主线程执行 |
+| [指定任意分发器启动 suspend 任务](#11-没有-lifecyclescope-时启动-suspend-任务) | `Concurrent.launch(type, name) { }` | 两者都支持 | 运行时才决定任务类型，或者需要给任务命名便于调试 | 统一走 `getCoroutineDispatcher(type)`，支持协程后端和线程池后端 |
+| [普通类长期管理多个 suspend 任务](#12-长期持有的-concurrentscope) | `Concurrent.createScope(type, name)` | 两者都支持 | Manager、Repository、SDK 组件会多次启动任务，需要统一释放 | 返回 `ConcurrentScope`，内部使用 `SupervisorJob`，owner 调用 `cancel()` 可取消全部子任务 |
+| [Flow 收集](#13-flow-collect-场景) | `Concurrent.launchIo { flow.collect { } }` 或 `scope.launch { }` | 两者都支持 | 需要调用 `Flow.collect`，例如网络 Flow、订阅消息流 | `collect` 是 suspend 函数，必须在协程中调用；`launchIo/createScope` 提供协程上下文 |
+| [Flow 结果更新 UI](#13-flow-collect-场景) | `Concurrent.launchIo { ... Concurrent.mainSuspend { } }` | 两者都支持 | Flow 上游或数据处理在后台，最终只把 UI 更新放主线程 | 上游收集和处理不占主线程，UI 部分通过 MAIN 分发器切回 |
+| [线程池后端运行 suspend/Flow](#14-线程池后端下运行-suspendflow) | `launch*/createScope/ioSuspend` | 线程池后端可桥接 | 全局切到 `THREAD_POOL`，但业务仍然使用 suspend 或 Flow | 线程池 `TaskDispatcher` 会桥接成 `CoroutineDispatcher`，所以 suspend API 仍能运行 |
+| [按任务类型混合后端](#16-混合后端模式) | `ConcurrentFactory.useMixed(...)` | 两者组合支持 | 希望 IO 用协程、计算用线程池，或不同类型任务使用不同后端 | `DispatcherType` 到后端的映射在工厂层完成，业务层调用方式不变 |
+| [全局切换后端](#3-application-初始化) | `ConcurrentFactory.switchTo(...)` | 两者都支持 | App 初始化、性能实验、按版本切换线程池或协程实现 | `Concurrent` 只依赖 `TaskDispatcher` 抽象，切换后端不会改变业务调用 API |
+| [自定义分发器](#17-自定义-taskdispatcher) | `ConcurrentFactory.register(type, dispatcher)` | 取决于自定义实现 | 需要埋点、限流、替换某类任务执行器、接入特殊线程模型 | 注册表优先级高于默认后端，可只覆盖某个 `DispatcherType` |
+| [获取底层任务分发器](#18-获取底层-dispatcher) | `Concurrent.get(type)` | 两者都支持 | 高级场景需要直接访问 `TaskDispatcher` | 暴露统一分发器抽象，可直接 `execute/submit/schedule` |
+| [获取协程 Dispatcher](#18-获取底层-dispatcher) | `Concurrent.getCoroutineDispatcher(type)` | 两者都支持 | 需要和原生 Kotlin 协程 API、第三方协程库组合 | 协程后端返回原生 dispatcher；线程池后端自动桥接成 dispatcher |
+| [进程或测试清理](#19-生命周期和释放) | `ConcurrentFactory.shutdown()` | 两者都支持 | 测试结束、进程级资源清理、重置手动注册分发器 | 会关闭注册表中支持 `AutoCloseable` 的分发器并清空注册表 |
+| [Java 侧普通异步任务](#21-java-调用) | `Concurrent.io(() -> ...)` | 两者都支持 | Java 代码需要提交后台任务或拿 `Future` | 普通函数 API 对 Java 友好；suspend API 不适合 Java 直接调用 |
 
 ## 目录
 
