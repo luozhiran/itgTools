@@ -1,123 +1,33 @@
 # ITG File
 
-Android 本地文件处理工具库，提供 `java.io` 和 `Okio 2.9.0` 两套实现，覆盖文件读写、复制移动、哈希校验、资源读取和生命周期清理。
+`itg-file` 是 Android 文件工具模块，覆盖文件/目录管理、读写、hash、assets 读取、Okio 版本能力和清理任务。模块 minSdk 21，依赖 `itg-concurrent-core`、AndroidX Fragment 和 Okio。
 
-[![Min SDK](https://img.shields.io/badge/Min%20SDK-24-green.svg)](https://developer.android.com/about/versions/nougat/android-7.0)
-[![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org/)
-[![Okio](https://img.shields.io/badge/Okio-2.9.0-orange.svg)](https://square.github.io/okio/)
+## 使用场景总览
 
-## 文档导航
+| 使用场景 | 推荐 API | 适用条件/支持范围 | 什么情况下使用 | 为什么可以用 |
+| --- | --- | --- | --- | --- |
+| [创建、复制、移动、删除文件](./docs/01-core-operations.md) | `FileUtils` | 本地文件路径 | 管理缓存、导出文件、移动目录 | 封装 `File`/NIO 操作，支持同步和异步方法 |
+| [读取文本、字节、行和分块](./docs/02-read-write-hash.md) | `FileReadUtils` | 小文件可一次性读，大文件用流式/分块 | 读取配置、日志、二进制片段 | 提供 maxBytes 限制和 streaming/chunk API |
+| [写入文本、字节和原子写](./docs/02-read-write-hash.md) | `FileWriteUtils` | 目标目录可写 | 写缓存、配置、导出数据 | 支持追加、覆盖、流式写入和安全写入模式 |
+| [计算文件 hash](./docs/02-read-write-hash.md) | `FileHashUtils` / `OkioHashUtils` | 文件存在且可读 | 校验下载包、缓存一致性 | 支持 MD5、SHA、CRC 等常见摘要 |
+| [读取 assets 或复制资源](./docs/03-assets-okio.md) | `AssetUtils` / `OkioAssetUtils` | Android `Context` | 内置配置、模板、离线资源 | 使用 `assets.open`，可复制到文件并报告进度 |
+| [使用 Okio 版本 API](./docs/03-assets-okio.md) | `OkioFileUtils`、`OkioReadUtils`、`OkioWriteUtils` | 已引入 Okio | 需要 `ByteString`、`Buffer` 或 Okio source/sink | Okio API 更适合流式和二进制处理 |
+| [清理缓存和过期文件](./docs/04-cleanup-api.md) | `FileCleanupManager`、`CleanupExecutor` | 清理目录明确 | 按大小、时间、后缀清理缓存 | 使用清理模型和执行器集中表达规则 |
+| [查看 API 速查](./docs/04-cleanup-api.md) | API 表 | 所有使用者 | 查方法分类和安全边界 | 汇总源码公开工具类 |
 
-- [快速开始](#快速开始)
-- [模块总览](#模块总览)
-- [选择建议](#选择建议)
-- [使用场景实例](./demo.md) — 覆盖所有场景的完整代码示例，含 java.io 与 Okio 双模式对比
-- [安全与性能](#安全与性能)
-- [清理指南](./FILE_CLEANUP_GUIDE.md)
-- [旧版说明](./README1.md)
+## 文档目录
 
-## 快速开始
+| 文档 | 内容 |
+| --- | --- |
+| [01. 核心文件操作](./docs/01-core-operations.md) | 创建、删除、复制、移动、列表、空间信息 |
+| [02. 读写与 Hash](./docs/02-read-write-hash.md) | 文本/字节/分块读写、hash 计算 |
+| [03. Assets 与 Okio](./docs/03-assets-okio.md) | assets 读取、复制、Okio 工具 |
+| [04. 清理任务与 API](./docs/04-cleanup-api.md) | 缓存清理、安全边界、API 速查 |
+
+## 依赖
 
 ```kotlin
 dependencies {
     implementation(project(":itg-file"))
 }
 ```
-
-### 同步调用
-
-```kotlin
-import com.itg.itg_file.core.FileUtils
-import com.itg.itg_file.read.FileReadUtils
-import com.itg.itg_file.write.FileWriteUtils
-
-FileWriteUtils.writeText("/sdcard/demo.txt", "hello")
-val text = FileReadUtils.readText("/sdcard/demo.txt")
-val info = FileUtils.getFileInfo("/sdcard/demo.txt")
-```
-
-### 异步调用
-
-```kotlin
-FileReadUtils.readTextAsync("/sdcard/demo.txt") { content, error ->
-    if (error == null) {
-        TaskExecutor.main { textView.text = content }
-    }
-}
-```
-
-## 模块总览
-
-| 模块 | 作用 |
-|---|---|
-| `core/FileUtils` | 文件和目录基础操作，含复制、移动、列表、信息查询 |
-| `core/OkioFileUtils` | 基于 Okio 的高效文件操作 |
-| `read/FileReadUtils` | `java.io` 读取文本、字节、按行、分块读取 |
-| `read/OkioReadUtils` | Okio 读取、超时、Gzip、进度读取 |
-| `write/FileWriteUtils` | `java.io` 写入、追加、原子写、URI 写入 |
-| `write/OkioWriteUtils` | Okio 写入、超时、Gzip、原子写 |
-| `hash/FileHashUtils` | MD5/SHA/CRC32、验证、文件比较 |
-| `hash/OkioHashUtils` | 流式哈希、复制+哈希、Gzip+哈希 |
-| `resource/AssetUtils` | Assets / Raw 资源读取与复制 |
-| `resource/OkioAssetUtils` | Okio 版资源读取与复制 |
-| `cleanup/FileCleanupManager` | 基于生命周期的本地文件清理 |
-
-## 选择建议
-
-| 场景 | 推荐 |
-|---|---|
-| 小文件、简单读写、对依赖敏感 | `java.io` 版本 |
-| 大文件、频繁 I/O、需要超时或流式哈希 | `Okio` 版本 |
-| 需要资源文件复制、按行读取 | `AssetUtils` / `OkioAssetUtils` |
-| 需要自动清理缓存、临时文件、过期数据 | `FileCleanupManager` |
-
-## 使用示例
-
-> 更多完整场景实例（含 java.io 与 Okio 双模式对比）请参见 **[demo.md](./demo.md)**。
-
-### 读写文本
-
-```kotlin
-val saved = FileWriteUtils.writeTextAtomic("/sdcard/config.json", json)
-val json = FileReadUtils.readText("/sdcard/config.json")
-```
-
-### 分块处理大文件
-
-```kotlin
-FileReadUtils.readChunks("/sdcard/big.bin", chunkSize = 1024 * 1024) { chunk, index, total ->
-    uploadChunk(chunk, index, total)
-    true
-}
-```
-
-### 计算哈希
-
-```kotlin
-val sha256 = FileHashUtils.sha256("/sdcard/app.apk")
-val ok = FileHashUtils.verify("/sdcard/app.apk", expectedHash)
-```
-
-### 复制资源到文件
-
-```kotlin
-AssetUtils.copyRawToFile(context, R.raw.license, "/sdcard/license.txt")
-```
-
-## 安全与性能
-
-- 默认优先使用原子写入，避免写到一半崩溃导致文件损坏。
-- 大文件读取请用 `readChunks`、`readLinesStreaming` 或 Okio 的流式接口，不要直接全量读入内存。
-- 所有异步接口都返回 `Future<*>`，回调建议在主线程重新分发 UI。
-- 回调里不要抛异常；库内部已尽量做了兜底，但业务侧仍应做最小化处理。
-- 处理外部存储或受用户授权的 URI 时，优先走 `ContentResolver` / `DocumentFile` 这类受控路径。
-
-## 版本说明
-
-- 当前 `Okio` 依赖：`2.9.0`
-- 异步执行：`itg-thread-pools`
-- 文档中较详细的文件清理说明单独放在 [FILE_CLEANUP_GUIDE.md](./FILE_CLEANUP_GUIDE.md)
-
-## 许可证
-
-MIT License

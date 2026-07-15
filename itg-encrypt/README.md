@@ -1,154 +1,35 @@
-# itg-encrypt
+# ITG Encrypt
 
-`itg-encrypt` 提供一套可直接在 Android 工程里复用的加解密能力，面向以下场景：
+`itg-encrypt` 提供 Android 可复用的 AES-GCM 加解密工具，覆盖原始 AES key、密码派生、字符串、字节数组、大文件流式处理和异步执行。模块 minSdk 21，异步能力依赖 `itg-thread-pools`。
 
-- 短文本或二进制数据加密
-- 密码派生密钥加密
-- 大文件流式加解密
-- 异步执行，和 `itg-thread-pools` 配合
+## 使用场景总览
 
-## 设计原则
+| 使用场景 | 推荐 API | 适用条件/支持范围 | 什么情况下使用 | 为什么可以用 |
+| --- | --- | --- | --- | --- |
+| [随机 AES key 加密字节或字符串](./docs/01-key-bytes-string.md) | `generateAesKey`、`encryptBytes`、`encryptString` | 调用方负责安全保存 key | 已有随机 key，数据在内存中 | 默认 `AES/GCM/NoPadding`，每次加密生成随机 IV |
+| [用密码派生密钥](./docs/02-password-aad.md) | `encryptBytesWithPassword`、`encryptStringWithPassword` | 用户口令或业务密码场景 | 不想直接保存 AES key | 使用 PBKDF2 派生 key，包内保存 salt/iterations |
+| [保护上下文不被篡改](./docs/02-password-aad.md) | `associatedData` | 加解密必须传完全一致 AAD | 密文绑定业务类型、版本或用户上下文 | AAD 不加密但参与 GCM 认证 |
+| [加解密大文件](./docs/03-file-encryption.md) | `encryptFile`、`decryptFile` | 文件路径可读写 | 备份包、导出文件、缓存文件 | 文件接口流式处理，失败会清理半成品输出 |
+| [后台执行加密任务](./docs/04-async-security.md) | `encryptStringAsync`、`encryptFileAsync` | 回调在线程池，不保证主线程 | 页面不希望被加密计算阻塞 | 异步方法返回 `Future<*>`，可取消 |
+| [查看安全约束和 API](./docs/04-async-security.md) | API 速查 | 所有使用者 | 接入前确认失败语义和限制 | 解密失败返回 `null` 或 `false`，不抛到业务层 |
 
-- 默认使用 `AES/GCM/NoPadding`
-- 默认使用随机 `IV`
-- 密码派生默认优先 `PBKDF2WithHmacSHA256`
-- 包头会被 GCM 认证，防止元数据被篡改
-- 不使用全局可变密钥状态，线程安全
-- 文件接口采用流式处理，避免大文件一次性进内存
+## 文档目录
 
-## 依赖方式
+| 文档 | 内容 |
+| --- | --- |
+| [01. Key、字节与字符串](./docs/01-key-bytes-string.md) | 原始 AES key 模式和短文本加密 |
+| [02. 密码派生与 AAD](./docs/02-password-aad.md) | 密码模式、AAD、包格式 |
+| [03. 文件加解密](./docs/03-file-encryption.md) | 大文件流式加密和失败清理 |
+| [04. 异步与安全约束](./docs/04-async-security.md) | 异步 API、失败语义、安全清单 |
 
-模块内部已经依赖 `itg-thread-pools`，调用方只要依赖 `:itg-encrypt` 即可。
-
-```kotlin
-implementation(project(":itg-encrypt"))
-```
-
-## 核心 API
-
-### 1. 原始密钥模式
-
-适合你已经持有随机生成的 AES key 的场景。
+## 依赖
 
 ```kotlin
-val key = EncryptUtils.generateAesKey()
-val plain = "hello".toByteArray()
-
-val packet = EncryptUtils.encryptBytes(plain, key)
-val decrypted = EncryptUtils.decryptBytes(packet!!, key)
-```
-
-### 2. 密码派生模式
-
-适合用户输入密码、口令或设备级口令的场景。
-
-```kotlin
-val password = "correct horse battery staple".toCharArray()
-val plain = "secret text".toByteArray()
-
-val packet = EncryptUtils.encryptBytesWithPassword(plain, password)
-val decrypted = EncryptUtils.decryptBytesWithPassword(packet!!, password)
-```
-
-### 3. 字符串加解密
-
-适合配置、令牌、短 JSON 这类数据。
-
-```kotlin
-val key = EncryptUtils.generateAesKey()
-val cipherText = EncryptUtils.encryptString("top secret", key)
-val plainText = EncryptUtils.decryptString(cipherText!!, key)
-```
-
-### 4. 文件加解密
-
-适合大文件、导出包、备份包。
-
-```kotlin
-val key = EncryptUtils.generateAesKey()
-
-val ok = EncryptUtils.encryptFile(
-    srcPath = "/sdcard/input.bin",
-    destPath = "/sdcard/input.bin.enc",
-    key = key
-)
-
-val restored = EncryptUtils.decryptFile(
-    srcPath = "/sdcard/input.bin.enc",
-    destPath = "/sdcard/input.bin.dec",
-    key = key
-)
-```
-
-### 5. 异步接口
-
-适合和线程池、页面状态联动。
-
-```kotlin
-EncryptUtils.encryptStringAsync(
-    plainText = "hello",
-    key = EncryptUtils.generateAesKey()
-) { cipherText ->
-    // 更新 UI 或继续处理
+dependencies {
+    implementation(project(":itg-encrypt"))
 }
 ```
 
-## AAD 说明
+## 包名
 
-`associatedData` 用来承载附加认证数据。它不会被加密，但会被认证。
-
-适合放：
-
-- 业务版本号
-- 文件类型标识
-- 会影响解密语义的上下文
-
-注意：
-
-- 加密和解密时必须使用完全一致的 `associatedData`
-- 如果你不需要这个能力，可以传 `null`
-- 包头本身已经被认证，不需要把包头字段再额外拼进业务层
-
-## 包格式
-
-输出数据采用自描述格式，便于后续扩展：
-
-- magic
-- version
-- key mode
-- KDF algorithm
-- iterations
-- tag bits
-- salt length + salt
-- IV length + IV
-- AAD length + AAD
-- ciphertext
-
-## 安全约束
-
-- 不要复用同一组 `IV`
-- 不要把固定字符串当作 AES key
-- 密码模式下不要降低迭代次数到很低
-- 解密失败会返回 `null` 或 `false`
-- 文件操作失败会清理半成品输出
-
-## 推荐用法
-
-如果你是新接入，优先顺序是：
-
-1. 数据已经在内存里，且你有随机 AES key，直接用原始密钥模式
-2. 需要用户口令，使用密码派生模式
-3. 处理大文件，使用文件流式 API
-4. 需要 UI 或后台串联，使用异步 API
-
-## 现有测试
-
-模块内已有单测覆盖：
-
-- 原始密钥加解密
-- 密码派生加解密
-- 错密钥失败
-- 错密码失败
-- 包头篡改失败
-- 文件往返
-
+- `EncryptUtils`：`com.itg.itg_encrypt.core.EncryptUtils`

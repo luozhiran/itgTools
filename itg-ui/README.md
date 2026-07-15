@@ -1,62 +1,31 @@
-# ITG UI — Android UI 组件库
+# ITG UI
 
-提供 RecyclerView 通用适配器和 Tab 导航组件。
+`itg-ui` 是 Android UI 组件模块，提供通用 RecyclerView 渲染体系和基于 ViewPager2 + TabLayout 的 Tab 宿主能力。模块 minSdk 21，启用 ViewBinding/DataBinding，依赖 `itg-base`、Material、ViewPager2 和 RecyclerView。
 
-## 组件
+## 使用场景总览
 
-### RecyclerView (recycler 包)
+| 使用场景 | 推荐 API | 适用条件/支持范围 | 什么情况下使用 | 为什么可以用 |
+| --- | --- | --- | --- | --- |
+| [搭建多类型 RecyclerView](./docs/01-recycler.md) | `itgRecyclerAdapter`、`ItemRendererRegistryBuilder` | RecyclerView + ViewBinding/DataBinding | 列表有多种 item 类型 | 每种类型注册一个 renderer，Adapter 根据 item class 分发 |
+| [控制列表提交和滚动](./docs/01-recycler.md) | `RecyclerController`、`RecyclerViewAbility` | Activity/Fragment 页面 | 需要统一 submitList、clear、scrollToPosition | Controller 包装 Adapter 和 RecyclerView 常用操作 |
+| [搭建 Tab Activity/Fragment](./docs/02-tabs.md) | `TabHostActivity`、`TabHostFragment` | ViewPager2 + TabLayout | 首页、频道页、二级 Tab | 宿主类封装 TabLayoutMediator 与 FragmentStateAdapter |
+| [配置 Tab 样式和角标](./docs/03-style-ksp.md) | `TabConfig`、`TabStyle`、`TabBadge` | Material TabLayout | 需要固定/滚动 Tab、角标、指示器样式 | 样式类集中描述文字、padding、indicator 和自定义 view |
+| [配合 KSP 自动生成列表/Tab](./docs/03-style-ksp.md) | `itg-ksp-*` 注解和 runtime | 已接入 KSP | 不想手写 renderer 注册或 Tab 列表 | KSP 编译期生成 Registry/Adapter/TabHost 代码 |
+| [查看 API 速查](./docs/04-api-reference.md) | API 表 | 所有使用者 | 查组件类和职责 | 汇总当前源码公开类型 |
 
-基于 `ListAdapter` + `DiffUtil` 的通用 RecyclerView 适配方案，支持 ViewBinding/DataBinding。
+## 文档目录
 
-| 类 | 说明 |
-|------|------|
-| `ItgRecyclerAdapter` | 通用 RecyclerView Adapter |
-| `ItemRenderer` | 单类型 Item 渲染器 |
-| `ItemRendererRegistry` | 多类型 Item 渲染注册表 |
-| `RendererDsl` | DSL 构建器（`viewBinding {}`） |
-| `RecyclerController` | RecyclerView 控制器 |
-| `RecyclerViewAbility` | RecyclerView 能力封装 |
-| `ItgListItem` | 列表项接口 |
-| `RecyclerConfig` | 配置类 |
-
-```kotlin
-// 快速使用
-registry.viewBinding<MyItem, ItemBinding, MyActions>(
-    inflate = ItemBinding::inflate,
-    bind = { item, actions -> /* 绑定数据 */ }
-)
-```
-
-### Tab (tab 包)
-
-基于 ViewPager2 + TabLayout 的 Tab 导航方案，支持自定义样式和角标。
-
-| 类 | 说明 |
-|------|------|
-| `TabHostActivity` | Tab 宿主 Activity |
-| `TabHostFragment` | Tab 宿主 Fragment（内嵌二级 Tab） |
-| `BaseTabFragment` | Tab 页面基类 |
-| `GenericTabAdapter` | Tab FragmentStateAdapter |
-| `TabViewPagerAbility` | Tab 切换/角标能力 |
-| `TabConfig` / `TabItem` | 配置/数据类 |
-| `TabBadge` | 角标 |
-| `TabStyle` / `TabItemStyle` / `TabIndicatorStyle` / `TabTextStyle` | 样式配置 |
-| `CustomTabViewProvider` | 自定义 Tab View |
-
-```kotlin
-// 使用 TabHostActivity
-class MainActivity : TabHostActivity<ActivityMainBinding, MainViewModel>() {
-    override fun onCreateTabs() = listOf(
-        TabItem(HomeFragment::class, "首页", R.drawable.ic_home),
-        TabItem(ProfileFragment::class, "我的", R.drawable.ic_profile)
-    )
-}
-```
+| 文档 | 内容 |
+| --- | --- |
+| [01. RecyclerView](./docs/01-recycler.md) | 多类型列表、renderer、controller、ability |
+| [02. Tab 宿主](./docs/02-tabs.md) | Activity/Fragment Tab、ViewPager2、懒加载 |
+| [03. 样式与 KSP](./docs/03-style-ksp.md) | Tab 样式、角标、KSP 集成 |
+| [04. API 速查](./docs/04-api-reference.md) | Recycler 和 Tab API 汇总 |
 
 ## 依赖
 
-- `itg-base` — 基础架构
-- `androidx.viewpager2` — ViewPager2
-- `androidx.recyclerview` — RecyclerView
-- `androidx.fragment` — Fragment
-- DataBinding + ViewBinding
+```kotlin
+dependencies {
+    implementation(project(":itg-ui"))
+}
+```

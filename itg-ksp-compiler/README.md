@@ -1,23 +1,29 @@
-# ITG KSP Compiler — KSP 编译器插件
+# ITG KSP Compiler
 
-基于 Google KSP (Kotlin Symbol Processing) 的注解处理器，为 `itg-ui` 自动生成模板代码。
+`itg-ksp-compiler` 是 KSP 编译器模块，读取 `itg-ksp-annotations` 中的 Recycler/Tab 注解，在编译期生成 `itg-ui` 可使用的 Registry、Adapter 或 TabHost 相关代码。模块是 JVM/KSP processor，目标 Java 17。
 
-## 处理器
+## 使用场景总览
 
-| 类 | 说明 |
-|------|------|
-| `ItgRecyclerProcessor` | 处理 `@ItgBind`/`@ItgTabHost` 等注解，生成 ItemRenderer 注册代码 |
-| `ItgRecyclerProcessorProvider` | KSP Processor Provider |
+| 使用场景 | 推荐配置/能力 | 适用条件/支持范围 | 什么情况下使用 | 为什么可以用 |
+| --- | --- | --- | --- | --- |
+| [接入 KSP processor](./docs/01-setup-generation.md) | `ksp(project(":itg-ksp-compiler"))` | Android app/library + KSP 插件 | 需要编译期生成列表或 Tab 代码 | processor 通过 KSP 读取注解并写入生成源文件 |
+| [生成 Recycler 注册代码](./docs/01-setup-generation.md) | `@ItgViewBindingItem` / `@ItgDataBindingItem` | item 类注解完整 | 多类型列表不想手写 renderer | compiler 聚合同一 actions 类型生成 Registry/Adapter |
+| [生成 TabHost 代码](./docs/02-rules-troubleshooting.md) | `@ItgTabHost` / `@ItgTabItem` | groupName 一致 | Tab 页面固定且适合静态声明 | compiler 按 groupName 聚合 TabItem 并生成宿主配置 |
+| [排查生成失败](./docs/02-rules-troubleshooting.md) | 编译错误和生成目录 | KSP 编译阶段 | 找不到生成类或注解参数错误 | KSP 会在编译期暴露符号解析问题 |
 
-## 功能
+## 文档目录
 
-- `@ItgBind` → 自动生成 RecyclerView ItemRenderer 绑定代码
-- `@ItgTabHost` → 自动生成 Tab 配置代码
-- `@ItgDataBindingItem` / `@ItgViewBindingItem` → 生成 ViewBinding/DataBinding 适配代码
+| 文档 | 内容 |
+| --- | --- |
+| [01. 接入与生成流程](./docs/01-setup-generation.md) | Gradle 配置、Recycler 生成流程 |
+| [02. 规则与排查](./docs/02-rules-troubleshooting.md) | Tab 生成、注解规则、常见问题 |
 
 ## 依赖
 
-- `itg-ksp-annotations` — 注解定义
-- `com.google.devtools.ksp:symbol-processing-api` — KSP API
-
-> 注意：当前分支 KSP Gradle 插件暂未启用 (`ksp-classpath` 被注释)。此模块可正常编译，但不会在构建过程中执行注解处理。
+```kotlin
+dependencies {
+    ksp(project(":itg-ksp-compiler"))
+    implementation(project(":itg-ksp-annotations"))
+    implementation(project(":itg-ksp-runtime"))
+}
+```

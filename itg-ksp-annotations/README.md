@@ -1,28 +1,27 @@
-# ITG KSP Annotations — 编译时注解定义
+# ITG KSP Annotations
 
-为 KSP 编译器插件提供注解定义。纯 JVM 模块，无 Android 依赖。
+`itg-ksp-annotations` 是 JVM 注解模块，定义 Recycler 和 Tab 自动生成所需的注解。模块使用 Java/Kotlin JVM，目标 Java 17。
 
-## 注解列表
+## 使用场景总览
 
-| 注解 | 目标 | 说明 |
-|------|------|------|
-| `@ItgBind` | FUNCTION | 标记绑定方法 |
-| `@ItgContentsSame` | ANNOTATION_CLASS | 标记内容比较器 |
-| `@ItgDataBindingItem` | CLASS | 标记 DataBinding 列表项 |
-| `@ItgViewBindingItem` | CLASS | 标记 ViewBinding 列表项 |
-| `@ItgTabHost` | CLASS | 自动生成 TabHost 配置 |
-| `@ItgTabItem` | CLASS | 标记 Tab 页面 |
-| `@ItgPayload` | ANNOTATION_CLASS | 标记 Payload 类型 |
-| `@ItgAutoTextField` | FIELD | 自动生成 TextField |
+| 使用场景 | 推荐注解 | 适用条件/支持范围 | 什么情况下使用 | 为什么可以用 |
+| --- | --- | --- | --- | --- |
+| [生成 ViewBinding Recycler renderer](./docs/01-annotations.md) | `@ItgViewBindingItem`、`@ItgBind` | item 类 + ViewBinding | 不想手写 renderer 注册 | compiler 根据 item、binding、actions 生成注册代码 |
+| [生成 DataBinding Recycler renderer](./docs/01-annotations.md) | `@ItgDataBindingItem` | DataBinding layout/BR 表达式 | XML DataBinding 列表项 | 注解提供 layout 和 variable 表达式 |
+| [生成 payload 差异](./docs/01-annotations.md) | `@ItgPayload`、`@ItgAutoTextField`、`@ItgContentsSame` | Recycler diff/payload | 只刷新变化字段 | processor 读取注解生成 payload 逻辑 |
+| [生成 TabHost 和 TabItem](./docs/02-tabs.md) | `@ItgTabHost`、`@ItgTabItem` | Tab 页面 Fragment | Tab 列表固定且适合编译期生成 | processor 按 groupName 聚合 Tab 配置 |
 
-## 使用
+## 文档目录
+
+| 文档 | 内容 |
+| --- | --- |
+| [01. Recycler 注解](./docs/01-annotations.md) | ViewBinding/DataBinding item、bind、payload |
+| [02. Tab 注解](./docs/02-tabs.md) | TabHost、TabItem、groupName、排序 |
+
+## 依赖
 
 ```kotlin
-@ItgTabHost(groupName = "main", defaultPosition = 0)
-class MainActivity { ... }
-
-@ItgTabItem
-class HomeFragment { ... }
+dependencies {
+    implementation(project(":itg-ksp-annotations"))
+}
 ```
-
-> 注意：KSP 编译器插件 (`itg-ksp-compiler`) 当前未在 Gradle 中启用，注解定义保留供后续使用。
