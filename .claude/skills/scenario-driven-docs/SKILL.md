@@ -30,7 +30,7 @@ Use a single file only when the full document is short enough to scan comfortabl
 4. Build a top overview table in `README.md` that answers: what to use, when to use it, why it works, and what constraints apply.
 5. Link each scenario row to the detailed file or anchor that teaches it. Prefer file links such as `docs/04-background-tasks.md` over deep anchors in a giant README.
 6. Add a table of contents in `README.md` where each item maps to a detailed docs file.
-7. Write detailed docs files with minimal correct examples, constraints, validation, and common mistakes.
+7. Write detailed docs files with copy-ready demos when possible, constraints, validation, and common mistakes.
 8. Remove stale, unsupported, or speculative content unless the user explicitly asks for a proposal.
 9. Validate links, examples, names, parameters, claims, and formatting before finishing.
 
@@ -79,6 +79,13 @@ Each linked docs file should be focused and readable.
 最小正确示例、命令、配置或流程
 ```
 
+## 可复制 Demo
+
+```text
+如果能写出完整 demo，把可直接复制的最小可运行示例放在这里。
+标出需要替换的变量、路径、配置、依赖或环境。
+```
+
 ## 关键说明
 
 - 为什么这样做。
@@ -124,9 +131,25 @@ Split docs by how readers look for answers:
 - Keep filenames stable and numbered when order matters, for example `01-quick-start.md`.
 - Preserve existing useful docs when possible; replace or redirect stale umbrella docs.
 
+## Demo Rules
+
+For each detailed docs file, include a copy-ready demo when it is practical and safe.
+
+A good demo should:
+
+- Be minimal but complete enough to copy into a real project, command line, config file, or script.
+- Include required imports, dependencies, config keys, setup steps, or surrounding context when they are not obvious.
+- Mark placeholders clearly, for example `<your-api-key>`, `<module-name>`, `<path>`, or `TODO`.
+- Prefer real API names and parameter order from source code.
+- Include the expected result or a short verification command when possible.
+- Avoid demos for destructive, risky, credential-bearing, production-only, or highly environment-specific operations unless the safety conditions and rollback are clear.
+- If a complete demo is not possible, provide a realistic snippet and explicitly state what is omitted.
+
+Use language-specific fences when possible: `kotlin`, `java`, `bash`, `json`, `yaml`, `xml`, `sql`, `text`.
 ## Writing Rules
 
 - Prefer concrete instructions over conceptual exposition.
+- In each detailed docs file, add a copy-ready demo when it is practical and safe; do not stop at abstract snippets if a usable demo can be provided.
 - Do not invent APIs, commands, behavior, permissions, or constraints.
 - If something is unknown, inspect the source of truth or explicitly state the uncertainty.
 - Keep examples minimal, correct, and directly related to the scenario.
@@ -191,5 +214,6 @@ Before finishing, check:
 - Examples and names match the source of truth.
 - Unsupported or deprecated behavior is not presented as recommended.
 - The document set explains what to use, when to use it, why it works, constraints, and how to verify.
+- Detailed docs files include copy-ready demos where practical, or clearly explain why a full demo is not suitable.
 - Relative links work from README and from docs files.
 - Formatting is clean. Run a lightweight check such as `git diff --check` when available.

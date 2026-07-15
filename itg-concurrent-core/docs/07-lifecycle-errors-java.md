@@ -2,16 +2,7 @@
 
 本节说明任务取消边界、异常处理和 Java 调用方式。
 
-## 生命周期和取消
-
-页面场景优先用 AndroidX 生命周期：
-
-```kotlin
-viewLifecycleOwner.lifecycleScope.launch {
-    val data = Concurrent.ioSuspend { repository.load() }
-    render(data)
-}
-```
+## 推荐做法
 
 普通类持有 `ConcurrentScope`：
 
@@ -29,68 +20,95 @@ class WorkerOwner {
 }
 ```
 
-一次性任务保存 `Job`：
+Future 异常处理：
 
 ```kotlin
-private var job: Job? = null
-
-fun start() {
-    job = Concurrent.launchIo { doWork() }
-}
-
-fun stop() {
-    job?.cancel()
+try {
+    val user = future.get()
+} catch (e: ExecutionException) {
+    val realCause = e.cause
 }
 ```
 
-## Future 异常处理
+## 可复制 Demo
+
+下面示例展示一个可释放的普通类 worker，包含启动、取消和异常处理。需要替换 `repository.sync()`。
 
 ```kotlin
-val future = Concurrent.io {
-    api.getUser()
-}
+import com.itg.concurrent.Concurrent
+import com.itg.concurrent.DispatcherType
+import kotlinx.coroutines.Job
+import java.io.IOException
 
-Concurrent.io {
-    try {
-        val user = future.get()
-        Concurrent.main { render(user) }
-    } catch (e: ExecutionException) {
-        val realCause = e.cause
-        Concurrent.main { showError(realCause) }
+class SyncWorker(
+    private val repository: Repository,
+    private val onState: (String) -> Unit
+) {
+    private val scope = Concurrent.createScope(DispatcherType.IO, "sync-worker")
+    private var job: Job? = null
+
+    fun start() {
+        job?.cancel()
+        job = scope.launch {
+            try {
+                repository.sync() // TODO: 替换成你的同步逻辑
+                Concurrent.mainSuspend { onState("success") }
+            } catch (e: IOException) {
+                Concurrent.mainSuspend { onState("network error: ${e.message}") }
+            } catch (e: Exception) {
+                Concurrent.mainSuspend { onState("error: ${e.message}") }
+            }
+        }
+    }
+
+    fun stop() {
+        job?.cancel()
+        job = null
+    }
+
+    fun release() {
+        scope.cancel()
     }
 }
 ```
 
-## suspend 异常处理
+## Java 调用 Demo
 
-```kotlin
-Concurrent.launchIo {
-    try {
-        val user = api.getUser()
-        Concurrent.mainSuspend { render(user) }
-    } catch (e: IOException) {
-        Concurrent.mainSuspend { showError(e) }
-    }
-}
-```
-
-## Java 调用
-
-Java 侧优先用 Future 风格 API。Kotlin 函数类型需要返回 `Unit.INSTANCE`。
+Java 侧优先使用 Future 风格 API。需要把 `api.fetch()` 和 `render(result)` 替换成真实逻辑。
 
 ```java
-Future<String> future = Concurrent.io(() -> api.fetch());
+import com.itg.concurrent.Concurrent;
+import com.itg.concurrent.util.ConcurrentUtils;
+import java.util.concurrent.Future;
+import kotlin.Unit;
 
-Concurrent.io(() -> {
-    String result = ConcurrentUtils.await(future, 5000L);
-    Concurrent.main(() -> {
-        render(result);
-        return Unit.INSTANCE;
-    });
-    return Unit.INSTANCE;
-});
+public class JavaConcurrentDemo {
+    public void load(Api api) {
+        Future<String> future = Concurrent.io(() -> api.fetch());
+
+        Concurrent.io(() -> {
+            String result = ConcurrentUtils.await(future, 5000L);
+            Concurrent.main(() -> {
+                render(result);
+                return Unit.INSTANCE;
+            });
+            return Unit.INSTANCE;
+        });
+    }
+}
 ```
 
-`suspend` 风格 API 不适合 Java 直接调用。
+## 关键说明
+
+- 页面或对象释放时，取消持有的 `Job` 或 `ConcurrentScope`。
+- `Future.get()` 的业务异常通常包在 `ExecutionException.cause` 中。
+- suspend 任务直接用 `try/catch` 处理异常。
+- Java 侧不建议直接调用 suspend 风格 API。
+
+## 验证方式
+
+- 调用 `stop()` 后当前任务不再回调成功状态。
+- 调用 `release()` 后该 worker 不应继续启动新任务。
+- Java demo 中不要在主线程直接 `await`。
 
 [返回 README](../README.md)

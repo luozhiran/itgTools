@@ -56,4 +56,45 @@
 | `SINGLE` | 单线程串行分发器类型，当前 `Concurrent` 门面没有单独快捷方法 |
 | `MAIN` | Android 主线程 |
 
+## 可复制 Demo
+
+下面是一个组合使用 demo：普通后台任务、计算任务、主线程更新、托管 scope 都包含在内。需要替换 `binding.resultText`。
+
+```kotlin
+import com.itg.concurrent.Concurrent
+import com.itg.concurrent.DispatcherType
+
+class ConcurrentApiDemo {
+    private val scope = Concurrent.createScope(DispatcherType.IO, "api-demo")
+
+    fun run() {
+        val future = Concurrent.io {
+            "raw-data"
+        }
+
+        Concurrent.launchBackground {
+            val raw = future.get()
+            val formatted = Concurrent.computeSuspend {
+                raw.uppercase()
+            }
+
+            Concurrent.mainSuspend {
+                // TODO: 替换成你的 UI 更新逻辑
+                binding.resultText.text = formatted
+            }
+        }
+    }
+
+    fun release() {
+        scope.cancel()
+    }
+}
+```
+
+## 验证方式
+
+- 只使用本文件列出的 API，避免使用不存在的历史文档 API。
+- 如果 IDE 找不到某个方法，先确认 `itg-concurrent-core` 版本是否包含该 API。
+- `DispatcherType.SINGLE` 是枚举类型，不代表 `Concurrent.single { }` 快捷方法存在。
+
 [返回 README](../README.md)

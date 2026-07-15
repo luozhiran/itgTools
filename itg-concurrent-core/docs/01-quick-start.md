@@ -41,7 +41,7 @@ class App : Application() {
 | `COROUTINE` | 强制使用 `itg-coroutine-pools` |
 | `THREAD_POOL` | 强制使用 `itg-thread-pools` |
 
-## 最小示例
+## 推荐做法
 
 ```kotlin
 Concurrent.io {
@@ -51,6 +51,39 @@ Concurrent.io {
     }
 }
 ```
+
+## 可复制 Demo
+
+把下面代码放进任意 Activity 的 `onCreate` 中即可验证。需要把 `binding.statusText` 替换成你自己的 TextView 或 UI 更新逻辑。
+
+```kotlin
+import android.os.Bundle
+import com.itg.concurrent.Concurrent
+import com.itg.concurrent.ConcurrentFactory
+
+class DemoActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.AUTO)
+
+        Concurrent.io {
+            val configText = "loaded on ${Thread.currentThread().name}"
+
+            Concurrent.main {
+                // TODO: 替换成你的 UI 更新逻辑
+                binding.statusText.text = configText
+            }
+        }
+    }
+}
+```
+
+## 关键说明
+
+- `ConcurrentFactory.switchTo(...)` 是进程级配置，通常放在 `Application.onCreate()`。
+- `AUTO` 适合默认接入；如果要做性能对比或灰度，可以显式切 `COROUTINE` 或 `THREAD_POOL`。
+- UI 更新必须放到 `Concurrent.main { }` 或 `Concurrent.mainSuspend { }`。
 
 ## 验证方式
 

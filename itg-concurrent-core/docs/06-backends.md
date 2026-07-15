@@ -10,7 +10,9 @@
 | `COROUTINE` | 使用 `itg-coroutine-pools` |
 | `THREAD_POOL` | 使用 `itg-thread-pools` |
 
-## 全局切换
+## 推荐做法
+
+全局切换：
 
 ```kotlin
 ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.COROUTINE)
@@ -18,35 +20,49 @@ ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL)
 ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.AUTO)
 ```
 
-## 混合模式
+混合模式：
 
 ```kotlin
 ConcurrentFactory.useMixed(
     mapOf(
         DispatcherType.IO to ConcurrentFactory.BackendType.COROUTINE,
-        DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL,
-        DispatcherType.BACKGROUND to ConcurrentFactory.BackendType.COROUTINE,
-        DispatcherType.MAIN to ConcurrentFactory.BackendType.COROUTINE
+        DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL
     )
 )
 ```
 
-业务调用不变：
+## 可复制 Demo
+
+下面示例可以放在 `Application.onCreate()` 中。它配置 IO 使用协程后端、计算使用线程池后端，并打印当前可用后端。
 
 ```kotlin
-Concurrent.io { readFile() }
-Concurrent.compute { resizeBitmap() }
-Concurrent.launchIo { flow.collect { } }
+import android.app.Application
+import android.util.Log
+import com.itg.concurrent.ConcurrentFactory
+import com.itg.concurrent.DispatcherType
+
+class DemoApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+
+        ConcurrentFactory.useMixed(
+            mapOf(
+                DispatcherType.IO to ConcurrentFactory.BackendType.COROUTINE,
+                DispatcherType.COMPUTE to ConcurrentFactory.BackendType.THREAD_POOL,
+                DispatcherType.BACKGROUND to ConcurrentFactory.BackendType.COROUTINE,
+                DispatcherType.MAIN to ConcurrentFactory.BackendType.COROUTINE
+            )
+        )
+
+        Log.d("Concurrent", "available=${ConcurrentFactory.getAvailableBackends()}")
+        Log.d("Concurrent", "current=${ConcurrentFactory.currentBackend}")
+    }
+}
 ```
 
 ## 线程池桥接协程
 
-`Concurrent.getCoroutineDispatcher(type)` 会处理两种情况：
-
-- 协程后端：返回原生 `CoroutineDispatcher`。
-- 线程池后端：通过 `TaskDispatcher.toCoroutineDispatcher()` 桥接。
-
-因此线程池后端下仍可运行：
+线程池后端下仍可运行 suspend 和 Flow：
 
 ```kotlin
 ConcurrentFactory.switchTo(ConcurrentFactory.BackendType.THREAD_POOL)
@@ -58,7 +74,13 @@ Concurrent.launchIo {
 }
 ```
 
-## 可用性检测
+## 关键说明
+
+- `switchTo` 会清空手动注册表，所有分发器按新后端重新解析。
+- `useMixed` 只覆盖传入的 `DispatcherType`，未配置类型继续走当前后端或自动检测。
+- `getCoroutineDispatcher(type)` 在线程池后端下会通过 `TaskDispatcher.toCoroutineDispatcher()` 桥接。
+
+## 验证方式
 
 ```kotlin
 ConcurrentFactory.isCoroutineAvailable()
@@ -66,12 +88,6 @@ ConcurrentFactory.isThreadPoolAvailable()
 ConcurrentFactory.getAvailableBackends()
 ```
 
-## 资源释放
-
-```kotlin
-ConcurrentFactory.shutdown()
-```
-
-`shutdown()` 会关闭注册表中支持 `AutoCloseable` 的分发器并清空注册表。业务自己创建的 `ConcurrentScope` 仍需要 owner 调用 `cancel()`。
+如果 demo 使用 `THREAD_POOL`，确认 app 依赖中提供了 `itg-thread-pools`。
 
 [返回 README](../README.md)

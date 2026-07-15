@@ -8,7 +8,7 @@
 - 需要在统一后端配置下执行 I/O、计算、后台或主线程任务。
 - 希望线程池后端和协程后端使用同一套业务 API。
 
-## 基本用法
+## 推荐做法
 
 ```kotlin
 lifecycleScope.launch {
@@ -26,6 +26,50 @@ lifecycleScope.launch {
 }
 ```
 
+## 可复制 Demo
+
+下面示例可以直接放进 ViewModel。需要替换 `repository.loadUser(userId)` 和 `buildState(user)`。
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.itg.concurrent.Concurrent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+
+class UserViewModel(
+    private val repository: UserRepository
+) : ViewModel() {
+    private val _state = MutableStateFlow<UserState>(UserState.Idle)
+    val state: StateFlow<UserState> = _state
+
+    fun load(userId: String) {
+        viewModelScope.launch {
+            _state.value = UserState.Loading
+
+            try {
+                val user = Concurrent.ioSuspend {
+                    repository.loadUser(userId) // TODO: 替换成你的 I/O 操作
+                }
+
+                val viewState = Concurrent.computeSuspend {
+                    buildState(user) // TODO: 替换成你的计算逻辑
+                }
+
+                Concurrent.mainSuspend {
+                    _state.value = UserState.Success(viewState)
+                }
+            } catch (e: Exception) {
+                Concurrent.mainSuspend {
+                    _state.value = UserState.Error(e.message ?: "unknown error")
+                }
+            }
+        }
+    }
+}
+```
+
 ## API 选择
 
 | 场景 | API |
@@ -35,19 +79,16 @@ lifecycleScope.launch {
 | 协程内执行普通后台逻辑 | `Concurrent.backgroundSuspend { }` |
 | 协程内切回主线程 | `Concurrent.mainSuspend { }` |
 
-## 为什么线程池后端也能用
-
-`suspend` API 内部会先拿到对应 `TaskDispatcher`：
-
-- 如果是 `CoroutineTaskDispatcher`，直接使用原生协程 dispatcher。
-- 如果是普通线程池 `TaskDispatcher`，通过 `toCoroutineDispatcher()` 桥接成 `CoroutineDispatcher`。
-
-所以全局切到 `THREAD_POOL` 时，`ioSuspend` 和 Flow 仍然能运行。
-
-## 注意事项
+## 关键说明
 
 - `ioSuspend` 等 API 不创建新的顶层生命周期，它们跟随调用方协程取消。
+- 线程池后端会通过 `toCoroutineDispatcher()` 桥接成协程 dispatcher。
 - 不要在 `mainSuspend` 中执行阻塞任务。
-- 如果需要在普通类里启动协程，看 [05. 托管 Scope 与 Flow](./05-managed-scope-flow.md)。
+
+## 验证方式
+
+- 取消 `viewModelScope` 后，未完成任务随之取消。
+- 在 `ioSuspend` 和 `computeSuspend` 中打印线程名，应不同于主线程。
+- UI 状态只在主线程更新。
 
 [返回 README](../README.md)
