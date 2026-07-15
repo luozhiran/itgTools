@@ -349,7 +349,7 @@ data class WebCacheConfig(
      * 安全校验：预热 URL 的 host 必须在此列表中，防止远程配置被篡改后
      * 预热恶意域名。同时也是 [UrlRuleMatcher] 域名匹配的依据。
      *
-     * 为空时不限制域名（不推荐生产环境使用）。
+     * 为空时不允许任何 URL 通过校验，生产环境必须配置业务域名。
      * 对应远程配置键：`web_cache_allowed_hosts`
      */
     val allowedHosts: List<String> = emptyList()

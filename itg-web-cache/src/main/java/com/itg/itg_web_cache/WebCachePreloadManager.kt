@@ -107,7 +107,6 @@ object WebCachePreloadManager {
         emit(WebCacheEvent(name = "web_cache_preload_cancel", reason = reason))
     }
 
-
     fun cancelIfConflicts(url: String, reason: String = "container_open_conflict") {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post { cancelIfConflicts(url, reason) }
@@ -133,6 +132,7 @@ object WebCachePreloadManager {
             )
         }
     }
+
     fun onTrimMemory(level: Int) {
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             cancel("low_memory")
@@ -145,11 +145,12 @@ object WebCachePreloadManager {
 
     private fun startNext(context: Context, config: WebCacheConfig) {
         if (cancelled) return
-        if (isPreloadDisabled(config)) {
+        val state = readState()
+        if (!canStartWithState(config, state)) {
             pendingQueue.clear()
             return
         }
-        val rule = pendingQueue.pollFirst() ?: return
+        val rule = pollNextRunnableRule(config, state) ?: return
         val startMs = System.currentTimeMillis()
         emit(
             WebCacheEvent(
@@ -182,10 +183,14 @@ object WebCachePreloadManager {
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
+                val active = activeWebViews[view] ?: return
+                val finishRunnable = Runnable {
+                    finishPreload(view, success = true, reason = "finished")
+                }
+                active.postFinishRunnable?.let { mainHandler.removeCallbacks(it) }
+                active.postFinishRunnable = finishRunnable
                 mainHandler.postDelayed(
-                    {
-                        finishPreload(view, success = true, reason = "finished")
-                    },
+                    finishRunnable,
                     config.preloadPostFinishDelayMs.coerceAtLeast(0L)
                 )
             }
@@ -248,6 +253,7 @@ object WebCachePreloadManager {
     ) {
         val active = activeWebViews.remove(webView) ?: return
         mainHandler.removeCallbacks(active.timeoutRunnable)
+        active.postFinishRunnable?.let { mainHandler.removeCallbacks(it) }
         runCatching { webView.stopLoading() }
         runCatching {
             webView.webViewClient = WebViewClient()
@@ -274,12 +280,58 @@ object WebCachePreloadManager {
         if (!cancelled) {
             val context = appContext ?: return
             val nextConfig = readConfig()
-            if (isPreloadDisabled(nextConfig)) {
+            val nextState = readState()
+            if (!canStartWithState(nextConfig, nextState)) {
                 pendingQueue.clear()
                 return
             }
             startNext(context, nextConfig)
         }
+    }
+
+    private fun pollNextRunnableRule(
+        config: WebCacheConfig,
+        state: WebCacheRuntimeState
+    ): PreloadUrlRule? {
+        while (true) {
+            val rule = pendingQueue.pollFirst() ?: return null
+            if (canRunRuleNow(rule, config, state)) return rule
+        }
+    }
+
+    private fun canStartWithState(config: WebCacheConfig, state: WebCacheRuntimeState): Boolean {
+        if (config.killSwitch || !config.preloadEnable) return false
+        if (!state.isForeground || !state.isHomeReady || state.isLowMemory || state.isLowPowerMode) {
+            return false
+        }
+        if (config.preloadWifiOnly && state.networkType != NetworkType.WIFI) return false
+        return true
+    }
+
+    private fun canRunRuleNow(
+        rule: PreloadUrlRule,
+        config: WebCacheConfig,
+        state: WebCacheRuntimeState
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        return rule.enable &&
+            !circuitBreaker.isBlocked(rule, now) &&
+            UrlRuleMatcher.isValidHttpUrl(rule.url, config.allowedHosts) &&
+            !UrlRuleMatcher.matchesBlacklist(rule.url, config.preloadUrlBlacklist) &&
+            (!config.preloadLoginRequired || !rule.loginRequired || state.isLoggedIn) &&
+            (!rule.wifiOnly || state.networkType == NetworkType.WIFI) &&
+            isOutsideCooldown(rule, config, now)
+    }
+
+    private fun isOutsideCooldown(
+        rule: PreloadUrlRule,
+        config: WebCacheConfig,
+        nowMs: Long
+    ): Boolean {
+        val key = rule.id.ifBlank { rule.url }
+        val last = lastPreloadTimes[key] ?: return true
+        val ttl = rule.ttlMs ?: config.preloadMinIntervalMs
+        return nowMs - last >= ttl
     }
 
     private fun eventNameForFailure(reason: String): String {
@@ -296,10 +348,6 @@ object WebCachePreloadManager {
             reason.startsWith("create_webview_failed")
     }
 
-    private fun isPreloadDisabled(config: WebCacheConfig): Boolean {
-        return config.killSwitch || !config.preloadEnable
-    }
-
     private fun cancelScheduledStart() {
         val runnable = scheduledStartRunnable ?: return
         mainHandler.removeCallbacks(runnable)
@@ -311,6 +359,7 @@ object WebCachePreloadManager {
         val preloadHost = UrlRuleMatcher.hostOf(preloadUrl) ?: return false
         return containerHost != null && preloadHost.equals(containerHost, ignoreCase = true)
     }
+
     private fun readConfig(): WebCacheConfig {
         return runCatching { configProvider.getConfig() }.getOrElse {
             WebCacheSafeCallbacks.log(logger, "Failed to read Web cache config.", it)
@@ -332,6 +381,7 @@ object WebCachePreloadManager {
     private data class ActivePreload(
         val rule: PreloadUrlRule,
         val startMs: Long,
-        val timeoutRunnable: Runnable
+        val timeoutRunnable: Runnable,
+        var postFinishRunnable: Runnable? = null
     )
 }

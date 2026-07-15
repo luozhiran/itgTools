@@ -9,7 +9,8 @@ internal object UrlRuleMatcher {
         if (scheme != "https") return false
         val host = uri.host?.lowercase() ?: return false
         if (host.isBlank()) return false
-        return allowedHosts.isEmpty() || allowedHosts.any { it.equals(host, ignoreCase = true) }
+        if (allowedHosts.isEmpty()) return false
+        return allowedHosts.any { it.equals(host, ignoreCase = true) }
     }
 
     fun matchesWhitelist(url: String, patterns: List<String>): Boolean {
@@ -35,10 +36,36 @@ internal object UrlRuleMatcher {
     private fun matchesPattern(url: String, pattern: String): Boolean {
         val cleanPattern = pattern.trim()
         if (cleanPattern.isEmpty()) return false
-        if (cleanPattern.endsWith("*")) {
-            return url.startsWith(cleanPattern.dropLast(1), ignoreCase = true)
+
+        val wildcard = cleanPattern.endsWith("*")
+        val normalizedPattern = if (wildcard) cleanPattern.dropLast(1) else cleanPattern
+        val urlUri = parse(url) ?: return false
+        val patternUri = parse(normalizedPattern)
+
+        if (patternUri != null && patternUri.scheme != null && patternUri.host != null) {
+            return matchesUriPattern(urlUri, patternUri, wildcard)
         }
-        return url.equals(cleanPattern, ignoreCase = true)
+
+        return if (wildcard) {
+            url.startsWith(normalizedPattern, ignoreCase = true)
+        } else {
+            url.equals(normalizedPattern, ignoreCase = true)
+        }
+    }
+
+    private fun matchesUriPattern(urlUri: URI, patternUri: URI, wildcard: Boolean): Boolean {
+        val patternScheme = patternUri.scheme?.lowercase() ?: return false
+        val urlScheme = urlUri.scheme?.lowercase() ?: return false
+        if (patternScheme != urlScheme) return false
+        if (!patternUri.host.equals(urlUri.host, ignoreCase = true)) return false
+
+        val patternPath = patternUri.path.orEmpty()
+        val urlPath = urlUri.path.orEmpty()
+        return if (wildcard) {
+            urlPath.startsWith(patternPath)
+        } else {
+            urlPath == patternPath
+        }
     }
 
     private fun parse(url: String): URI? {

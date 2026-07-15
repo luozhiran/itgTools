@@ -70,29 +70,49 @@ object WebCacheCleaner {
     ) {
         runOnMain {
             emit(eventListener, logger, WebCacheEvent(name = "web_cache_clear_start", reason = "site_data"))
-            var success = true
+            var siteDataSuccess = true
             runCatching {
                 WebStorage.getInstance().deleteAllData()
+            }.onFailure {
+                siteDataSuccess = false
+                WebCacheSafeCallbacks.log(logger, "Failed to clear WebView storage data.", it)
+            }
+
+            runCatching {
                 CookieManager.getInstance().removeAllCookies {
-                    runCatching { CookieManager.getInstance().flush() }
+                    runCatching { CookieManager.getInstance().flush() }.onFailure {
+                        siteDataSuccess = false
+                        WebCacheSafeCallbacks.log(logger, "Failed to flush WebView cookies.", it)
+                    }
+                    clearHttpCache(context, eventListener, logger) { httpSuccess ->
+                        completeSiteDataClear(siteDataSuccess && httpSuccess, eventListener, logger, onComplete)
+                    }
                 }
             }.onFailure {
-                success = false
-                WebCacheSafeCallbacks.log(logger, "Failed to clear WebView site data.", it)
-            }
-            clearHttpCache(context, eventListener, logger) { httpSuccess ->
-                val finalSuccess = success && httpSuccess
-                emit(
-                    eventListener,
-                    logger,
-                    WebCacheEvent(
-                        name = if (finalSuccess) "web_cache_clear_finish" else "web_cache_clear_error",
-                        reason = "site_data"
-                    )
-                )
-                WebCacheSafeCallbacks.complete(onComplete, finalSuccess, logger)
+                siteDataSuccess = false
+                WebCacheSafeCallbacks.log(logger, "Failed to clear WebView cookies.", it)
+                clearHttpCache(context, eventListener, logger) { httpSuccess ->
+                    completeSiteDataClear(siteDataSuccess && httpSuccess, eventListener, logger, onComplete)
+                }
             }
         }
+    }
+
+    private fun completeSiteDataClear(
+        success: Boolean,
+        eventListener: WebCacheEventListener,
+        logger: WebCacheLogger,
+        onComplete: ((Boolean) -> Unit)?
+    ) {
+        emit(
+            eventListener,
+            logger,
+            WebCacheEvent(
+                name = if (success) "web_cache_clear_finish" else "web_cache_clear_error",
+                reason = "site_data"
+            )
+        )
+        WebCacheSafeCallbacks.complete(onComplete, success, logger)
     }
 
     private fun clearHttpCacheInternal(

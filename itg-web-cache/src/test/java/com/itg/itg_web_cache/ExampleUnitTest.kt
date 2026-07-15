@@ -44,6 +44,37 @@ class WebCachePolicyResolverTest {
     }
 
     @Test
+    fun containerWhitelistMatchesSamePathWithQuery() {
+        val policy = resolver.resolveContainerPolicy(
+            url = "https://m.example.com/job/home?tab=recommend",
+            scene = "job_home",
+            config = WebCacheConfig(
+                containerCacheEnable = true,
+                containerUrlWhitelist = listOf("https://m.example.com/job/home"),
+                allowedHosts = listOf("m.example.com")
+            )
+        )
+
+        assertTrue(policy.enabled)
+    }
+
+    @Test
+    fun emptyAllowedHostsRejectsContainerPolicy() {
+        val policy = resolver.resolveContainerPolicy(
+            url = "https://m.example.com/job/home",
+            scene = "job_home",
+            config = WebCacheConfig(
+                containerCacheEnable = true,
+                containerUrlWhitelist = listOf("https://m.example.com/job/*"),
+                allowedHosts = emptyList()
+            )
+        )
+
+        assertFalse(policy.enabled)
+        assertEquals("invalid_or_disallowed_url", policy.reason)
+    }
+
+    @Test
     fun selectPreloadRulesFiltersBlacklistAndLimitsByPriority() {
         val rules = resolver.selectPreloadRules(
             config = WebCacheConfig(
@@ -76,6 +107,58 @@ class WebCachePolicyResolverTest {
         )
 
         assertEquals(listOf("high"), rules.map { it.id })
+    }
+
+    @Test
+    fun preloadBlacklistMatchesSamePathWithQuery() {
+        val rules = resolver.selectPreloadRules(
+            config = WebCacheConfig(
+                preloadEnable = true,
+                preloadMaxUrlCount = 2,
+                preloadUrlRules = listOf(
+                    PreloadUrlRule(
+                        id = "pay",
+                        url = "https://m.example.com/pay?orderId=123",
+                        priority = 100
+                    ),
+                    PreloadUrlRule(
+                        id = "home",
+                        url = "https://m.example.com/home",
+                        priority = 1
+                    )
+                ),
+                preloadUrlBlacklist = listOf("https://m.example.com/pay"),
+                allowedHosts = listOf("m.example.com")
+            ),
+            state = WebCacheRuntimeState(isLoggedIn = true),
+            nowMs = 1_000L,
+            lastPreloadTimes = emptyMap(),
+            isBlocked = { false }
+        )
+
+        assertEquals(listOf("home"), rules.map { it.id })
+    }
+
+    @Test
+    fun emptyAllowedHostsRejectsPreloadRules() {
+        val rules = resolver.selectPreloadRules(
+            config = WebCacheConfig(
+                preloadEnable = true,
+                preloadUrlRules = listOf(
+                    PreloadUrlRule(
+                        id = "home",
+                        url = "https://m.example.com/home"
+                    )
+                ),
+                allowedHosts = emptyList()
+            ),
+            state = WebCacheRuntimeState(isLoggedIn = true),
+            nowMs = 1_000L,
+            lastPreloadTimes = emptyMap(),
+            isBlocked = { false }
+        )
+
+        assertTrue(rules.isEmpty())
     }
 
     @Test

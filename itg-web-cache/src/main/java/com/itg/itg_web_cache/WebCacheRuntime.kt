@@ -1,10 +1,13 @@
 package com.itg.itg_web_cache
 
+import android.os.Handler
+import android.os.Looper
 import android.webkit.WebSettings
 import android.webkit.WebView
 import java.util.WeakHashMap
 
 object WebCacheRuntime : WebCacheRuntimeApi {
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val resolver = WebCachePolicyResolver()
     private var configProvider: WebCacheConfigProvider = WebCacheConfigProvider { WebCacheConfig() }
     private var eventListener: WebCacheEventListener = NoOpWebCacheEventListener
@@ -23,6 +26,15 @@ object WebCacheRuntime : WebCacheRuntimeApi {
     }
 
     override fun applyToContainer(webView: WebView, url: String, scene: String?): WebCachePolicy {
+        if (!isMainThread()) {
+            val policy = WebCachePolicy(false, reason = "not_main_thread")
+            WebCacheSafeCallbacks.log(
+                logger,
+                "WebCacheRuntime.applyToContainer must be called on the main thread."
+            )
+            emitContainerPolicy(url, scene, policy)
+            return policy
+        }
         WebCachePreloadManager.cancelIfConflicts(url)
         val config = runCatching { configProvider.getConfig() }.getOrElse {
             WebCacheSafeCallbacks.log(logger, "Failed to read Web cache config.", it)
@@ -35,17 +47,7 @@ object WebCacheRuntime : WebCacheRuntimeApi {
             resolvedPolicy
         }
         appliedPolicies[webView] = policy
-        WebCacheSafeCallbacks.emit(
-            eventListener,
-            WebCacheEvent(
-                name = "web_cache_container_policy",
-                url = url,
-                scene = scene,
-                reason = policy.reason,
-                cacheMode = policy.cacheMode
-            ),
-            logger
-        )
+        emitContainerPolicy(url, scene, policy)
         return policy
     }
 
@@ -86,7 +88,25 @@ object WebCacheRuntime : WebCacheRuntimeApi {
         )
     }
 
+    private fun emitContainerPolicy(url: String, scene: String?, policy: WebCachePolicy) {
+        WebCacheSafeCallbacks.emit(
+            eventListener,
+            WebCacheEvent(
+                name = "web_cache_container_policy",
+                url = url,
+                scene = scene,
+                reason = policy.reason,
+                cacheMode = policy.cacheMode
+            ),
+            logger
+        )
+    }
+
     override fun onContainerPageStarted(webView: WebView, url: String) {
+        if (!isMainThread()) {
+            mainHandler.post { onContainerPageStarted(webView, url) }
+            return
+        }
         pageStartTimes[webView] = System.currentTimeMillis()
         WebCacheSafeCallbacks.emit(
             eventListener,
@@ -101,6 +121,10 @@ object WebCacheRuntime : WebCacheRuntimeApi {
     }
 
     override fun onContainerPageFinished(webView: WebView, url: String) {
+        if (!isMainThread()) {
+            mainHandler.post { onContainerPageFinished(webView, url) }
+            return
+        }
         val start = pageStartTimes.remove(webView)
         WebCacheSafeCallbacks.emit(
             eventListener,
@@ -116,6 +140,10 @@ object WebCacheRuntime : WebCacheRuntimeApi {
     }
 
     override fun detachContainer(webView: WebView) {
+        if (!isMainThread()) {
+            mainHandler.post { detachContainer(webView) }
+            return
+        }
         appliedPolicies.remove(webView)
         pageStartTimes.remove(webView)
         WebCacheSafeCallbacks.emit(
@@ -124,4 +152,6 @@ object WebCacheRuntime : WebCacheRuntimeApi {
             logger
         )
     }
+
+    private fun isMainThread(): Boolean = Looper.myLooper() == Looper.getMainLooper()
 }

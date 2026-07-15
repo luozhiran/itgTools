@@ -32,7 +32,7 @@ import com.itg.itg_web_cache.WebCacheConfig
 | 实验性并行预热 | `preloadParallelEnable`、`preloadParallelCount`、`preloadParallelWifiOnly`、`preloadParallelHighMemoryOnly` | 预热执行方式 | 多个页面都低风险且希望缩短预热总耗时 | `resolvePreloadParallelCount()` 在运行态允许时返回并行数，当前源码限制在 `1..2` |
 | 一次性清理缓存 | `clearCacheVersion`、`disableClearPolicy`、`disableClearVersion` | 应用级 WebView 缓存 | 缓存污染、灰度回滚、关闭预热后需要处理历史缓存 | 版本号用于保证一次性执行，策略区分通用清理和关闭预热后的清理 |
 | 正式容器缓存策略 | `containerCacheEnable`、`containerCacheMode`、`containerUrlWhitelist`、`containerSceneWhitelist`、`containerSceneBlacklist`、`containerForceOverride` | 正式 WebView | 页面加载时希望使用默认缓存、缓存优先或禁用缓存 | Runtime 调用 resolver 判断 URL/scene，再改写 `webView.settings.cacheMode` |
-| 安全域名控制 | `allowedHosts` | 预热和正式容器策略 | 远程配置可能被误配或污染，需要限制业务域名 | URL 校验要求 host 命中 `allowedHosts`；为空表示不限制，不推荐生产使用 |
+| 安全域名控制 | `allowedHosts` | 预热和正式容器策略 | 远程配置可能被误配或污染，需要限制业务域名 | URL 校验要求 host 命中 `allowedHosts`；为空时拒绝所有 URL，生产必须配置 |
 
 ## 配置来源与生效时机
 
@@ -68,7 +68,7 @@ import com.itg.itg_web_cache.WebCacheConfig
 需要特别注意：
 
 - `killSwitch = true` 会同时关闭预热和正式容器缓存策略。
-- `allowedHosts` 同时影响预热 URL 和正式容器 URL；生产环境建议配置。
+- `allowedHosts` 同时影响预热 URL 和正式容器 URL；为空时拒绝所有 URL，生产环境必须配置。
 - `preloadUrlBlacklist` 的优先级高于 `preloadUrls` 和 `preloadUrlRules`。
 - `containerSceneBlacklist` 优先级高于 `containerSceneWhitelist`。
 - `preloadMaxUrlCount` 只决定本轮选多少个 URL，不决定并发数。
@@ -103,7 +103,7 @@ val config = WebCacheConfig(
 | `preloadUrlRules` | `emptyList()` | `web_cache_preload_url_rules` | 精细规则列表，可配置 `id`、`priority`、`ttlMs`、登录态、WiFi 等 |
 | `preloadUrlBlacklist` | `emptyList()` | `web_cache_preload_url_blacklist` | 预热黑名单，命中后直接跳过 |
 | `preloadMaxUrlCount` | `1` | `web_cache_preload_max_url_count` | 本轮最多选入队列的 URL 数量 |
-| `allowedHosts` | `emptyList()` | `web_cache_allowed_hosts` | 允许预热和应用容器策略的 host 白名单 |
+| `allowedHosts` | `emptyList()` | `web_cache_allowed_hosts` | 允许预热和应用容器策略的 host 白名单；为空时拒绝所有 URL |
 
 精细规则配置：
 
@@ -350,7 +350,7 @@ val config = WebCacheConfig(
 
 - `preloadEnable = false` 只关闭预热，不代表正式容器不能继续使用历史缓存；容器策略由 `containerCacheEnable` 单独控制。
 - `killSwitch = true` 不是普通预热开关，它会同时让正式容器策略不生效。
-- `allowedHosts = emptyList()` 表示不限制 host，方便本地调试，但生产环境不建议这样配置。
+- `allowedHosts = emptyList()` 表示拒绝所有 URL，预热和正式容器策略都不会生效；生产环境必须配置业务 host。
 - `preloadMaxUrlCount = 3` 不表示同时预热 3 个，只表示本轮最多选 3 个进入队列。
 - `preloadParallelCount = 3` 当前不会真的并发 3 个，源码会把并行数限制在 `1..2`。
 - `preloadLoginRequired = false` 会让规则级 `loginRequired` 不再拦截未登录状态，需确认页面不会缓存错误页。
