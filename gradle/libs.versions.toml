@@ -17,6 +17,8 @@ viewpager2 = "1.0.0"
 recyclerview = "1.3.2"
 robolectric = "4.12.2"
 coroutines = "1.8.1"
+gson = "2.9.0"
+itgNetFlow = "0.0.7.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +39,8 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
 therouter-router = { module = "cn.therouter:router", version.ref = "therouter" }
 therouter-apt = { module = "cn.therouter:apt", version.ref = "therouter" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+itg-net-flow = { module = "com.github.luozhiran.toolnet:itg-net-flow", version.ref = "itgNetFlow" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

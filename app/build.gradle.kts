@@ -68,8 +68,8 @@ dependencies {
     implementation(project(":itg-thread-pools"))
     implementation(project(":itg-log"))
     implementation(libs.okio)
-    implementation("com.github.luozhiran.toolnet:itg-net-flow:0.0.7.4")
-    implementation("com.google.code.gson:gson:2.9.0")
+    implementation(libs.itg.net.flow)
+    implementation(libs.gson)
 
 }
 
