@@ -52,7 +52,7 @@ data class TabIndicatorStyle(
      */
     @Deprecated("请通过 Material 主题的 motionEasingEmphasizedInterpolator 配置")
     val animationInterpolator: Interpolator? = null,
-    /** 是否启用指示器切换动画（默认 true） */
+    /** 是否启用指示器切换动画（默认 true）。关闭后，滑动翻页完成时才切换指示器。 */
     val animationEnabled: Boolean = true,
 
     // ========== 高级 ==========

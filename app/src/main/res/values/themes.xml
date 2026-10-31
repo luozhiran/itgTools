@@ -6,4 +6,12 @@
     </style>
 
     <style name="Theme.ItgTools" parent="Base.Theme.ItgTools" />
+
+    <style name="Theme.ItgTools.AdvancedTabs" parent="Theme.ItgTools">
+        <item name="tabStyle">@style/Widget.ItgTools.AdvancedTabLayout</item>
+    </style>
+
+    <style name="Widget.ItgTools.AdvancedTabLayout" parent="Widget.MaterialComponents.TabLayout">
+        <item name="tabBackground">@drawable/advanced_tab_background</item>
+    </style>
 </resources>

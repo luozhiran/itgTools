@@ -1,5 +1,6 @@
 package com.itg.itg_ui.tab.style
 
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
@@ -22,11 +23,14 @@ import androidx.annotation.DrawableRes
  * )
  * ```
  *
- * 四个维度各自独立，未指定的部分（null）保持 Material 默认行为。
+ * 四个维度各自独立。指示器有三种配置：
+ * - `TabStyle()`：保留 Material 默认指示器。
+ * - `TabStyle(indicator = null)`：隐藏指示器。
+ * - `TabStyle(indicator = TabIndicatorStyle(...))`：应用指定样式。
  */
 data class TabStyle(
-    /** 指示器样式（null = Material 默认） */
-    val indicator: TabIndicatorStyle? = null,
+    /** 省略 = Material 默认；null = 隐藏；[TabIndicatorStyle] = 自定义。 */
+    val indicator: TabIndicatorStyle? = UNSPECIFIED_INDICATOR,
 
     /** 文字样式（null = Material 默认） */
     val textStyle: TabTextStyle? = null,
@@ -59,4 +63,12 @@ data class TabStyle(
      * 只有在需要特殊布局（如：自定义角标位置、两级文字、图标叠加等）时才使用此项。
      */
     val customTabViewProvider: CustomTabViewProvider? = null,
-)
+) {
+    internal val isIndicatorUnspecified: Boolean
+        get() = indicator === UNSPECIFIED_INDICATOR
+
+    private companion object {
+        // 唯一 Drawable 让“省略”和显式传 TabIndicatorStyle() 在 data class 比较中也不同。
+        val UNSPECIFIED_INDICATOR = TabIndicatorStyle(drawable = ColorDrawable())
+    }
+}

@@ -1,12 +1,10 @@
 package com.itg.itgtools.pages.itgui
 
-import android.graphics.Color
 import com.google.android.material.tabs.TabLayout
 import com.itg.itg_ui.tab.TabBadge
 import com.itg.itg_ui.tab.TabConfig
 import com.itg.itg_ui.tab.TabHostActivity
 import com.itg.itg_ui.tab.TabItem
-import com.itg.itg_ui.tab.style.TabIndicatorStyle
 import com.itg.itg_ui.tab.style.TabItemStyle
 import com.itg.itg_ui.tab.style.TabPadding
 import com.itg.itg_ui.tab.style.TabStyle
@@ -31,7 +29,7 @@ class BottomNavigationTabsActivity :
         tabMode = TabLayout.MODE_FIXED,
         swipeable = false,
         style = TabStyle(
-            indicator = TabIndicatorStyle(color = Color.TRANSPARENT, heightDp = 0),
+            indicator = null,
             textStyle = TabTextStyle(
                 selectedColor = 0xFF1976D2.toInt(),
                 unselectedColor = 0xFF757575.toInt(),
@@ -43,6 +41,7 @@ class BottomNavigationTabsActivity :
                 padding = TabPadding.vertical(8f),
                 iconGravity = 1,
                 iconSizeDp = 24,
+                rippleEnabled = false,
             ),
         ),
         onPageSelected = { position, _ -> binding.status.text = "底部导航选中：${onCreateTabs()[position].title}" },

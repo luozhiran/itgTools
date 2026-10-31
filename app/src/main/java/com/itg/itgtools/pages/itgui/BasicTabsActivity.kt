@@ -3,8 +3,10 @@ package com.itg.itgtools.pages.itgui
 import android.graphics.Color
 import android.os.Bundle
 import com.itg.itg_ui.tab.TabBadge
+import com.itg.itg_ui.tab.TabBadgePosition
 import com.itg.itg_ui.tab.TabConfig
 import com.itg.itg_ui.tab.TabHostActivity
+import com.itg.itg_ui.tab.TabImageBadge
 import com.itg.itg_ui.tab.TabItem
 import com.itg.itgtools.databinding.ActivityItgUiTabsBinding
 
@@ -13,7 +15,16 @@ class BasicTabsActivity : TabHostActivity<ActivityItgUiTabsBinding, ItgUiDemoMod
 
     override fun onCreateTabs(): List<TabItem<*>> = listOf(
         page("首页", "默认选中，首次可见时触发懒加载", Color.rgb(232, 245, 233), android.R.drawable.ic_menu_view),
-        page("发现", "滑动或点击切换，观察生命周期日志", Color.rgb(227, 242, 253), android.R.drawable.ic_menu_search),
+        page(
+            "发现", "左上角图片角标；滑动或点击切换",
+            Color.rgb(227, 242, 253), android.R.drawable.ic_menu_search,
+            TabImageBadge(
+                imageRes = android.R.drawable.btn_star_big_on,
+                imageSizeDp = 18,
+                count = 3,
+                position = TabBadgePosition.TOP_START,
+            ),
+        ),
         page("消息", "超过 maxNumber 后显示 99+，并支持运行时更新", Color.rgb(255, 243, 224), android.R.drawable.ic_dialog_email, TabBadge(count = badgeCount, backgroundColor = 0xFF1565C0.toInt())),
         page("我的", "支持 selectTab/currentPosition/getFragmentAt", Color.rgb(243, 229, 245), android.R.drawable.ic_menu_myplaces),
     )

@@ -12,7 +12,6 @@ import com.itg.itg_ui.tab.TabConfig
 import com.itg.itg_ui.tab.TabHostActivity
 import com.itg.itg_ui.tab.TabItem
 import com.itg.itg_ui.tab.style.CustomTabViewProvider
-import com.itg.itg_ui.tab.style.TabIndicatorStyle
 import com.itg.itg_ui.tab.style.TabStyle
 import com.itg.itgtools.databinding.ActivityItgUiTabsBinding
 
@@ -28,7 +27,7 @@ class CustomTabsActivity : TabHostActivity<ActivityItgUiTabsBinding, ItgUiDemoMo
     override fun onCreateTabConfig() = TabConfig(
         autoTitle = false,
         style = TabStyle(
-            indicator = TabIndicatorStyle(color = Color.TRANSPARENT, heightDp = 0),
+            indicator = null,
             customTabViewProvider = DemoCustomTabProvider,
         ),
         onPageSelected = { position, _ -> binding.status.text = "自定义 Tab 选中 position=$position" },

@@ -1,7 +1,6 @@
 package com.itg.itgtools.pages.itgui
 
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -70,8 +69,6 @@ class AdvancedTabStylesActivity :
                 itemStyle = TabItemStyle(
                     minWidthDp = 96,
                     padding = TabPadding.all(8f),
-                    selectedBackground = 0xFFFFF3E0.toInt(),
-                    unselectedBackground = Color.TRANSPARENT,
                     rippleColor = 0x33FF6F00,
                     iconTint = iconTint,
                     iconSizeDp = 22,

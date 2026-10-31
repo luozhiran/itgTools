@@ -69,7 +69,8 @@ interface CustomTabViewProvider {
 
     /**
      * 角标更新回调（当业务层调用 [com.itg.itg_ui.tab.TabViewPagerAbility.updateBadge] 时触发）。
-     * 默认不实现——如果自定义 View 中需要显示角标，覆写此方法即可。
+     * 默认不实现——自定义 Tab View 的角标由 Provider 自行绘制；
+     * 如需显示 [com.itg.itg_ui.tab.TabImageBadge]，也应在此处理。
      *
      * @param view  之前 [createView] 返回的 View 实例
      * @param badge 新的角标配置，null 表示清除角标

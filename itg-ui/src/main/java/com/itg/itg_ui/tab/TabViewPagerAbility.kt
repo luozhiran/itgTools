@@ -2,6 +2,7 @@ package com.itg.itg_ui.tab
 
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.RippleDrawable
@@ -9,6 +10,8 @@ import android.graphics.drawable.StateListDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.ColorInt
 import androidx.appcompat.content.res.AppCompatResources
@@ -36,7 +39,7 @@ import java.lang.ref.WeakReference
  * 2. 通过 [TabLayoutMediator] 联动 TabLayout 和 ViewPager2
  * 3. 应用 [TabStyle] 样式配置（指示器、文字、Tab 项、自定义 View）
  * 4. 管理 Tab 选中/取消选中事件，分发给 [BaseTabFragment]
- * 5. 管理角标（BadgeDrawable）
+ * 5. 管理数字、圆点及图片角标
  * 6. 在 onDestroy 时清理 Mediator 和回调
  *
  * 使用方式：
@@ -56,6 +59,8 @@ open class TabViewPagerAbility : LifeAbility() {
 
     private var adapter: GenericTabAdapter? = null
     private var tabMediator: TabLayoutMediator? = null
+    private var stationaryIndicatorCallback: ViewPager2.OnPageChangeCallback? = null
+    private val imageBadgeAttachments = mutableMapOf<View, ImageBadgeAttachment>()
     private var config: TabConfig = TabConfig()
     private var tabs: List<TabItem<*>> = emptyList()
 
@@ -201,7 +206,48 @@ open class TabViewPagerAbility : LifeAbility() {
         tabMediator = mediator
 
         // 6. 应用指示器样式
-        config.style?.indicator?.let { applyIndicatorStyle(tabLayout, it) }
+        config.style?.let { style ->
+            when {
+                style.isIndicatorUnspecified -> Unit
+                style.indicator == null -> {
+                    tabLayout.setSelectedTabIndicatorColor(Color.TRANSPARENT)
+                    tabLayout.setSelectedTabIndicator(ColorDrawable(Color.TRANSPARENT))
+                }
+                else -> {
+                    val indicator = style.indicator
+                    applyIndicatorStyle(tabLayout, indicator)
+                    // Mediator 已初始化旧 Drawable；替换后需要给新 Drawable 设置当前 Tab 的水平边界。
+                    tabLayout.setScrollPosition(viewPager.currentItem, 0f, false, true)
+                    if (!indicator.animationEnabled) {
+                        // Mediator 会在手势滑动时更新指示器，即使动画时长为 0。
+                        // 在它之后注册回调，保持上一个已停稳页面的指示器，滑动结束再切换。
+                        var settledPosition = viewPager.currentItem
+                        var scrollState = ViewPager2.SCROLL_STATE_IDLE
+                        stationaryIndicatorCallback = object : ViewPager2.OnPageChangeCallback() {
+                            private fun showSettledIndicator() {
+                                tabLayout.setScrollPosition(settledPosition, 0f, false, true)
+                            }
+
+                            override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {
+                                if (scrollState != ViewPager2.SCROLL_STATE_IDLE) showSettledIndicator()
+                            }
+
+                            override fun onPageSelected(position: Int) {
+                                if (scrollState != ViewPager2.SCROLL_STATE_IDLE) showSettledIndicator()
+                            }
+
+                            override fun onPageScrollStateChanged(state: Int) {
+                                scrollState = state
+                                if (state == ViewPager2.SCROLL_STATE_IDLE) {
+                                    settledPosition = viewPager.currentItem
+                                }
+                                showSettledIndicator()
+                            }
+                        }.also(viewPager::registerOnPageChangeCallback)
+                    }
+                }
+            }
+        }
 
         // 7. 应用文字样式（在 Mediator.attach() 之后，因为 attach 会创建 TextView）
         config.style?.textStyle?.let { applyTextStyle(tabLayout, it) }
@@ -246,6 +292,7 @@ open class TabViewPagerAbility : LifeAbility() {
         if (badge != null) {
             applyBadge(tab, badge)
         } else {
+            removeImageBadge(tab.view)
             tab.removeBadge()
         }
     }
@@ -494,15 +541,19 @@ open class TabViewPagerAbility : LifeAbility() {
             view.background = stateList
         }
 
-        // 水波纹效果
-        itemStyle.rippleColor?.let { rippleColor ->
-            val mask = ColorDrawable(Color.WHITE)
-            val ripple = RippleDrawable(
-                ColorStateList.valueOf(rippleColor),
-                view.background, // 保留现有背景
-                mask
-            )
-            view.background = ripple
+        // 移除 Material 默认水波纹；已有的选中/未选中背景继续使用。
+        if (!itemStyle.rippleEnabled) {
+            if (selectedBg == null && unselectedBg == null) view.background = null
+        } else {
+            itemStyle.rippleColor?.let { rippleColor ->
+                val mask = ColorDrawable(Color.WHITE)
+                val ripple = RippleDrawable(
+                    ColorStateList.valueOf(rippleColor),
+                    view.background, // 保留现有背景
+                    mask
+                )
+                view.background = ripple
+            }
         }
 
         // 图标大小
@@ -543,9 +594,20 @@ open class TabViewPagerAbility : LifeAbility() {
 
     // ==================== 角标 ====================
 
+    private class ImageBadgeAttachment(
+        val anchor: View,
+        val drawable: ImageBadgeDrawable,
+        val layoutListener: View.OnLayoutChangeListener,
+    )
+
     private fun applyBadge(tab: TabLayout.Tab, badge: TabBadge) {
         // Recreate the drawable so nullable style properties restore Material defaults on update.
+        removeImageBadge(tab.view)
         tab.removeBadge()
+        if (badge is TabImageBadge) {
+            applyImageBadge(tab, badge)
+            return
+        }
         if (!badge.showAsDot && badge.count <= 0) return
         val badgeDrawable = tab.orCreateBadge
         if (badge.showAsDot) {
@@ -559,6 +621,87 @@ open class TabViewPagerAbility : LifeAbility() {
             badgeDrawable.isVisible = true
         }
         badge.backgroundColor?.let { badgeDrawable.backgroundColor = it }
+        @Suppress("DEPRECATION")
+        badgeDrawable.badgeGravity = when (badge.position) {
+            TabBadgePosition.TOP_START -> BadgeDrawable.TOP_START
+            TabBadgePosition.TOP_END -> BadgeDrawable.TOP_END
+            TabBadgePosition.BOTTOM_START -> BadgeDrawable.BOTTOM_START
+            TabBadgePosition.BOTTOM_END -> BadgeDrawable.BOTTOM_END
+        }
+        badge.horizontalOffsetDp?.let { badgeDrawable.setHorizontalOffset(dp2pxInt(it)) }
+        badge.verticalOffsetDp?.let { badgeDrawable.setVerticalOffset(dp2pxInt(it)) }
+    }
+
+    private fun applyImageBadge(tab: TabLayout.Tab, badge: TabImageBadge) {
+        val host = tab.view
+        val source = badge.image ?: badge.imageRes?.let { AppCompatResources.getDrawable(host.context, it) }
+            ?: return
+        val image = source.constantState?.newDrawable(host.resources)?.mutate() ?: source.mutate()
+        val drawable = ImageBadgeDrawable(image, badge, host.context)
+        val anchor = when {
+            tab.icon != null -> findBadgeAnchor(host) { it is ImageView }
+            else -> null
+        } ?: findBadgeAnchor(host) { it is TextView } ?: host
+        val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateImageBadgeBounds(host, anchor, drawable, badge)
+        }
+        imageBadgeAttachments[host] = ImageBadgeAttachment(anchor, drawable, layoutListener)
+        host.overlay.add(drawable)
+        host.addOnLayoutChangeListener(layoutListener)
+        if (anchor !== host) anchor.addOnLayoutChangeListener(layoutListener)
+        updateImageBadgeBounds(host, anchor, drawable, badge)
+    }
+
+    private fun updateImageBadgeBounds(
+        host: View,
+        anchor: View,
+        drawable: ImageBadgeDrawable,
+        badge: TabImageBadge,
+    ) {
+        if (host.width == 0 || host.height == 0 || anchor.width == 0 || anchor.height == 0) return
+        val anchorBounds = Rect()
+        anchor.getDrawingRect(anchorBounds)
+        if (anchor !== host) (host as ViewGroup).offsetDescendantRectToMyCoords(anchor, anchorBounds)
+
+        val size = dp2pxInt(badge.imageSizeDp).coerceAtLeast(1)
+        val horizontalOffset = dp2pxInt(badge.horizontalOffsetDp ?: 0)
+        val verticalOffset = dp2pxInt(badge.verticalOffsetDp ?: 0)
+        val atStart = badge.position == TabBadgePosition.TOP_START ||
+            badge.position == TabBadgePosition.BOTTOM_START
+        val atTop = badge.position == TabBadgePosition.TOP_START ||
+            badge.position == TabBadgePosition.TOP_END
+        val atLeft = if (host.layoutDirection == View.LAYOUT_DIRECTION_RTL) !atStart else atStart
+        val left = (if (atLeft) {
+            anchorBounds.left - size / 2 + horizontalOffset
+        } else {
+            anchorBounds.right - size / 2 - horizontalOffset
+        }).coerceIn(0, (host.width - size).coerceAtLeast(0))
+        val top = (if (atTop) {
+            anchorBounds.top - size / 2 + verticalOffset
+        } else {
+            anchorBounds.bottom - size / 2 - verticalOffset
+        }).coerceIn(0, (host.height - size).coerceAtLeast(0))
+        drawable.setBounds(left, top, left + size, top + size)
+        host.invalidate()
+    }
+
+    private fun findBadgeAnchor(view: View, predicate: (View) -> Boolean): View? {
+        if (predicate(view) && view.visibility == View.VISIBLE) return view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findBadgeAnchor(view.getChildAt(index), predicate)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun removeImageBadge(host: View) {
+        val attachment = imageBadgeAttachments.remove(host) ?: return
+        host.removeOnLayoutChangeListener(attachment.layoutListener)
+        if (attachment.anchor !== host) {
+            attachment.anchor.removeOnLayoutChangeListener(attachment.layoutListener)
+        }
+        host.overlay.remove(attachment.drawable)
     }
 
     /**
@@ -631,14 +774,17 @@ open class TabViewPagerAbility : LifeAbility() {
      * 调用后可重新调用 [bind] 进行新的绑定。
      */
     open fun unbind() {
+        imageBadgeAttachments.keys.toList().forEach(::removeImageBadge)
         val boundViewPager = viewPager
         boundViewPager?.let { vp ->
             try {
                 vp.unregisterOnPageChangeCallback(pageChangeCallback)
+                stationaryIndicatorCallback?.let(vp::unregisterOnPageChangeCallback)
             } catch (_: Exception) {
                 // 回调可能已被移除
             }
         }
+        stationaryIndicatorCallback = null
         // 取消尚未执行的初始页面回调 Runnable
         initialPageRunnable?.let { tabLayout?.removeCallbacks(it) }
         initialPageRunnable = null

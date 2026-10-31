@@ -51,4 +51,6 @@ data class TabItemStyle(
     val iconSizeDp: Int? = null,
     /** 图标与文字之间的间距（dp），null = Material 默认 8dp */
     val iconTextGapDp: Int? = null,
+    /** 是否显示点击水波纹，false 时保留选中/未选中背景但移除水波纹 */
+    val rippleEnabled: Boolean = true,
 )
