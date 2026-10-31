@@ -31,4 +31,8 @@ data class TabItem<F : Fragment>(
     val badge: TabBadge? = null,
     /** 唯一标识，默认使用 [fragmentClass] 的 canonicalName */
     val tag: String = fragmentClass.canonicalName ?: fragmentClass.simpleName,
+    /** 选中时的图标 [Drawable]（可选，与 [selectedIconRes] 二选一） */
+    val selectedIcon: Drawable? = null,
+    /** 选中时的图标资源 ID（可选，与 [selectedIcon] 二选一） */
+    val selectedIconRes: Int? = null,
 )

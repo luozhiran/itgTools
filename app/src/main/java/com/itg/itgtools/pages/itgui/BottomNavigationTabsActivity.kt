@@ -11,6 +11,7 @@ import com.itg.itg_ui.tab.style.TabItemStyle
 import com.itg.itg_ui.tab.style.TabPadding
 import com.itg.itg_ui.tab.style.TabStyle
 import com.itg.itg_ui.tab.style.TabTextStyle
+import com.itg.itgtools.R
 import com.itg.itgtools.databinding.ActivityItgUiBottomTabsBinding
 
 class BottomNavigationTabsActivity :
@@ -18,7 +19,10 @@ class BottomNavigationTabsActivity :
 
     override fun onCreateTabs(): List<TabItem<*>> = listOf(
         page("首页", android.R.drawable.ic_menu_view, 0xFFE8F5E9.toInt()),
-        page("发现", android.R.drawable.ic_menu_search, 0xFFE3F2FD.toInt()),
+        page(
+            "发现", R.drawable.ic_tab_discover, 0xFFE3F2FD.toInt(),
+            selectedIcon = R.drawable.ic_tab_discover_selected,
+        ),
         page("消息", android.R.drawable.ic_dialog_email, 0xFFFFF3E0.toInt(), TabBadge(showAsDot = true)),
         page("我的", android.R.drawable.ic_menu_myplaces, 0xFFF3E5F5.toInt()),
     )
@@ -44,9 +48,16 @@ class BottomNavigationTabsActivity :
         onPageSelected = { position, _ -> binding.status.text = "底部导航选中：${onCreateTabs()[position].title}" },
     )
 
-    private fun page(title: String, icon: Int, color: Int, badge: TabBadge? = null) = TabItem(
+    private fun page(
+        title: String,
+        icon: Int,
+        color: Int,
+        badge: TabBadge? = null,
+        selectedIcon: Int? = null,
+    ) = TabItem(
         title = title,
         iconRes = icon,
+        selectedIconRes = selectedIcon,
         fragmentClass = DemoPageFragment::class.java,
         arguments = DemoPageFragment.arguments(title, "底部导航模式：禁止左右滑动", color),
         badge = badge,

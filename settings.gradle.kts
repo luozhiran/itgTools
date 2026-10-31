@@ -1,4 +1,11 @@
 pluginManagement {
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "cn.therouter") {
+                useModule("cn.therouter:plugin:${requested.version}")
+            }
+        }
+    }
     repositories {
         google {
             content {
@@ -7,6 +14,7 @@ pluginManagement {
                 includeGroupByRegex("androidx.*")
             }
         }
+        maven { url = uri("https://maven.therouter.cn:8443/repository/maven-public/") }
         mavenCentral()
         gradlePluginPortal()
     }
@@ -20,6 +28,7 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
+        maven { url = uri("https://maven.therouter.cn:8443/repository/maven-public/") }
         mavenCentral()
     }
 }

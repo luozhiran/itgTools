@@ -528,9 +528,17 @@ open class TabViewPagerAbility : LifeAbility() {
     private fun configureTabIcon(tab: TabLayout.Tab, item: TabItem<*>) {
         val icon = (item.icon
             ?: item.iconRes?.let { AppCompatResources.getDrawable(tab.view.context, it) })?.mutate()
-        if (icon != null) {
-            tab.setIcon(icon)
+        val selectedIcon = (item.selectedIcon
+            ?: item.selectedIconRes?.let { AppCompatResources.getDrawable(tab.view.context, it) })?.mutate()
+        val drawable = if (icon != null && selectedIcon != null) {
+            StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_selected), selectedIcon)
+                addState(intArrayOf(), icon)
+            }
+        } else {
+            icon ?: selectedIcon
         }
+        drawable?.let(tab::setIcon)
     }
 
     // ==================== 角标 ====================
