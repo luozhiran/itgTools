@@ -59,6 +59,7 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     implementation(project(":outter"))
+    implementation(project(":itg-dialog"))
     implementation(libs.therouter.router)
     ksp(libs.therouter.apt)
     ksp(project(":itg-ksp-compiler"))

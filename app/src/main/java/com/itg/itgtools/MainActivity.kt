@@ -3,6 +3,7 @@ package com.itg.itgtools
 import android.content.Intent
 import android.os.Bundle
 import com.itg.itg_base.AutoBindingBaseActivity
+import com.itg.itgtools.pages.itgdialog.DialogQueueDemoActivity
 import com.itg.itgtools.pages.itgui.ItgUiExamplesActivity
 import com.itg.itgtools.databinding.ActivityMainBinding
 import com.itg.itgtools.route.RoutePath
@@ -14,6 +15,9 @@ class MainActivity : AutoBindingBaseActivity<ActivityMainBinding, MainModel>() {
         super.onCreate(savedInstanceState)
         binding.openItgUiExamples.setOnClickListener {
             startActivity(Intent(this, ItgUiExamplesActivity::class.java))
+        }
+        binding.openDialogQueueDemo.setOnClickListener {
+            startActivity(Intent(this, DialogQueueDemoActivity::class.java))
         }
     }
 }
