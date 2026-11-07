@@ -3,6 +3,10 @@ plugins {
     `maven-publish`
 }
 
+val rnNodeModules = providers.gradleProperty("rnNodeModulesDir")
+    .map { rootProject.file(it) }
+    .orElse(rootProject.file("node_modules"))
+
 android {
     namespace = "com.itg.rnbussiness"
     compileSdk {
@@ -15,6 +19,12 @@ android {
         minSdk = 24
 
         consumerProguardFiles("consumer-rules.keep")
+        externalNativeBuild {
+            cmake {
+                arguments += "-DREACT_ANDROID_DIR=${rnNodeModules.get().resolve("react-native/ReactAndroid").absolutePath}"
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -22,15 +32,29 @@ android {
     }
     publishing { singleVariant("release") { withSourcesJar() } }
 
+    ndkVersion = "27.1.12297006"
+    buildFeatures { prefab = true }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/jni/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+}
+
+// Codegen output is checked in (includesGeneratedCode=true) so an AAR consumer
+// can compile without running npm in the consuming Android project.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.java?.addStaticSourceDirectory("codegen/java")
+    }
 }
 
 dependencies {
     api(project(":itg-rn-container"))
 }
 
-val rnNodeModules = providers.gradleProperty("rnNodeModulesDir")
-    .map { rootProject.file(it) }
-    .orElse(rootProject.file("node_modules"))
 val rnAssets = file("src/main/assets")
 val rnMetro = layout.buildDirectory.file("generated/rn/metro/index.android.bundle")
 val rnBundle = tasks.register<Exec>("bundleItgRnRelease") {
@@ -60,7 +84,7 @@ val rnCompile = tasks.register<Exec>("compileItgRnHermesRelease") {
     inputs.file(rnMetro)
     outputs.file(rnAssets.resolve("index.android.bundle"))
     doFirst { require(hermesc.isFile) { "Hermes compiler missing: $hermesc" } }
-    commandLine(hermesc.absolutePath, "-emit-binary", "-out",
+    commandLine(hermesc.absolutePath, "-emit-binary", "-O", "-w", "-out",
         rnAssets.resolve("index.android.bundle").absolutePath, rnMetro.get().asFile.absolutePath)
 }
 tasks.matching { it.name == "mergeReleaseAssets" }.configureEach { dependsOn(rnCompile) }

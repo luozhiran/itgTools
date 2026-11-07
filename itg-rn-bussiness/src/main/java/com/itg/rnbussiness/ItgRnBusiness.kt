@@ -12,6 +12,7 @@ import com.itg.rncontainer.ItgRnPage
 object ItgRnBusiness {
     const val COMPONENT = "ItgRnBusiness"
     const val ORDER_DETAIL = "orderDetail"
+    const val NATIVE_DEMO = "nativeDemo"
 
     fun orderDetailPage(orderId: String): ItgRnPage {
         require(orderId.isNotBlank()) { "orderId is required" }
@@ -26,4 +27,11 @@ object ItgRnBusiness {
 
     fun attachOrderDetail(manager: FragmentManager, containerViewId: Int, orderId: String): ItgRnInstance =
         ItgRnContainer.attach(manager, containerViewId, orderDetailPage(orderId))
+
+    fun nativeDemoPage(): ItgRnPage = ItgRnPage(COMPONENT, NATIVE_DEMO)
+
+    fun openNativeDemo(activity: Activity) = ItgRnContainer.launch(activity, nativeDemoPage())
+
+    fun attachNativeDemo(manager: FragmentManager, containerViewId: Int): ItgRnInstance =
+        ItgRnContainer.attach(manager, containerViewId, nativeDemoPage())
 }

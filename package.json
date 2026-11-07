@@ -2,9 +2,11 @@
   "name": "itg-tools-rn",
   "version": "0.1.0",
   "private": true,
+  "workspaces": ["itg-rn-bussiness"],
   "scripts": {
     "start": "react-native start",
-    "bundle:android": "bash gradlew :itg-rn-bussiness:compileItgRnHermesRelease"
+    "bundle:android": "bash gradlew :itg-rn-bussiness:compileItgRnHermesRelease",
+    "codegen:android": "react-native codegen --path itg-rn-bussiness --platform android --outputPath itg-rn-bussiness/codegen"
   },
   "dependencies": {
     "react": "19.2.3",
