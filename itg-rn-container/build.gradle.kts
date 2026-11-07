@@ -1,9 +1,10 @@
 plugins {
     alias(libs.plugins.android.library)
+    `maven-publish`
 }
 
 android {
-    namespace = "com.itg.itg_rn_container"
+    namespace = "com.itg.rncontainer"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -13,20 +14,33 @@ android {
     defaultConfig {
         minSdk = 24
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.keep")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    publishing { singleVariant("release") { withSourcesJar() } }
 
 }
 
 dependencies {
+    api(rootProject.extra["rnReactCoordinate"] as String)
+    api(libs.androidx.fragment)
+    implementation(rootProject.extra["rnHermesCoordinate"] as String)
     implementation(libs.androidx.appcompat)
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.material)
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.junit)
+}
+
+afterEvaluate {
+    publishing {
+        repositories { maven { url = uri(layout.buildDirectory.dir("repo")) } }
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+                groupId = "com.itg"
+                artifactId = "itg-rn-container"
+                version = "0.1.0"
+            }
+        }
+    }
 }

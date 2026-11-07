@@ -1,0 +1,3 @@
+<resources>
+    <style name="ItgRnContainerTheme" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>

@@ -1,4 +1,5 @@
 # Gradle files
+/node_modules/
 .gradle/
 build/
 
