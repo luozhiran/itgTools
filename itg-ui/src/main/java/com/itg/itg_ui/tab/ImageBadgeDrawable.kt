@@ -10,74 +10,113 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import com.google.android.material.color.MaterialColors
 
-/** 在图片上绘制可选的数字或圆点，供 Tab 的 ViewOverlay 使用。 */
+/** Draws an image with an optional count or dot badge inside its top-end corner. */
 internal class ImageBadgeDrawable(
     private val image: Drawable,
-    private val badge: TabImageBadge,
+    badge: TabImageBadge,
     context: Context,
 ) : Drawable(), Drawable.Callback {
-    private val density = context.resources.displayMetrics.density
-    private val scaledDensity = context.resources.displayMetrics.scaledDensity
-    private val bubble = RectF()
-    private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        typeface = Typeface.DEFAULT_BOLD
-        textAlign = Paint.Align.CENTER
-    }
-    private var drawableAlpha = 255
 
+    private val density = context.resources.displayMetrics.density
+    private val showDot = badge.showAsDot
+    private val label = when {
+        showDot || badge.count <= 0 -> null
+        badge.count > badge.maxNumber -> "${badge.maxNumber}+"
+        else -> badge.count.toString()
+    }
+    private val backgroundColor = badge.backgroundColor ?: MaterialColors.getColor(
+        context,
+        com.google.android.material.R.attr.colorError,
+        DEFAULT_BADGE_COLOR,
+    )
+    private val textColor = MaterialColors.getColor(
+        context,
+        com.google.android.material.R.attr.colorOnError,
+        Color.WHITE,
+    )
+    private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = backgroundColor }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = textColor
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val badgeBounds = RectF()
     init {
         image.callback = this
+    }
+
+    override fun draw(canvas: Canvas) {
+        image.draw(canvas)
+        when {
+            showDot -> drawDot(canvas)
+            label != null -> drawLabel(canvas, label)
+        }
     }
 
     override fun onBoundsChange(bounds: Rect) {
         image.bounds = bounds
     }
 
-    override fun draw(canvas: Canvas) {
-        image.draw(canvas)
-        val bounds = bounds
-        if (bounds.isEmpty) return
+    private fun drawDot(canvas: Canvas) {
+        val radius = minOf(dp(DOT_RADIUS_DP), bounds.width() * 0.16f, bounds.height() * 0.16f)
+        if (radius <= 0f) return
+        canvas.drawCircle(bounds.right - radius, bounds.top + radius, radius, backgroundPaint)
+    }
 
-        bubblePaint.color = badge.backgroundColor ?: Color.RED
-        bubblePaint.alpha = drawableAlpha
-        if (badge.showAsDot) {
-            val radius = minOf(4f * density, bounds.width() * 0.2f)
-            canvas.drawCircle(bounds.right - radius, bounds.top + radius, radius, bubblePaint)
-        } else if (badge.count > 0) {
-            val label = if (badge.count > badge.maxNumber) "${badge.maxNumber}+" else badge.count.toString()
-            val height = minOf(14f * density, bounds.height() * 0.6f)
-            textPaint.textSize = minOf(10f * scaledDensity, height * 0.72f)
-            val width = (textPaint.measureText(label) + 5f * density)
-                .coerceAtLeast(height)
-                .coerceAtMost(bounds.width().toFloat())
-            bubble.set(bounds.right - width, bounds.bottom - height, bounds.right.toFloat(), bounds.bottom.toFloat())
-            canvas.drawRoundRect(bubble, height / 2f, height / 2f, bubblePaint)
-            textPaint.alpha = drawableAlpha
-            val textY = bubble.centerY() - (textPaint.ascent() + textPaint.descent()) / 2f
-            canvas.drawText(label, bubble.centerX(), textY, textPaint)
+    private fun drawLabel(canvas: Canvas, text: String) {
+        val badgeHeight = minOf(dp(MAX_LABEL_HEIGHT_DP), bounds.height() * 0.5f)
+        if (badgeHeight <= 0f) return
+
+        textPaint.textSize = badgeHeight * 0.68f
+        val horizontalPadding = dp(LABEL_HORIZONTAL_PADDING_DP)
+        val availableTextWidth = (bounds.width() - horizontalPadding * 2f).coerceAtLeast(1f)
+        val measuredTextWidth = textPaint.measureText(text)
+        if (measuredTextWidth > availableTextWidth) {
+            textPaint.textSize *= availableTextWidth / measuredTextWidth
         }
+        val badgeWidth = maxOf(badgeHeight, textPaint.measureText(text) + horizontalPadding * 2f)
+            .coerceAtMost(bounds.width().toFloat())
+        badgeBounds.set(
+            bounds.right - badgeWidth,
+            bounds.top.toFloat(),
+            bounds.right.toFloat(),
+            bounds.top + badgeHeight,
+        )
+        val radius = badgeHeight / 2f
+        canvas.drawRoundRect(badgeBounds, radius, radius, backgroundPaint)
+
+        val metrics = textPaint.fontMetrics
+        val baseline = badgeBounds.centerY() - (metrics.ascent + metrics.descent) / 2f
+        canvas.drawText(text, badgeBounds.centerX(), baseline, textPaint)
     }
 
     override fun setAlpha(alpha: Int) {
-        drawableAlpha = alpha
-        image.alpha = alpha
+        val resolvedAlpha = alpha.coerceIn(0, 255)
+        image.alpha = resolvedAlpha
+        backgroundPaint.alpha = Color.alpha(backgroundColor) * resolvedAlpha / 255
+        textPaint.alpha = Color.alpha(textColor) * resolvedAlpha / 255
         invalidateSelf()
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
         image.colorFilter = colorFilter
+        backgroundPaint.colorFilter = colorFilter
+        textPaint.colorFilter = colorFilter
         invalidateSelf()
     }
 
-    @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 
     override fun isStateful(): Boolean = image.isStateful
 
     override fun onStateChange(state: IntArray): Boolean = image.setState(state)
+
+    override fun getIntrinsicWidth(): Int = image.intrinsicWidth
+
+    override fun getIntrinsicHeight(): Int = image.intrinsicHeight
 
     override fun invalidateDrawable(who: Drawable) = invalidateSelf()
 
@@ -85,4 +124,13 @@ internal class ImageBadgeDrawable(
         scheduleSelf(what, `when`)
 
     override fun unscheduleDrawable(who: Drawable, what: Runnable) = unscheduleSelf(what)
+
+    private fun dp(value: Float): Float = value * density
+
+    private companion object {
+        const val DOT_RADIUS_DP = 3f
+        const val MAX_LABEL_HEIGHT_DP = 12f
+        const val LABEL_HORIZONTAL_PADDING_DP = 2f
+        const val DEFAULT_BADGE_COLOR = 0xFFB3261E.toInt()
+    }
 }
