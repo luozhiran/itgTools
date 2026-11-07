@@ -4,11 +4,11 @@
 
 ## 1. 目标与边界
 
-容器负责把 React Native（下称 RN）视图嵌入业务已有的 Activity/Fragment，管理每个嵌入实例的组件、参数、渲染生命周期与通信。`itg-rn-bussiness` 依赖容器，封装业务页面、JS Bundle 和业务原生能力，作为面向业务宿主的交付入口。业务方提供 `FrameLayout` 占位视图并调用业务模块 API，不直接操作 `ReactFragment` 的事务细节。
+容器负责把 React Native（下称 RN）视图嵌入 Android 页面，管理每个嵌入实例的组件、参数、渲染生命周期与通信。`itg-rn-container` 同时提供内置 Activity 和 Fragment 接入 API：业务可直接启动内置 Activity，也可在自己的 Activity/Fragment 中放置 `FrameLayout` 并挂载 RN。`itg-rn-bussiness` 依赖容器，封装业务页面、JS Bundle 和业务原生能力，作为面向业务宿主的交付入口。
 
 首版范围：
 
-- 以 `ReactFragment` 为默认页面载体；每个容器实例独立持有一个 RN Fragment、组件名、页面参数及销毁状态，可同时嵌入多个占位区域。
+- 对外提供 `ItgRnContainerFragment`，其内部承载 RN 0.84 的 `ReactFragment`；容器内置 `ItgRnContainerActivity` 使用同一个容器 Fragment。每个容器实例独立持有组件名、页面参数及销毁状态，可同时嵌入多个占位区域。
 - JS Bundle 默认在 `itg-rn-bussiness` 构建阶段生成，并作为业务 AAR 的 asset 随宿主 APK/AAB 合并；业务自己的 Codegen/本地库也由业务模块构建。底层容器 AAR 保持与具体业务无关。
 - 支持在占位区域挂载/卸载、传入初始参数、页面结果、基础错误回调和必要的 JS↔Native 能力。
 - 发布 `release` AAR 与 Maven 元数据，并提供独立业务接入验证。
@@ -32,7 +32,8 @@
 ```text
 业务 Android App
 ├─ Application：按 RN 0.84 集成要求提供 ReactHost 与注册入口
-├─ Activity/Fragment 布局：FrameLayout 占位
+├─ 入口 A：直接启动容器内置 ItgRnContainerActivity
+├─ 入口 B：在自有 Activity/Fragment 的 FrameLayout 挂载 RN Fragment
 └─ implementation("com.itg:itg-rn-bussiness:<version>")
                         │
                         ▼
@@ -44,8 +45,10 @@
                         │
                         ▼
              :itg-rn-container（底层 AAR）
-             ├─ ItgRnContainer.attach(...)：创建容器实例
-             ├─ ItgRnInstance：持有自己的 ReactFragment 与页面状态
+             ├─ ItgRnContainerActivity：开箱即用的全屏宿主
+             ├─ ItgRnContainerFragment：公共容器 Fragment，内部持有 ReactFragment
+             ├─ ItgRnContainer.attach(...)：挂载容器 Fragment
+             ├─ ItgRnInstance：持有实例句柄与页面状态
              ├─ 通用桥接、错误处理与 consumer rules
              └─ Maven 元数据依赖 react-android / hermes-android
 ```
@@ -54,15 +57,28 @@ RN 0.84 官方的 Fragment 集成方式是：宿主放置 `FrameLayout`，用 `R
 
 ### 3.1 实例隔离与运行时边界
 
-- `ItgRnInstance` 是每次 `attach` 创建的对象，不使用全局页面单例；它拥有 `instanceId`、`ReactFragment`、组件名、初始参数、状态与回调。一个实例只控制自己的 `containerViewId`，卸载时仅移除自己的 Fragment，Fragment tag 使用 `instanceId` 避免互相覆盖。实例索引按宿主 `FragmentManager` 作用域管理，并随宿主销毁清理。
+- `ItgRnInstance` 是每次 `attach` 创建的对象，不使用全局页面单例；它拥有 `instanceId`、`ItgRnContainerFragment`、组件名、初始参数、状态与回调。一个实例只控制自己的 `containerViewId`，卸载时仅移除自己的容器 Fragment，Fragment tag 使用 `instanceId` 避免互相覆盖。实例索引按宿主 `FragmentManager` 作用域管理，并随宿主销毁清理。
 - `ReactFragment` 提供的是**视图/页面实例隔离**。RN 0.84 的官方 Fragment 路径仍基于宿主已有的 RN 基础接入；`ReactApplication` 的 `reactHost` 是 Application 提供的入口。由此不能推断 `ReactFragment.Builder` 会为每个 Fragment 创建独立 JS 引擎或从不同 Host 选路。[RN 0.84 Fragment 集成](https://reactnative.dev/docs/0.84/integration-with-android-fragment)、[RN 0.84 ReactApplication 接口](https://github.com/react/react-native/blob/v0.84.0/packages/react-native/ReactAndroid/src/main/java/com/facebook/react/ReactApplication.kt)
 - 默认实现让多个 `ItgRnInstance` 各自渲染自己的组件和参数，同时复用宿主提供的 `ReactHost`。容器不把页面路由表和页面状态塞进 Application；宿主只承担 RN 初始化、原生包注册和运行时入口。
 - 如果“独立”明确要求**每个实例有自己的 JS VM、Bundle 或 Native Module 注册表**，应另做多 `ReactHost` 方案验证：由容器管理 Host 与 `ReactSurface` 的绑定、Activity 生命周期分发和资源释放。`ReactHost.createSurface(...)` 提供创建渲染 Surface 的接口，但这条路径不等同于直接使用官方 `ReactFragment.Builder`，不能在首版承诺多运行时路由。[RN 0.84 ReactHost 接口](https://github.com/react/react-native/blob/v0.84.0/packages/react-native/ReactAndroid/src/main/java/com/facebook/react/ReactHost.kt)
 - 不继承或强制绑定当前项目的 `itg-base`、TheRouter、KSP 等模块，保持容器可独立用于其他业务工程。业务需要路由时在 App 层做适配。
 
-### 3.2 Fragment 页面承载与接入 API
+### 3.2 两种页面入口，共用同一 Fragment 渲染链路
 
-业务 Activity 或 Fragment 在布局中提供占位区域，由容器创建 `ReactFragment` 并挂载到对应的 `FragmentManager`：
+#### 入口 A：使用容器内置 Activity
+
+`itg-rn-container` 提供 `ItgRnContainerActivity`。它只包含一个 `FrameLayout`，在 `onCreate` 中通过容器自身的挂载逻辑放入 `ItgRnContainerFragment`；不再实现第二套 RN 渲染逻辑。容器 Fragment 使用 `childFragmentManager` 在自己的视图内挂载 RN 官方 `ReactFragment`，并管理加载与错误态。Activity 负责窗口/insets、返回键、配置变化恢复和关闭结果。业务模块可以把固定的 `componentName`/`pageId` 封装成类型化入口：
+
+```kotlin
+// 宿主只传业务参数，无需编写 Activity 或 Fragment 布局。
+ItgRnBusiness.openOrderDetail(this, orderId)
+```
+
+底层通用入口设计为 `ItgRnContainer.launch(activity, componentName, pageId, params)` 或返回一个显式 `Intent` 供业务的 `ActivityResultLauncher` 使用。`ItgRnContainerActivity` 在容器 AAR 的 Manifest 中声明为 `exported=false`，使用无 ActionBar 的容器主题；传入参数由工厂校验并放入 Intent。Activity 创建时先查询 `FragmentManager` 中已恢复的容器 Fragment，再决定是否挂载，避免旋转或进程恢复后重复添加。关闭页面时通过 Activity result 返回业务结果。
+
+#### 入口 B：在自有页面挂载 Fragment
+
+业务 Activity 或 Fragment 在布局中提供占位区域，由容器创建 `ItgRnContainerFragment` 并挂载到对应的 `FragmentManager`：
 
 ```xml
 <FrameLayout
@@ -80,11 +96,13 @@ val rnInstance = ItgRnBusiness.attachOrderDetail(
 )
 ```
 
-业务 API 在内部调用 `ItgRnContainer.attach(componentName, pageId, params, ...)`，返回本次容器实例的句柄，可用于 `detach()` 和订阅状态。容器内部使用 `ReactFragment.Builder().setComponentName(componentName).setLaunchOptions(bundle)`，再提交 Fragment 事务；宿主不需要自己管理 `ReactFragment`。`pageId` 是业务路由标识，`params` 只允许可序列化的 JSON 基本类型、列表和对象；不传 `Activity`、回调、`Parcelable` 或敏感令牌。初始属性包含 `instanceId`、`pageId`、`params`；`componentName` 必须与 JS 的 `AppRegistry.registerComponent` 名称一致。首版参数变化通过重新挂载实例实现，避免把 `setLaunchOptions` 误当作运行时更新 API。[RN 0.84 Fragment 集成](https://reactnative.dev/docs/0.84/integration-with-android-fragment)
+业务 API 在内部调用 `ItgRnContainer.attach(componentName, pageId, params, ...)`，返回本次容器实例的句柄，可用于 `detach()` 和订阅状态。容器 Fragment 内部使用 `ReactFragment.Builder().setComponentName(componentName).setLaunchOptions(bundle)`，经 `childFragmentManager` 提交事务；宿主也可通过 `ItgRnContainerFragment.newInstance(...)` 自行添加容器 Fragment。`pageId` 是业务路由标识，`params` 只允许可序列化的 JSON 基本类型、列表和对象；不传 `Activity`、回调、`Parcelable` 或敏感令牌。初始属性包含 `instanceId`、`pageId`、`params`；`componentName` 必须与 JS 的 `AppRegistry.registerComponent` 名称一致。首版参数变化通过重新挂载实例实现，避免把 `setLaunchOptions` 误当作运行时更新 API。[RN 0.84 Fragment 集成](https://reactnative.dev/docs/0.84/integration-with-android-fragment)
 
-实例句柄在配置变化或进程恢复后不能直接复用旧对象；容器需按 Fragment tag 查找已恢复 Fragment，避免重复 `add`。Activity 使用 `supportFragmentManager`，业务 Fragment 使用 `childFragmentManager`；调用方需在 `isStateSaved` 之前挂载，或由容器排队到安全生命周期时机。`detach()` 只移除对应实例并清理回调。多个占位区域、同屏两个 RN Fragment、反复挂载/卸载都应测试。
+实例句柄在配置变化或进程恢复后不能直接复用旧对象；容器需按 Fragment tag 查找已恢复的外层与内层 Fragment，避免重复 `add`。Activity 使用 `supportFragmentManager`，业务 Fragment 使用 `childFragmentManager`；调用方需在 `isStateSaved` 之前挂载，或由容器排队到安全生命周期时机。`detach()` 只移除对应实例并清理回调。外层容器 Fragment 嵌套 RN 官方 Fragment 的方案须在 RN 0.84 真机验证，尤其覆盖销毁/重建、同屏双实例和返回键。
 
-宿主 Activity 还需按 RN 0.84 Fragment 指南处理硬件返回键；针对当前项目 `targetSdk 36`，使用 `OnBackPressedDispatcher`，避免依赖已弃用的 `onBackPressed()`。[RN 0.84 Fragment 集成](https://reactnative.dev/docs/0.84/integration-with-android-fragment) 同屏多实例时由宿主指定当前获得焦点的容器；RN 不消费返回键时将事件交还原生导航，并防止重新进入同一个返回键回调。失败时在该占位区域显示原生错误态并通知业务回调；预热运行时作为性能优化选项，首版以实测结果决定。
+自有页面的宿主 Activity 还需按 RN 0.84 Fragment 指南处理硬件返回键；针对当前项目 `targetSdk 36`，使用 `OnBackPressedDispatcher`，避免依赖已弃用的 `onBackPressed()`。[RN 0.84 Fragment 集成](https://reactnative.dev/docs/0.84/integration-with-android-fragment) 同屏多实例时由宿主指定当前获得焦点的容器；RN 不消费返回键时将事件交还原生导航，并防止重新进入同一个返回键回调。失败时在该占位区域显示原生错误态并通知业务回调；预热运行时作为性能优化选项，首版以实测结果决定。
+
+高级使用方也可直接用 RN 官方 `ReactFragment.Builder` 自行管理 Fragment 事务；这种方式由使用方负责参数约定、返回键与生命周期，容器的实例状态、错误页和 `instanceId` 结果路由只对通过容器 API 创建的实例生效。内置 Activity 与自有页面挂载均复用宿主 `ReactHost`，不会为内置 Activity 再启动独立 JS 运行时。
 
 ### 3.3 JS 包与原生包
 
@@ -116,10 +134,13 @@ itg-rn-container/
    │     ├─ ItgRnContainer.kt
    │     ├─ ItgRnConfig.kt
    │     ├─ ItgRnInstance.kt
+   │     ├─ ItgRnContainerActivity.kt
+   │     ├─ ItgRnContainerFragment.kt
    │     ├─ fragment/ItgRnFragmentFactory.kt
    │     ├─ internal/ScopedInstanceRegistry.kt
    │     ├─ bridge/ItgRnBridgePackage.kt
    │     └─ internal/BundleVerifier.kt
+   │  └─ res/layout/activity_itg_rn_container.xml
    ├─ test/
    └─ androidTest/
 app/                         # 本仓库示例宿主，验证真实接入
@@ -194,8 +215,8 @@ dependencies {
 1. 配置内部 Maven 仓库，只声明 `implementation("com.itg:itg-rn-bussiness:<version>")`；由元数据传递引入容器及 RN/Hermes，核对版本一致。
 2. 按 RN 0.84 宿主接入要求配置必要的 RN Gradle 插件/Node 依赖和 `Application` 的 `ReactHost`；使用业务模块预构建 Bundle 时，避免宿主再次输出同名 Bundle。若业务 AAR 含自定义 TurboModule/Fabric，验证宿主 CMake/autolinking/注册链路。
 3. 在 `Application` 中注册业务与容器的 `ReactPackage`，设置业务的 `ItgRnNativeHandler`。RN 运行时初始化一次，容器页面实例可以创建多个。
-4. 业务页面放置 `FrameLayout`，在 Activity/Fragment 的安全生命周期调用 `ItgRnBusiness.attachXxx(...)`，退出时卸载对应实例；宿主不维护业务 JS 源码。
-5. 在真机上验证 debug 与 release 离线启动、返回、重建、混淆后的行为，并检查 APK/AAB 中只有一份目标 Bundle。
+4. 全屏业务页调用 `ItgRnBusiness.openXxx(...)` 直接进入容器内置 Activity；需要嵌入现有页面时放置 `FrameLayout`，在安全生命周期调用 `ItgRnBusiness.attachXxx(...)`，退出时卸载对应实例。宿主不维护业务 JS 源码。
+5. 在真机上分别验证内置 Activity、自有页面嵌入与直接使用官方 `ReactFragment` 的路径，包括 debug/release 离线启动、返回、重建、混淆；检查 APK/AAB 中只有一份目标 Bundle。
 
 这实现的是**一个 Maven 依赖坐标 + 少量宿主 RN 初始化代码**。若使用方限定只能收到一个裸 `.aar` 文件且不能访问 Maven 仓库、不能配置 RN 构建或初始化宿主，不能直接承诺此方案；需另做固定依赖集合的专用集成包并单独验证，维护成本和升级风险会显著增加。
 
@@ -207,6 +228,9 @@ dependencies {
 | 本地模块构建 | 两个模块均能 `assembleRelease`；业务 AAR 内含业务 Bundle、资源、必要时各 ABI 的 `.so` |
 | Maven 发布 | 两个模块均能发布；独立宿主只声明业务 Maven 坐标即可解析容器和 RN/Hermes 依赖 |
 | JS 打包 | 业务 AAR 与 release APK/AAB 均含预构建 Bundle；无业务 JS 源码的宿主可离线打开页面 |
+| 内置 Activity | `openXxx` 可启动；Manifest 合并正确；旋转/进程恢复不重复挂载；返回与 Activity result 正确 |
+| 自有页面 | 自有 Activity/Fragment 的占位区域可挂载和卸载，原生内容与 RN 内容可共存 |
+| 直接 ReactFragment | 高级使用方可按 RN 官方方式自行挂载，并明确自行处理生命周期/返回键 |
 | 页面行为 | 单实例挂载、同屏双实例、反复挂载/卸载、返回键、旋转/重建、进程回收恢复无白屏、重复 Fragment 或 Activity 泄漏 |
 | 实例隔离 | 两个容器使用不同 `componentName`/`pageId`/参数，各自卸载不影响另一个；状态与错误回调互不串线 |
 | 通信 | `instanceId`/参数传递正确；JS `closeContainer` 仅关闭对应实例并返回结果；异常回调可定位错误 |
@@ -218,8 +242,8 @@ dependencies {
 ## 8. 实施顺序
 
 1. **兼容性 Spike：**固定 RN 0.84 的具体补丁版与 Node.js 22.11+，先用 0.84 官方模板工具链创建最小 Android 宿主，再验证当前 AGP 9.2.1/Gradle 9.4.1 组合；核对 Hermes V1、新架构和 release Bundle，并记录可用工具链矩阵。
-2. **容器实现：**在已有 `:itg-rn-container` 骨架上补发布配置、`ReactFragment` 工厂、实例句柄和 `FrameLayout` 挂载。
-3. **业务模块实现：**在已有 `:itg-rn-bussiness` 骨架上增加容器依赖；构建并内置业务 Bundle，提供类型化 `attachXxx` API。若需要 TurboModule/Fabric，再在此模块完成 Spec、Codegen、CMake 和 `.so` 打包。
+2. **容器实现：**在已有 `:itg-rn-container` 骨架上补发布配置、`ItgRnContainerFragment`、RN Fragment 工厂与实例句柄；再增加复用容器 Fragment 的 `ItgRnContainerActivity`、Manifest 与 Activity result。
+3. **业务模块实现：**在已有 `:itg-rn-bussiness` 骨架上增加容器依赖；构建并内置业务 Bundle，提供类型化 `openXxx` 与 `attachXxx` API。若需要 TurboModule/Fabric，再在此模块完成 Spec、Codegen、CMake 和 `.so` 打包。
 4. **业务契约：**加入 `attach/detach`、`instanceId` 路由、`ItgRnNativeHandler`、Bundle 校验与错误态，完成 JS→Native 回调和同屏双实例验证。
 5. **发布验证：**两模块发布到本地 Maven 仓库，用独立宿主只声明业务坐标消费，验证 POM、R8、ABI、预置 Bundle、离线 release。
 6. **沉淀文档：**依据真实代码补齐接入 README、版本映射、升级步骤与故障排查；再推广给业务方。
