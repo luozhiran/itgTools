@@ -3,6 +3,7 @@
 本模块同时发布业务 JS Bundle、一个 Fabric 原生 View 和一个 TurboModule。`ItgRnBusiness.openNativeDemo(activity)` 打开验证页：Android `TextView` 接收 JS 的 `text` 属性并发出 `onPress`；TurboModule 的 `multiply(6, 7)` 返回 `42`。
 
 新增组件或模块请按 [Codegen 开发教程](CODEGEN_GUIDE.md) 操作。
+引入带 Android 原生代码的 RN 第三方库请按 [Gesture Handler 接入教程](THIRD_PARTY_RN_LIBRARY.md) 操作。
 
 | 位置 | 用途 |
 | --- | --- |

@@ -4,7 +4,7 @@
 
 ## 当前实现与构建
 
-根目录统一安装 JS 依赖：`package.json`、`package-lock.json`、`metro.config.js`、`babel.config.js` 放在根目录，执行 `npm ci` 后得到根目录 `node_modules`。`itg-rn-bussiness/package.json` 是 npm workspace 包，只声明业务的 `codegenConfig` 与 RN peer 版本；业务 JS 入口在 `itg-rn-bussiness/js/index.js`。以后增加 JS 三方库，统一修改根目录 `package.json` 并更新锁文件；含 Android 原生代码的三方库仍需验证宿主的 autolinking/Codegen。
+根目录统一安装 JS 依赖：`package.json`、`package-lock.json`、`metro.config.js`、`babel.config.js` 放在根目录，执行 `npm ci` 后得到根目录 `node_modules`。`itg-rn-bussiness` 与 `rn-host-sample` 都是 npm workspace；前者的 `package.json` 声明业务 Codegen 和 peer dependency，后者的 `package.json` 声明宿主直接依赖，业务 JS 入口在 `itg-rn-bussiness/js/index.js`。第三方原生 RN 库的接入范例见 [Gesture Handler 教程](itg-rn-bussiness/THIRD_PARTY_RN_LIBRARY.md)，宿主与业务包的职责见 [package.json/autolinking 说明](rn-host-package-autolinking.md)。
 
 Gradle 默认从根目录 `node_modules/react-native/ReactAndroid/gradle.properties` 读取 `react-android` 版本和 Maven group，从 `node_modules/react-native/sdks/hermes-engine/version.properties` 读取 Hermes V1 版本；未安装依赖时使用根目录 `package.json` 的固定版本作为同步回退，并校验安装版本一致。`hermes-android` AAR 仍通过 Maven 坐标下载，`node_modules` 提供版本元数据和 `hermesc` 编译器。迁移验证时可用 `-PrnNodeModulesDir=<绝对路径>` 指定已有安装。
 
@@ -16,7 +16,7 @@ bash gradlew :itg-rn-container:publishReleasePublicationToMavenRepository :itg-r
 cd rn-host-sample/android && bash gradlew :app:assembleRelease
 ```
 
-当前已实现 `ItgRnContainerFragment`、复用它的 `ItgRnContainerActivity`、`ItgRnContainer.attach/launch`、`ItgRnInstance.detach`、业务 `openOrderDetail/attachOrderDetail/openNativeDemo`、JS→Native `closeContainer`、业务 Hermes bytecode 打包和两层 Maven 发布。业务模块还包含一个 Codegen Fabric View 与一个 TurboModule，生成的 Java/C++ 放在 `itg-rn-bussiness/codegen/`，release AAR 内有四个 ABI 的 `libitg_rn_business_codegen.so`。独立 `rn-host-sample` 使用业务 Maven 坐标、RN 0.84 官方宿主工具链；在 arm64 模拟器上已验证 Fabric 文本属性、点击事件及 TurboModule `multiply(6, 7) = 42`。同屏多实例生命周期、错误态、Bundle 清单校验、第三方原生库接入及生产混淆仍需验证或实现。
+当前已实现 `ItgRnContainerFragment`、复用它的 `ItgRnContainerActivity`、`ItgRnContainer.attach/launch`、`ItgRnInstance.detach`、业务 `openOrderDetail/attachOrderDetail/openNativeDemo`、JS→Native `closeContainer`、业务 Hermes bytecode 打包和两层 Maven 发布。业务模块还包含一个 Codegen Fabric View 与一个 TurboModule，生成的 Java/C++ 放在 `itg-rn-bussiness/codegen/`，release AAR 内有四个 ABI 的 `libitg_rn_business_codegen.so`。独立 `rn-host-sample` 使用业务 Maven 坐标、RN 0.84 官方宿主工具链；在 arm64 模拟器上已验证 Fabric 文本属性、点击事件、TurboModule `multiply(6, 7) = 42`，以及 `react-native-gesture-handler` 的双击事件。同屏多实例生命周期、错误态、Bundle 清单校验、更多第三方原生库接入及生产混淆仍需验证或实现。
 
 宿主 `Application` 以 RN 0.84 官方模板为基础，在 `PackageList(this).packages` 中加入 `ItgRnBridgePackage()` 和 `ItgRnBusinessPackage()`；调用 `loadReactNative(this)` 后、第一次创建 `ReactHost` 前调用 `ItgRnBusinessNative.install()`。业务页面调用 `ItgRnBusiness.openOrderDetail(activity, orderId)` 或 `ItgRnBusiness.openNativeDemo(activity)`；嵌入场景在自有 `FrameLayout` 上调用对应 `attach...`。通过 `ItgRnInstance.resultKey` 监听 Fragment result，结果 JSON 位于 `ItgRnContainer.EXTRA_RESULT_JSON`；退出时调用 `detach()`。宿主自有 Activity 还需把硬件返回键转发给当前容器 Fragment；内置 Activity 已处理该转发。
 
@@ -46,7 +46,7 @@ override fun onCreate() {
 3. 参照 `ItgDemoNativeView`、`ItgDemoNativeViewManager`、`ItgDemoTurboModule` 实现业务行为，在 `ItgRnBusinessPackage` 注册 ViewManager 与 TurboModule。若更改 Codegen 库名，需要同步修改业务 CMake 中的生成目标名与 C++ 安装入口。
 4. 发布业务 AAR，再用 `rn-host-sample` 的宿主入口验证。它展示了手动注册 `ItgRnBridgePackage`、`ItgRnBusinessPackage` 与预编译 Codegen `.so`。模拟器验证过 View 属性、点击事件和 `multiply(6, 7)` 的 Promise 结果。[RN 0.84 Fabric](https://reactnative.dev/docs/0.84/fabric-native-components-introduction)、[RN 0.84 TurboModule](https://reactnative.dev/docs/0.84/turbo-native-modules-android)
 
-`rn-host-sample/android/build/generated/autolinking` 与 `rn-host-sample/android/app/build/generated/autolinking` 来自**宿主**的 RN Gradle 插件。当前独立宿主通过 Maven AAR 手动注册业务包，因此 `autolinking.json` 的业务依赖集合为空；AAR 不会自动出现在 npm 自动链接列表。若今后要求业务库自动链接，需要另交付并验证 npm 接入包，而不是仅依靠 AAR。业务 `.so` 的安装代码使用 RN 0.84 内部 C++ 注册钩子，必须锁定 RN 版本；升级 RN 时要重新生成 Codegen、重编四个 ABI 并运行独立宿主验证。
+`rn-host-sample/android/build/generated/autolinking` 与 `rn-host-sample/android/app/build/generated/autolinking` 来自**宿主**的 RN Gradle 插件。当前 `autolinking.json` 包含作为宿主 npm 直接依赖的 `react-native-gesture-handler`，不包含通过 Maven AAR 消费、由宿主手动注册的业务包。若今后要求业务 AAR 也自动链接，需要另交付并验证 npm 接入包。业务 `.so` 的安装代码使用 RN 0.84 内部 C++ 注册钩子，必须锁定 RN 版本；升级 RN 时要重新生成 Codegen、重编四个 ABI 并运行独立宿主验证。
 
 ## 1. 目标与边界
 
@@ -154,7 +154,7 @@ val rnInstance = ItgRnBusiness.attachOrderDetail(
 
 - **业务 JS 所有权在 `itg-rn-bussiness`。**依赖清单、锁文件与 Metro/Babel 配置统一放在仓库根目录，业务入口放在 `itg-rn-bussiness/js/index.js`；业务模块的 Gradle 任务构建 release Bundle，使用根目录 `node_modules` 中的 `hermesc` 编译为 bytecode，并把产物放入业务 AAR 的 `assets/index.android.bundle`。Android library 的 AAR 能包含 assets，但 RN Gradle 插件默认以 App 构建为中心，业务模块需要显式创建任务。[RN 0.84 Gradle 插件](https://reactnative.dev/docs/0.84/react-native-gradle-plugin)、[Android AAR 结构](https://developer.android.com/studio/projects/android-library)
 - 一个共享 `ReactHost` 默认加载一份 JS Bundle。首版把该业务模块需要的所有 RN 组件注册进这一份 Bundle；如果多个独立 `itg-rn-bussiness-*` AAR 各自放一个 `index.android.bundle`，资源名会冲突，Host 也不会自动把多个 Bundle 拼接。多业务模块应在发布时聚合为一个 Bundle，或另行验证多 Host/多 Bundle 方案。
-- 容器只预置通用 Native Module，业务 Native Module 放在 `itg-rn-bussiness`。若业务 JS 使用第三方含 Android 原生代码的 RN 包，业务模块构建时处理其 Codegen；最终宿主仍需按交付模式注册所需 `ReactPackage` 和 App 级入口。AAR 本身不会自动获得业务宿主的 `PackageList`。
+- 容器只预置通用 Native Module，业务 Native Module 放在 `itg-rn-bussiness`。若业务 JS 使用第三方含 Android 原生代码的 RN 包（如手势库），最终宿主需把它列为 npm 直接依赖，由宿主 RN Gradle 插件完成该第三方包的 Codegen 和 autolinking；业务 AAR 自己的 Spec 仍在业务模块预生成。AAR 本身不会自动获得业务宿主的 `PackageList`。
 - RN 0.84 仅运行新架构，Hermes V1 为默认引擎。容器和业务原生三方包都要核对新架构兼容性，且构建产物应验证实际使用的 Hermes 版本。[RN 0.84 发布说明](https://reactnative.dev/blog/2026/02/11/react-native-0.84)
 
 ### 3.4 JS ↔ Native 协议

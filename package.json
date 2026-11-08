@@ -2,7 +2,7 @@
   "name": "itg-tools-rn",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["itg-rn-bussiness"],
+  "workspaces": ["itg-rn-bussiness", "rn-host-sample"],
   "scripts": {
     "start": "react-native start",
     "bundle:android": "bash gradlew :itg-rn-bussiness:compileItgRnHermesRelease",
@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "react": "19.2.3",
-    "react-native": "0.84.1"
+    "react-native": "0.84.1",
+    "react-native-gesture-handler": "2.33.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
