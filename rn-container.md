@@ -4,7 +4,7 @@
 
 ## 当前实现与构建
 
-根目录统一安装 JS 依赖：`package.json`、`package-lock.json`、`metro.config.js`、`babel.config.js` 放在根目录，执行 `npm ci` 后得到根目录 `node_modules`。`itg-rn-bussiness` 与 `rn-host-sample` 都是 npm workspace；前者的 `package.json` 声明业务 Codegen 和 peer dependency，后者的 `package.json` 声明宿主直接依赖，业务 JS 入口在 `itg-rn-bussiness/js/index.js`。第三方原生 RN 库的接入范例见 [Gesture Handler 教程](itg-rn-bussiness/THIRD_PARTY_RN_LIBRARY.md)，宿主与业务包的职责见 [package.json/autolinking 说明](rn-host-package-autolinking.md)。
+根目录统一安装 JS 依赖：`package.json`、`package-lock.json`、`metro.config.js`、`babel.config.js` 放在根目录，执行 `npm ci` 后得到根目录 `node_modules`。`itg-rn-bussiness` 与 `rn-host-sample` 都是 npm workspace；前者的 `package.json` 声明业务 Codegen 和 peer dependency，后者的 `package.json` 声明宿主直接依赖，业务 JS 入口在 `itg-rn-bussiness/js/index.js`。第三方原生 RN 库的接入范例见 [Gesture Handler 教程](itg-rn-bussiness/THIRD_PARTY_RN_LIBRARY.md)，宿主与业务包的职责见 [package.json/autolinking 说明](rn-host-sample/rn-host-package-autolinking.md)。
 
 Gradle 默认从根目录 `node_modules/react-native/ReactAndroid/gradle.properties` 读取 `react-android` 版本和 Maven group，从 `node_modules/react-native/sdks/hermes-engine/version.properties` 读取 Hermes V1 版本；未安装依赖时使用根目录 `package.json` 的固定版本作为同步回退，并校验安装版本一致。`hermes-android` AAR 仍通过 Maven 坐标下载，`node_modules` 提供版本元数据和 `hermesc` 编译器。迁移验证时可用 `-PrnNodeModulesDir=<绝对路径>` 指定已有安装。
 

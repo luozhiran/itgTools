@@ -2,7 +2,7 @@
 
 这个 Android App 不依赖仓库中的业务源码模块；它只声明 `com.itg:itg-rn-bussiness:0.1.0` Maven 坐标，用来验证业务 AAR 的 Bundle、Codegen `.so` 与传递依赖。根目录先执行 `npm ci` 和两个 RN 模块的本地 Maven 发布，再从 `rn-host-sample/android` 运行 `bash gradlew :app:assembleRelease`。
 
-宿主 `package.json` 还直接依赖 `react-native-gesture-handler@2.33.1`，用于验证第三方原生 RN 库的 autolinking。操作说明见 [第三方 RN 库接入教程](../itg-rn-bussiness/THIRD_PARTY_RN_LIBRARY.md)，宿主与业务 `package.json` 的分工见 [根目录说明](../rn-host-package-autolinking.md)。
+宿主 `package.json` 还直接依赖 `react-native-gesture-handler@2.33.1`，用于验证第三方原生 RN 库的 autolinking。操作说明见 [第三方 RN 库接入教程](../itg-rn-bussiness/THIRD_PARTY_RN_LIBRARY.md)，宿主与业务 `package.json` 的分工见 [根目录说明](rn-host-package-autolinking.md)。
 
 打开 App，选择 **Fabric + TurboModule Demo**。点击原生 TextView 会更新“原生点击”文字；点击计算按钮应显示 `TurboModule 返回：42`；双击蓝色手势区域会增加计数。另一个按钮打开原有订单详情页。
 
