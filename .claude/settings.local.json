@@ -1,10 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(New-Item *)",
-      "Bash(./gradlew :itg-coroutine-pools:compileReleaseKotlin)",
-      "Bash(./gradlew :itg-concurrent-core:compileReleaseKotlin)",
-      "Bash(./gradlew :itg-coroutine-pools:assembleRelease :itg-concurrent-core:assembleRelease)"
+      "PowerShell(New-Item *)"
     ]
   }
 }

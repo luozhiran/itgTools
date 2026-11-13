@@ -1,34 +1,31 @@
 package com.itg.itg_file.hash
 
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.itg_file.core.FileCoroutines
 import okio.Buffer
+import okio.BufferedSource
 import okio.ByteString
 import okio.ByteString.Companion.encodeUtf8
-import okio.FileSystem
 import okio.ForwardingSink
 import okio.ForwardingSource
 import okio.IOException
-import okio.Okio
-import okio.Path.Companion.toPath
-import okio.Sink
-import okio.Source
 import okio.buffer
-import okio.use
+import okio.sink
+import okio.source
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
-import java.util.concurrent.Future
 
 /**
  * Okio 流式哈希工具类
  *
- * 基于 Okio [HashingSource] / [HashingSink] 实现边读边写边计算哈希。
+ * 基于 Okio [okio.HashingSource] / [okio.HashingSink] 实现边读边写边计算哈希。
  * 与 [com.itg.itg_file.hash.FileHashUtils] 的区别在于:
  * - 流式计算: 在读取/写入过程中同时计算哈希，无需额外遍历
  * - 进度+哈希: 一次 I/O 同时获得进度和哈希值
  * - 组合操作: copyAndHash / compressAndHash 等组合操作
  *
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 同步方法会阻塞调用线程；在协程中使用 FileCoroutines.withIo 将操作切换到 IO 调度器。
  *
  * @author ITG Team
  * @since 1.0.0
@@ -36,7 +33,6 @@ import java.util.concurrent.Future
 @Suppress("unused")
 object OkioHashUtils {
 
-    private val fileSystem: FileSystem = FileSystem.SYSTEM
     private const val BUFFER_SIZE = 8192L
 
     // ==================== 哈希计算（流式） ====================
@@ -72,17 +68,17 @@ object OkioHashUtils {
         if (!FileUtils.isFile(path)) return null
 
         return try {
-            val source = fileSystem.source(path.toPath())
+            val source = File(path).source()
             val hashingSource = DigestingSource(source, freshDigest(digest))
 
-            hashingSource.use { source ->
+            hashingSource.use { src ->
                 var bytesRead = 0L
                 val buffer = Buffer()
                 while (true) {
-                    val read = source.read(buffer, BUFFER_SIZE)
+                    val read = src.read(buffer, BUFFER_SIZE)
                     if (read == -1L) break
                     bytesRead += read
-                    onRead?.invoke(buffer.clone(), bytesRead)
+                    safeCallback { onRead?.invoke(buffer.clone(), bytesRead) }
                     buffer.clear()
                 }
             }
@@ -97,18 +93,18 @@ object OkioHashUtils {
      * 异步流式哈希
      */
     @JvmStatic
-    fun hashWhileReadingAsync(
+    suspend fun hashWhileReadingSuspend(
         path: String,
         digest: MessageDigest,
         onRead: ((buffer: Buffer, bytesRead: Long) -> Unit)? = null,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val hash = hashWhileReading(path, digest, onRead)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -140,45 +136,37 @@ object OkioHashUtils {
     ): Pair<String?, Boolean>? {
         if (path.isBlank()) return null
 
-        return try {
-            val file = File(path)
-            file.parentFile?.mkdirs()
-
-            val rawSink = fileSystem.sink(path.toPath())
-            val hashingSink = DigestingSink(rawSink, freshDigest(digest))
-
+        var hash: String? = null
+        val success = writeToFileAtomically(path) { file ->
+            val hashingSink = DigestingSink(file.sink(), freshDigest(digest))
             hashingSink.buffer().use { buffered ->
                 buffered.write(data)
             }
-
-            val hash = hashingSink.hash().toHexString()
-            Pair(hash, true)
-        } catch (e: IOException) {
-            e.printStackTrace()
-            null
+            hash = hashingSink.hash().toHexString()
         }
+        return if (success) Pair(hash, true) else null
     }
 
     /**
      * 异步写入时哈希
      */
     @JvmStatic
-    fun hashWhileWritingAsync(
+    suspend fun hashWhileWritingSuspend(
         path: String,
         data: ByteArray,
         digest: MessageDigest,
         onResult: (String?, Boolean) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val result = hashWhileWriting(path, data, digest)
                 if (result != null) {
-                    onResult(result.first, result.second)
+                    safeCallback { onResult(result.first, result.second) }
                 } else {
-                    onResult(null, false)
+                    safeCallback { onResult(null, false) }
                 }
             } catch (e: Exception) {
-                onResult(null, false)
+                safeCallback { onResult(null, false) }
             }
         }
     }
@@ -226,37 +214,36 @@ object OkioHashUtils {
             val totalSize = srcFile.length()
 
             if (destFile.exists() && !overwrite) return Pair(null, false)
-            destFile.parentFile?.mkdirs()
 
             var bytesCopied = 0L
             var lastReport = 0L
+            var hash: String? = null
 
-            // 创建带哈希的 Source
-            val rawSource = fileSystem.source(srcPath.toPath())
-            val hashingSource = DigestingSource(rawSource, freshDigest(digest))
-
-            // 包装进度追踪
-            val progressSource = object : ForwardingSource(hashingSource) {
-                override fun read(sink: Buffer, byteCount: Long): Long {
-                    val read = super.read(sink, byteCount)
-                    if (read != -1L) {
-                        bytesCopied += read
-                        if (onProgress != null && bytesCopied - lastReport >= BUFFER_SIZE) {
-                            onProgress(bytesCopied, totalSize)
-                            lastReport = bytesCopied
+            val success = writeToFileAtomically(destPath, overwrite) { tempFile ->
+                val rawSource = srcFile.source()
+                val hashingSource = DigestingSource(rawSource, freshDigest(digest))
+                val progressSource = object : ForwardingSource(hashingSource) {
+                    override fun read(sink: Buffer, byteCount: Long): Long {
+                        val read = super.read(sink, byteCount)
+                        if (read != -1L) {
+                            bytesCopied += read
+                            if (onProgress != null && bytesCopied - lastReport >= BUFFER_SIZE) {
+                                safeCallback { onProgress(bytesCopied, totalSize) }
+                                lastReport = bytesCopied
+                            }
                         }
+                        return read
                     }
-                    return read
                 }
+
+                tempFile.sink().buffer().use { sink ->
+                    progressSource.buffer().use { source -> sink.writeAll(source) }
+                }
+                hash = hashingSource.hash().toHexString()
             }
 
-            // 直接写入目标文件
-            fileSystem.write(destPath.toPath()) {
-                progressSource.buffer().use { source -> writeAll(source) }
-            }
-
-            onProgress?.invoke(bytesCopied, totalSize)
-            Pair(hashingSource.hash().toHexString(), true)
+            safeCallback { onProgress?.invoke(bytesCopied, totalSize) }
+            Pair(hash, success)
         } catch (e: IOException) {
             e.printStackTrace()
             Pair(null, false)
@@ -268,24 +255,24 @@ object OkioHashUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun copyAndHashAsync(
+    suspend fun copyAndHashSuspend(
         srcPath: String,
         destPath: String,
         digest: MessageDigest,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (String?, Boolean) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val result = copyAndHash(srcPath, destPath, digest, overwrite, onProgress)
                 if (result != null) {
-                    onResult(result.first, result.second)
+                    safeCallback { onResult(result.first, result.second) }
                 } else {
-                    onResult(null, false)
+                    safeCallback { onResult(null, false) }
                 }
             } catch (e: Exception) {
-                onResult(null, false)
+                safeCallback { onResult(null, false) }
             }
         }
     }
@@ -316,38 +303,39 @@ object OkioHashUtils {
             val destFile = File(destPath)
             if (srcFile.canonicalFile == destFile.canonicalFile) return Pair(null, false)
             val totalSize = srcFile.length()
-            destFile.parentFile?.mkdirs()
-
             var bytesProcessed = 0L
             var lastReport = 0L
+            var hash: String? = null
 
-            val rawSource = fileSystem.source(srcPath.toPath())
-            val progressSource = object : ForwardingSource(rawSource) {
-                override fun read(sink: Buffer, byteCount: Long): Long {
-                    val read = super.read(sink, byteCount)
-                    if (read != -1L) {
-                        bytesProcessed += read
-                        if (onProgress != null && bytesProcessed - lastReport >= BUFFER_SIZE) {
-                            onProgress(bytesProcessed, totalSize)
-                            lastReport = bytesProcessed
+            val success = writeToFileAtomically(destPath) { tempFile ->
+                val rawSource = srcFile.source()
+                val progressSource = object : ForwardingSource(rawSource) {
+                    override fun read(sink: Buffer, byteCount: Long): Long {
+                        val read = super.read(sink, byteCount)
+                        if (read != -1L) {
+                            bytesProcessed += read
+                            if (onProgress != null && bytesProcessed - lastReport >= BUFFER_SIZE) {
+                                safeCallback { onProgress(bytesProcessed, totalSize) }
+                                lastReport = bytesProcessed
+                            }
                         }
+                        return read
                     }
-                    return read
                 }
+
+                val gzipSink = okio.GzipSink(tempFile.sink())
+                val hashingSink = DigestingSink(gzipSink, freshDigest(digest))
+
+                progressSource.buffer().use { source ->
+                    hashingSink.buffer().use { buffered ->
+                        buffered.writeAll(source)
+                    }
+                }
+                hash = hashingSink.hash().toHexString()
             }
 
-            val rawSink = fileSystem.sink(destPath.toPath())
-            val gzipSink = okio.GzipSink(rawSink)
-            val hashingSink = DigestingSink(gzipSink, freshDigest(digest))
-
-            progressSource.buffer().use { source ->
-                hashingSink.buffer().use { buffered ->
-                    buffered.writeAll(source)
-                }
-            }
-
-            onProgress?.invoke(bytesProcessed, totalSize)
-            Pair(hashingSink.hash().toHexString(), true)
+            safeCallback { onProgress?.invoke(bytesProcessed, totalSize) }
+            Pair(hash, success)
         } catch (e: IOException) {
             e.printStackTrace()
             Pair(null, false)
@@ -406,10 +394,10 @@ object OkioHashUtils {
     fun hashFile(path: String, digest: MessageDigest): String? {
         if (!FileUtils.isFile(path)) return null
         return try {
-            fileSystem.source(path.toPath()).use { source ->
+            File(path).source().use { source ->
                 val hashingSource = DigestingSource(source, freshDigest(digest))
                 hashingSource.buffer().use { buffered ->
-                    buffered.skip(Long.MAX_VALUE)  // 读取全部
+                    buffered.drainAll()
                 }
                 hashingSource.hash().toHexString()
             }
@@ -423,17 +411,17 @@ object OkioHashUtils {
      * 异步计算哈希
      */
     @JvmStatic
-    fun hashFileAsync(
+    suspend fun hashFileSuspend(
         path: String,
         digest: MessageDigest,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val hash = hashFile(path, digest)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -455,7 +443,7 @@ object OkioHashUtils {
             var bytesProcessed = 0L
             var lastReport = 0L
 
-            val rawSource = fileSystem.source(path.toPath())
+            val rawSource = file.source()
             val hashingSource = DigestingSource(rawSource, freshDigest(digest))
             val progressSource = object : ForwardingSource(hashingSource) {
                 override fun read(sink: Buffer, byteCount: Long): Long {
@@ -463,7 +451,7 @@ object OkioHashUtils {
                     if (read != -1L) {
                         bytesProcessed += read
                         if (onProgress != null && bytesProcessed - lastReport >= BUFFER_SIZE) {
-                            onProgress(bytesProcessed, totalSize)
+                            safeCallback { onProgress(bytesProcessed, totalSize) }
                             lastReport = bytesProcessed
                         }
                     }
@@ -472,9 +460,9 @@ object OkioHashUtils {
             }
 
             progressSource.buffer().use { buffered ->
-                buffered.skip(Long.MAX_VALUE)
+                buffered.drainAll()
             }
-            onProgress?.invoke(bytesProcessed, totalSize)
+            safeCallback { onProgress?.invoke(bytesProcessed, totalSize) }
             hashingSource.hash().toHexString()
         } catch (e: IOException) {
             e.printStackTrace()
@@ -486,18 +474,18 @@ object OkioHashUtils {
      * 异步带进度哈希
      */
     @JvmStatic
-    fun hashFileWithProgressAsync(
+    suspend fun hashFileWithProgressSuspend(
         path: String,
         digest: MessageDigest,
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val hash = hashFileWithProgress(path, digest, onProgress)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -531,8 +519,70 @@ object OkioHashUtils {
     private fun freshDigest(digest: MessageDigest): MessageDigest =
         MessageDigest.getInstance(digest.algorithm)
 
+    private fun BufferedSource.drainAll() {
+        val buffer = Buffer()
+        while (read(buffer, BUFFER_SIZE) != -1L) {
+            buffer.clear()
+        }
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
+    private fun writeToFileAtomically(
+        path: String,
+        overwrite: Boolean = true,
+        writer: (File) -> Unit
+    ): Boolean {
+        if (path.isBlank()) return false
+        var tempFile: File? = null
+        return try {
+            val destFile = File(path).canonicalFile
+            if (destFile.exists()) {
+                if (!overwrite || destFile.isDirectory) return false
+            }
+            val parent = ensureParentDirectory(destFile) ?: return false
+            tempFile = File.createTempFile(".${destFile.name}.", ".tmp", parent)
+            writer(tempFile)
+            FileOutputStream(tempFile, true).use { it.fd.sync() }
+            if (destFile.exists() && !overwrite) return false
+            replaceFile(tempFile, destFile)
+            tempFile = null
+            true
+        } catch (e: IOException) {
+            e.printStackTrace()
+            false
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+            false
+        } finally {
+            tempFile?.delete()
+        }
+    }
+
+    private fun replaceFile(tempFile: File, destFile: File) {
+        if (tempFile.renameTo(destFile)) return
+        if (destFile.exists() && !destFile.delete()) {
+            throw IOException("Failed to delete destination: ${destFile.absolutePath}")
+        }
+        if (!tempFile.renameTo(destFile)) {
+            throw IOException("Failed to move temp file to destination: ${destFile.absolutePath}")
+        }
+    }
+
+    private fun ensureParentDirectory(file: File): File? {
+        val parent = file.parentFile ?: return null
+        if (parent.exists()) return if (parent.isDirectory) parent else null
+        return if (parent.mkdirs()) parent else null
+    }
+
     private class DigestingSource(
-        delegate: Source,
+        delegate: okio.Source,
         private val digest: MessageDigest
     ) : ForwardingSource(delegate) {
         override fun read(sink: Buffer, byteCount: Long): Long {
@@ -550,7 +600,7 @@ object OkioHashUtils {
     }
 
     private class DigestingSink(
-        delegate: Sink,
+        delegate: okio.Sink,
         private val digest: MessageDigest
     ) : ForwardingSink(delegate) {
         override fun write(source: Buffer, byteCount: Long) {

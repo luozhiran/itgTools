@@ -2,7 +2,7 @@ package com.itg.itg_file.read
 
 import android.net.Uri
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.itg_file.core.FileCoroutines
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -11,13 +11,12 @@ import java.io.InputStream
 import java.io.RandomAccessFile
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.Future
 
 /**
  * 文件读取工具类
  *
  * 提供多种文件读取方式，涵盖文本、字节、按行读取、大文件分块读取等场景。
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 同步方法会阻塞调用线程；在协程中使用 FileCoroutines.withIo 将操作切换到 IO 调度器。
  *
  * 核心特性:
  * - 读取为 String（指定编码）
@@ -35,6 +34,7 @@ import java.util.concurrent.Future
 object FileReadUtils {
 
     private const val DEFAULT_BUFFER_SIZE = 8192  // 8KB
+    private const val DEFAULT_MAX_IN_MEMORY_BYTES = 10 * 1024 * 1024
 
     // ==================== 读取为字符串 ====================
 
@@ -56,11 +56,19 @@ object FileReadUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun readText(path: String, charset: Charset = StandardCharsets.UTF_8): String? {
+    fun readText(
+        path: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
+    ): String? {
         if (!FileUtils.isFile(path)) return null
         return try {
+            if (!canReadIntoMemory(path, maxBytes)) return null
             File(path).readText(charset)
-        } catch (e: IOException) {
+        } catch (e: OutOfMemoryError) {
+            e.printStackTrace()
+            null
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
@@ -72,34 +80,33 @@ object FileReadUtils {
      * @param path     文件路径
      * @param charset  字符编码
      * @param onResult 回调 (content: String?, error: Throwable?)
-     * @return [Future]
+     * @return Unit
      *
      * 使用示例:
      * ```kotlin
-     * FileReadUtils.readTextAsync("/sdcard/data.json") { content, error ->
-     *     if (error != null) {
-     *         Log.e("File", "Read failed", error)
-     *     } else {
-     *         taskExecutor.main { parseAndDisplay(content!!) }
-     *     }
+     * viewModelScope.launch {
+     *     val content = FileCoroutines.withIo { FileReadUtils.readText(path) }
+     *     content?.let(::parseAndDisplay)
      * }
      * ```
      */
     @JvmStatic
     @JvmOverloads
-    fun readTextAsync(
+    suspend fun readTextSuspend(
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val result = readText(path, charset)
-                onResult(result, if (result == null && FileUtils.exists(path)) {
-                    IOException("Failed to read file: $path")
-                } else null)
+                safeCallback {
+                    onResult(result, if (result == null && FileUtils.exists(path)) {
+                        IOException("Failed to read file: $path")
+                    } else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -115,14 +122,18 @@ object FileReadUtils {
      * 注意: 大文件 (>50MB) 请使用 [readChunks] 避免 OOM。
      */
     @JvmStatic
-    fun readBytes(path: String): ByteArray? {
+    @JvmOverloads
+    fun readBytes(path: String, maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES): ByteArray? {
         if (!FileUtils.isFile(path)) return null
         return try {
-            File(path).readBytes()
+            if (!canReadIntoMemory(path, maxBytes)) return null
+            FileInputStream(File(path)).use { input ->
+                if (maxBytes <= 0) input.readBytes() else input.readBytesWithLimit(maxBytes)
+            }
         } catch (e: OutOfMemoryError) {
             e.printStackTrace()
             null
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
@@ -132,18 +143,20 @@ object FileReadUtils {
      * 异步读取文件为字节数组
      */
     @JvmStatic
-    fun readBytesAsync(
+    suspend fun readBytesSuspend(
         path: String,
         onResult: (ByteArray?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val result = readBytes(path)
-                onResult(result, if (result == null && FileUtils.exists(path)) {
-                    IOException("Failed to read file: $path")
-                } else null)
+                safeCallback {
+                    onResult(result, if (result == null && FileUtils.exists(path)) {
+                        IOException("Failed to read file: $path")
+                    } else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -165,11 +178,19 @@ object FileReadUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun readLines(path: String, charset: Charset = StandardCharsets.UTF_8): List<String>? {
+    fun readLines(
+        path: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
+    ): List<String>? {
         if (!FileUtils.isFile(path)) return null
         return try {
+            if (!canReadIntoMemory(path, maxBytes)) return null
             File(path).readLines(charset)
-        } catch (e: IOException) {
+        } catch (e: OutOfMemoryError) {
+            e.printStackTrace()
+            null
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
@@ -180,17 +201,19 @@ object FileReadUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun readLinesAsync(
+    suspend fun readLinesSuspend(
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
         onResult: (List<String>?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val result = readLines(path, charset)
-                onResult(result, if (result == null) IOException("Failed to read: $path") else null)
+                safeCallback {
+                    onResult(result, if (result == null) IOException("Failed to read: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -227,12 +250,12 @@ object FileReadUtils {
                 while (line != null) {
                     val currentIndex = count
                     count++
-                    if (!onEachLine(line, currentIndex)) break
+                    if (!safeLineCallback(onEachLine, line, currentIndex)) break
                     line = reader.readLine()
                 }
             }
             count
-        } catch (e: IOException) {
+        } catch (e: Throwable) {
             e.printStackTrace()
             -1
         }
@@ -245,22 +268,24 @@ object FileReadUtils {
      * @param charset    编码
      * @param onEachLine 每行处理回调
      * @param onComplete 完成回调 (totalLines: Int, error: Throwable?)
-     * @return [Future]
+     * @return Unit
      */
     @JvmStatic
     @JvmOverloads
-    fun readLinesStreamingAsync(
+    suspend fun readLinesStreamingSuspend(
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
         onEachLine: (line: String, index: Int) -> Boolean,
         onComplete: (totalLines: Int, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val count = readLinesStreaming(path, charset, onEachLine)
-                onComplete(count, if (count < 0) IOException("Failed to read: $path") else null)
+                safeCallback {
+                    onComplete(count, if (count < 0) IOException("Failed to read: $path") else null)
+                }
             } catch (e: Exception) {
-                onComplete(-1, e)
+                safeCallback { onComplete(-1, e) }
             }
         }
     }
@@ -282,6 +307,9 @@ object FileReadUtils {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 stream.readBytesWithLimit(maxBytes)
             }
+        } catch (e: OutOfMemoryError) {
+            e.printStackTrace()
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -306,6 +334,9 @@ object FileReadUtils {
             } else {
                 inputStream.readBytesWithLimit(maxBytes)
             }
+        } catch (e: OutOfMemoryError) {
+            e.printStackTrace()
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -378,12 +409,12 @@ object FileReadUtils {
                 while (fis.read(buffer).also { bytesRead = it } != -1) {
                     val chunk = buffer.copyOf(bytesRead)
                     totalRead += bytesRead
-                    if (!onChunk(chunk, chunkIndex, totalChunks)) break
+                    if (!safeChunkCallback(onChunk, chunk, chunkIndex, totalChunks)) break
                     chunkIndex++
                 }
             }
             totalRead
-        } catch (e: IOException) {
+        } catch (e: Throwable) {
             e.printStackTrace()
             -1L
         }
@@ -394,18 +425,20 @@ object FileReadUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun readChunksAsync(
+    suspend fun readChunksSuspend(
         path: String,
         chunkSize: Int = 64 * 1024,
         onChunk: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean,
         onComplete: (totalBytes: Long, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val total = readChunks(path, chunkSize, onChunk)
-                onComplete(total, if (total < 0) IOException("Failed to read: $path") else null)
+                safeCallback {
+                    onComplete(total, if (total < 0) IOException("Failed to read: $path") else null)
+                }
             } catch (e: Exception) {
-                onComplete(-1L, e)
+                safeCallback { onComplete(-1L, e) }
             }
         }
     }
@@ -433,10 +466,10 @@ object FileReadUtils {
         return try {
             RandomAccessFile(path, "r").use { raf ->
                 val bytes = ByteArray(minOf(numBytes.toLong(), raf.length()).toInt())
-                raf.read(bytes)
+                raf.readFully(bytes)
                 bytes
             }
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
@@ -461,10 +494,10 @@ object FileReadUtils {
             val bytes = ByteArray(readSize)
             RandomAccessFile(path, "r").use { raf ->
                 raf.seek(fileSize - readSize)
-                raf.read(bytes)
+                raf.readFully(bytes)
             }
             bytes
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
@@ -495,7 +528,7 @@ object FileReadUtils {
                 }
             }
             lines.toList()
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
@@ -519,5 +552,49 @@ object FileReadUtils {
             totalRead += bytesRead
         }
         return output.toByteArray()
+    }
+
+    private fun canReadIntoMemory(path: String, maxBytes: Int): Boolean {
+        if (maxBytes <= 0) return true
+        return try {
+            File(path).length() <= maxBytes
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun safeLineCallback(
+        callback: (line: String, index: Int) -> Boolean,
+        line: String,
+        index: Int
+    ): Boolean {
+        return try {
+            callback(line, index)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private fun safeChunkCallback(
+        callback: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean,
+        chunk: ByteArray,
+        chunkIndex: Int,
+        totalChunks: Int
+    ): Boolean {
+        return try {
+            callback(chunk, chunkIndex, totalChunks)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
     }
 }

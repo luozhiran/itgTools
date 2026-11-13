@@ -10,11 +10,16 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.itg_file.core.FileCoroutines
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -29,12 +34,13 @@ object FileCleanupManager {
 
     private const val PREFS_NAME = "itg_file_cleanup"
     private const val DEADLINE_PREFIX = "deadline_"
-    private val immediateTasks = ConcurrentHashMap<String, Future<*>>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val immediateTasks = ConcurrentHashMap<String, Job>()
     private val immediateRules = ConcurrentHashMap<String, RegisteredRule>()
-    private val scheduledTasks = ConcurrentHashMap<String, Future<*>>()
+    private val scheduledTasks = ConcurrentHashMap<String, Job>()
     private val activeTimedRules = ConcurrentHashMap<String, RegisteredRule>()
     private val backgroundRules = ConcurrentHashMap<String, RegisteredRule>()
-    private val runningBackgroundRules = ConcurrentHashMap.newKeySet<String>()
+    private val runningBackgroundRules = ConcurrentHashMap<String, Boolean>()
     private val pendingPermissionRules = ConcurrentHashMap<String, PendingPermissionRule>()
     private val activityRuleKeys = WeakHashMap<Activity, MutableSet<String>>()
     private val fragmentRuleKeys = WeakHashMap<Fragment, MutableSet<String>>()
@@ -162,13 +168,13 @@ object FileCleanupManager {
     fun runNow(
         config: CleanupConfig,
         onResult: (CleanupResult) -> Unit = {}
-    ): List<Future<*>> = runNow(config, CleanupCallbacks(onResult))
+    ): List<Job> = runNow(config, CleanupCallbacks(onResult))
 
     @JvmStatic
     fun runNow(
         config: CleanupConfig,
         callbacks: CleanupCallbacks
-    ): List<Future<*>> = runNowInternal(config, callbacks)
+    ): List<Job> = runNowInternal(config, callbacks)
 
     /** 立即执行并绑定 Activity；执行完成或 Activity 销毁后释放资源。 */
     @JvmStatic
@@ -177,14 +183,14 @@ object FileCleanupManager {
         activity: Activity,
         config: CleanupConfig,
         onResult: (CleanupResult) -> Unit = {}
-    ): List<Future<*>> = runNow(activity, config, CleanupCallbacks(onResult))
+    ): List<Job> = runNow(activity, config, CleanupCallbacks(onResult))
 
     @JvmStatic
     fun runNow(
         activity: Activity,
         config: CleanupConfig,
         callbacks: CleanupCallbacks
-    ): List<Future<*>> {
+    ): List<Job> {
         require(!activity.isDestroyed) { "Activity 已销毁，不能执行清理任务" }
         application = activity.application
         ensureLifecycleCallbacks(activity.application)
@@ -199,7 +205,7 @@ object FileCleanupManager {
         config: CleanupConfig,
         lifecycleScope: CleanupLifecycleScope = CleanupLifecycleScope.FRAGMENT,
         onResult: (CleanupResult) -> Unit = {}
-    ): List<Future<*>> = runNow(
+    ): List<Job> = runNow(
         fragment,
         config,
         lifecycleScope,
@@ -212,7 +218,7 @@ object FileCleanupManager {
         config: CleanupConfig,
         lifecycleScope: CleanupLifecycleScope,
         callbacks: CleanupCallbacks
-    ): List<Future<*>> {
+    ): List<Job> {
         val activity = fragment.requireActivity()
         if (lifecycleScope == CleanupLifecycleScope.ACTIVITY) {
             return runNow(activity, config, callbacks)
@@ -231,7 +237,7 @@ object FileCleanupManager {
         callbacks: CleanupCallbacks,
         ownerActivity: Activity? = null,
         ownerFragment: Fragment? = null
-    ): List<Future<*>> {
+    ): List<Job> {
         return config.rules.filter { it.enabled }.map { rule ->
             cancelInternal(rule.key, clearPersistedDeadline = true)
             ownerActivity?.let { attachActivityRule(it, rule.key) }
@@ -256,8 +262,8 @@ object FileCleanupManager {
 
     private fun cancelInternal(key: String, clearPersistedDeadline: Boolean): Boolean {
         val immediateRule = immediateRules.remove(key)
-        val immediateCancelled = immediateTasks.remove(key)?.cancel(true) ?: false
-        val futureCancelled = scheduledTasks.remove(key)?.cancel(true) ?: false
+        val immediateCancelled = immediateTasks.remove(key)?.let { it.cancel(); true } ?: false
+        val scheduledCancelled = scheduledTasks.remove(key)?.let { it.cancel(); true } ?: false
         val timedRule = activeTimedRules.remove(key)
         val backgroundRule = backgroundRules.remove(key)
         runningBackgroundRules.remove(key)
@@ -273,7 +279,7 @@ object FileCleanupManager {
             clearPersistedDeadline(key)
         }
         detachOwnerRule(key)
-        return immediateCancelled || futureCancelled || immediateRule != null || timedRule != null ||
+        return immediateCancelled || scheduledCancelled || immediateRule != null || timedRule != null ||
             backgroundRule != null || pendingPermission != null
     }
 
@@ -289,10 +295,10 @@ object FileCleanupManager {
             addAll(pendingPermissionRules.values.map { it.registered })
         }
         registrations.forEach { it.released.set(true) }
-        immediateTasks.values.forEach { it.cancel(true) }
+        immediateTasks.values.forEach { it.cancel() }
         immediateTasks.clear()
         immediateRules.clear()
-        scheduledTasks.values.forEach { it.cancel(true) }
+        scheduledTasks.values.forEach { it.cancel() }
         scheduledTasks.clear()
         activeTimedRules.clear()
         backgroundRules.clear()
@@ -404,24 +410,22 @@ object FileCleanupManager {
         require(delayMs >= 0L) { "delayMs must be non-negative" }
         val rule = registered.rule
         if (activeTimedRules[rule.key] !== registered) return
-        val futureRef = AtomicReference<Future<*>?>()
-        val future = TaskExecutor.ioDelayed(
-            task = {
-                futureRef.get()?.let { scheduledTasks.remove(rule.key, it) }
-                if (activeTimedRules[rule.key] !== registered) return@ioDelayed
-                executeRegistered(registered) { completeTimedRule(registered) }
-            },
-            delayMs = delayMs
-        )
-        futureRef.set(future)
-        scheduledTasks[rule.key] = future
+        val jobRef = AtomicReference<Job?>()
+        val job = scope.launch {
+            delay(delayMs)
+            jobRef.get()?.let { scheduledTasks.remove(rule.key, it) }
+            if (activeTimedRules[rule.key] !== registered) return@launch
+            FileCoroutines.withIo { executeRegistered(registered) { completeTimedRule(registered) } }
+        }
+        jobRef.set(job)
+        scheduledTasks[rule.key] = job
         if (activeTimedRules[rule.key] !== registered) {
-            future.cancel(true)
-            scheduledTasks.remove(rule.key, future)
+            job.cancel()
+            scheduledTasks.remove(rule.key, job)
             return
         }
-        if (future.isDone) {
-            scheduledTasks.remove(rule.key, future)
+        if (job.isCompleted) {
+            scheduledTasks.remove(rule.key, job)
         }
     }
 
@@ -469,29 +473,45 @@ object FileCleanupManager {
     private fun submit(
         registered: RegisteredRule,
         onTerminal: () -> Unit = {}
-    ): Future<*> {
+    ): Job {
         val key = registered.rule.key
         immediateRules[key] = registered
-        val futureRef = AtomicReference<Future<*>?>()
-        val future = try {
-            TaskExecutor.io {
+        val jobRef = AtomicReference<Job?>()
+        val job = try {
+            scope.launch {
                 try {
-                    executeRegistered(registered, onTerminal)
+                    FileCoroutines.withIo { executeRegistered(registered, onTerminal) }
                 } finally {
                     immediateRules.remove(key, registered)
-                    futureRef.get()?.let { immediateTasks.remove(key, it) }
+                    jobRef.get()?.let { immediateTasks.remove(key, it) }
                 }
             }
         } catch (error: Throwable) {
             immediateRules.remove(key, registered)
-            throw error
+            error.printStackTrace()
+            deliverResult(
+                registered,
+                CleanupResult(
+                    key = registered.rule.key,
+                    path = registered.rule.path,
+                    action = registered.rule.action,
+                    success = false,
+                    deletedEntries = 0,
+                    existedBefore = false,
+                    existedAfter = false,
+                    message = "Cleanup task submission failed: ${error.message}",
+                    error = error
+                ),
+                onTerminal
+            )
+            return completedJob()
         }
-        futureRef.set(future)
-        immediateTasks[key] = future
-        if (future.isDone) {
-            immediateTasks.remove(key, future)
+        jobRef.set(job)
+        immediateTasks[key] = job
+        if (job.isCompleted) {
+            immediateTasks.remove(key, job)
         }
-        return future
+        return job
     }
 
     private fun resolvePersistedDelay(
@@ -547,7 +567,7 @@ object FileCleanupManager {
     private fun executeBackgroundRules() {
         backgroundRules.values.toList().forEach { registered ->
             val key = registered.rule.key
-            if (runningBackgroundRules.add(key)) {
+            if (runningBackgroundRules.putIfAbsent(key, true) == null) {
                 submitBackground(registered)
             }
         }
@@ -577,7 +597,7 @@ object FileCleanupManager {
             val pending = PendingPermissionRule(registered, result, onTerminal)
             pendingPermissionRules[registered.rule.key] = pending
             val request = createPermissionRequest(pending)
-            TaskExecutor.main {
+            if (!postToMain {
                 try {
                     if (isOwnerAlive(registered)) {
                         permissionCallback(request)
@@ -588,6 +608,10 @@ object FileCleanupManager {
                     if (pendingPermissionRules.remove(registered.rule.key, pending)) {
                         deliverResult(registered, result, onTerminal)
                     }
+                }
+            }) {
+                if (pendingPermissionRules.remove(registered.rule.key, pending)) {
+                    deliverResult(registered, result, onTerminal)
                 }
             }
             return
@@ -613,13 +637,21 @@ object FileCleanupManager {
         result: CleanupResult,
         onTerminal: () -> Unit
     ) {
-        TaskExecutor.main {
+        if (!postToMain {
             try {
                 if (isOwnerAlive(registered)) {
-                    registered.callbacks.onResult(result)
+                    safeCallback { registered.callbacks.onResult(result) }
                 }
             } finally {
-                onTerminal()
+                safeCallback { onTerminal() }
+            }
+        }) {
+            try {
+                if (isOwnerAlive(registered)) {
+                    safeCallback { registered.callbacks.onResult(result) }
+                }
+            } finally {
+                safeCallback { onTerminal() }
             }
         }
     }
@@ -683,6 +715,26 @@ object FileCleanupManager {
         return roots.any { root ->
             val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return@any false
             target == canonicalRoot || target.path.startsWith(canonicalRoot.path + java.io.File.separator)
+        }
+    }
+
+    private fun postToMain(block: () -> Unit): Boolean {
+        return try {
+            scope.launch(Dispatchers.Main) { block() }
+            true
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private fun completedJob(): Job = Job().apply { complete() }
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
         }
     }
 
@@ -807,9 +859,7 @@ object FileCleanupManager {
         }
 
         override fun onActivityStopped(activity: Activity) {
-            val count = startedActivities.updateAndGet { current ->
-                (current - 1).coerceAtLeast(0)
-            }
+            val count = decrementStartedActivities()
             if (count == 0 && !activity.isChangingConfigurations) {
                 executeBackgroundRules()
             }
@@ -821,6 +871,14 @@ object FileCleanupManager {
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
         override fun onActivityDestroyed(activity: Activity) {
             releaseActivityRules(activity)
+        }
+
+        private fun decrementStartedActivities(): Int {
+            while (true) {
+                val current = startedActivities.get()
+                val next = (current - 1).coerceAtLeast(0)
+                if (startedActivities.compareAndSet(current, next)) return next
+            }
         }
     }
 

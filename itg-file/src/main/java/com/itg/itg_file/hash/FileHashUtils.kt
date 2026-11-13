@@ -1,14 +1,13 @@
 package com.itg.itg_file.hash
 
 import com.itg.itg_file.core.FileUtils
-import com.itg.itg_thread_pools.executor.TaskExecutor
+import com.itg.itg_file.core.FileCoroutines
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.security.DigestInputStream
 import java.security.MessageDigest
-import java.util.concurrent.Future
 import java.util.zip.CRC32
 import java.util.zip.CheckedInputStream
 
@@ -16,7 +15,7 @@ import java.util.zip.CheckedInputStream
  * 文件哈希/校验工具类
  *
  * 提供多种哈希算法计算文件摘要，用于文件完整性校验和去重识别。
- * 所有同步方法直接阻塞执行；异步方法通过 [TaskExecutor] 在 I/O 线程池执行。
+ * 同步方法会阻塞调用线程；在协程中使用 FileCoroutines.withIo 将操作切换到 IO 调度器。
  *
  * 支持的算法:
  * - MD5（快速，适合去重）
@@ -98,30 +97,31 @@ object FileHashUtils {
      * @param path      文件路径
      * @param algorithm 哈希算法
      * @param onResult  回调 (hash: String?, error: Throwable?)
-     * @return [Future]
+     * @return Unit
      *
      * 使用示例:
      * ```kotlin
-     * FileHashUtils.hashFileAsync("/sdcard/photo.jpg", Algorithm.MD5) { hash, error ->
-     *     if (hash != null) {
-     *         TaskExecutor.main { textView.text = "MD5: $hash" }
-     *     }
+     * viewModelScope.launch {
+     *     val hash = FileCoroutines.withIo { FileHashUtils.hashFile(path, Algorithm.MD5) }
+     *     hashState.value = hash
      * }
      * ```
      */
     @JvmStatic
     @JvmOverloads
-    fun hashFileAsync(
+    suspend fun hashFileSuspend(
         path: String,
         algorithm: Algorithm = Algorithm.SHA256,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val hash = hashFile(path, algorithm)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback {
+                    onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -163,7 +163,7 @@ object FileHashUtils {
                 while (fis.read(buffer).also { bytesRead = it } != -1) {
                     digest.update(buffer, 0, bytesRead)
                     processed += bytesRead
-                    onProgress?.invoke(processed, totalSize)
+                    safeCallback { onProgress?.invoke(processed, totalSize) }
                 }
             }
             digest.digest().toHexString()
@@ -178,18 +178,20 @@ object FileHashUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun hashFileWithProgressAsync(
+    suspend fun hashFileWithProgressSuspend(
         path: String,
         algorithm: Algorithm = Algorithm.SHA256,
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val hash = hashFileWithProgress(path, algorithm, onProgress)
-                onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                safeCallback {
+                    onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -206,8 +208,8 @@ object FileHashUtils {
      * 异步计算 MD5
      */
     @JvmStatic
-    fun md5Async(path: String, onResult: (String?, Throwable?) -> Unit): Future<*> =
-        hashFileAsync(path, Algorithm.MD5, onResult)
+    suspend fun md5Suspend(path: String, onResult: (String?, Throwable?) -> Unit): Unit =
+        hashFileSuspend(path, Algorithm.MD5, onResult)
 
     /**
      * 计算文件 SHA-1 值
@@ -219,8 +221,8 @@ object FileHashUtils {
      * 异步计算 SHA-1
      */
     @JvmStatic
-    fun sha1Async(path: String, onResult: (String?, Throwable?) -> Unit): Future<*> =
-        hashFileAsync(path, Algorithm.SHA1, onResult)
+    suspend fun sha1Suspend(path: String, onResult: (String?, Throwable?) -> Unit): Unit =
+        hashFileSuspend(path, Algorithm.SHA1, onResult)
 
     /**
      * 计算文件 SHA-256 值
@@ -232,8 +234,8 @@ object FileHashUtils {
      * 异步计算 SHA-256
      */
     @JvmStatic
-    fun sha256Async(path: String, onResult: (String?, Throwable?) -> Unit): Future<*> =
-        hashFileAsync(path, Algorithm.SHA256, onResult)
+    suspend fun sha256Suspend(path: String, onResult: (String?, Throwable?) -> Unit): Unit =
+        hashFileSuspend(path, Algorithm.SHA256, onResult)
 
     /**
      * 计算文件 SHA-512 值
@@ -245,8 +247,8 @@ object FileHashUtils {
      * 异步计算 SHA-512
      */
     @JvmStatic
-    fun sha512Async(path: String, onResult: (String?, Throwable?) -> Unit): Future<*> =
-        hashFileAsync(path, Algorithm.SHA512, onResult)
+    suspend fun sha512Suspend(path: String, onResult: (String?, Throwable?) -> Unit): Unit =
+        hashFileSuspend(path, Algorithm.SHA512, onResult)
 
     // ==================== CRC32 ====================
 
@@ -280,16 +282,18 @@ object FileHashUtils {
      * 异步计算 CRC32
      */
     @JvmStatic
-    fun crc32Async(
+    suspend fun crc32Suspend(
         path: String,
         onResult: (String?, Throwable?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             try {
                 val result = crc32(path)
-                onResult(result, if (result == null) IOException("CRC32 failed: $path") else null)
+                safeCallback {
+                    onResult(result, if (result == null) IOException("CRC32 failed: $path") else null)
+                }
             } catch (e: Exception) {
-                onResult(null, e)
+                safeCallback { onResult(null, e) }
             }
         }
     }
@@ -371,21 +375,21 @@ object FileHashUtils {
      * @param algorithm     算法
      * @param ignoreCase    是否忽略大小写
      * @param onResult      回调 (valid: Boolean, actualHash: String?)
-     * @return [Future]
+     * @return Unit
      */
     @JvmStatic
     @JvmOverloads
-    fun verifyAsync(
+    suspend fun verifySuspend(
         path: String,
         expectedHash: String,
         algorithm: Algorithm = Algorithm.SHA256,
         ignoreCase: Boolean = true,
         onResult: (Boolean, String?) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io {
+    ): Unit {
+        return FileCoroutines.withIo {
             val actual = hashFile(path, algorithm)
             val valid = actual != null && actual.equals(expectedHash, ignoreCase)
-            onResult(valid, actual)
+            safeCallback { onResult(valid, actual) }
         }
     }
 
@@ -414,16 +418,24 @@ object FileHashUtils {
      */
     @JvmStatic
     @JvmOverloads
-    fun compareFilesAsync(
+    suspend fun compareFilesSuspend(
         path1: String,
         path2: String,
         algorithm: Algorithm = Algorithm.SHA256,
         onResult: (Boolean) -> Unit
-    ): Future<*> {
-        return TaskExecutor.io { onResult(compareFiles(path1, path2, algorithm)) }
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(compareFiles(path1, path2, algorithm)) } }
     }
 
     // ==================== 内部方法 ====================
+
+    private inline fun safeCallback(callback: () -> Unit) {
+        try {
+            callback()
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
 
     private fun ByteArray.toHexString(): String {
         return joinToString("") { "%02x".format(it) }
