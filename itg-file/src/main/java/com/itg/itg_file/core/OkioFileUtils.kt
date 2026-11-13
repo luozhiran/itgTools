@@ -1,7 +1,6 @@
 package com.itg.itg_file.core
 import android.system.ErrnoException
 import android.system.Os
-import com.itg.itg_file.core.FileCoroutines
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import android.os.StatFs
@@ -51,6 +50,7 @@ object OkioFileUtils {
         return try {
             File(path).exists()
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             false
         }
     }
@@ -66,12 +66,13 @@ object OkioFileUtils {
     /**
      * 获取文件大小（字节）
      */
-    @JvmStatic
-    fun getSize(path: String): Long {
+    private fun getSizeImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
         return try {
             val file = File(path)
-            if (file.isFile) file.length() else -1L
+            if (file.isFile) file.length()
+            else failureReporter.fail(-1L, "读取大小失败：文件不存在或不是普通文件：$path")
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
@@ -79,11 +80,14 @@ object OkioFileUtils {
     /**
      * 获取文件最后修改时间戳（毫秒）
      */
-    @JvmStatic
-    fun getLastModifiedMillis(path: String): Long {
+    private fun getLastModifiedMillisImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
         return try {
+            if (!File(path).exists()) {
+                return failureReporter.fail(-1L, "读取修改时间失败：文件不存在：$path")
+            }
             File(path).lastModified()
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
@@ -96,6 +100,7 @@ object OkioFileUtils {
         return try {
             File(path).isFile
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             false
         }
     }
@@ -108,6 +113,7 @@ object OkioFileUtils {
         return try {
             File(path).isDirectory
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             false
         }
     }
@@ -131,19 +137,17 @@ object OkioFileUtils {
      * OkioFileUtils.copy("/sdcard/large.zip", "/sdcard/backup/large.zip")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copy(srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
-        if (!exists(srcPath)) return false
+    private fun copyImpl(failureReporter: FileFailureCallbacks.Reporter, srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
+        if (!exists(srcPath)) return failureReporter.fail(false, "OkioFileUtils.copy 失败：源文件不存在")
 
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath)
-            if (srcFile.canonicalFile == destFile.canonicalFile) return false
+            if (srcFile.canonicalFile == destFile.canonicalFile) return failureReporter.fail(false, "OkioFileUtils.copy 失败：源与目标指向同一文件")
 
-            if (destFile.exists() && !overwrite) return false
+            if (destFile.exists() && !overwrite) return failureReporter.fail(false, "OkioFileUtils.copy 失败：目标已存在且禁止覆盖")
 
-            writeToFileAtomically(destFile, overwrite) { tempFile ->
+            writeToFileAtomically(failureReporter, destFile, overwrite) { tempFile ->
                 srcFile.source().buffer().use { source ->
                     tempFile.sink().buffer().use { sink ->
                         sink.writeAll(source)
@@ -151,9 +155,11 @@ object OkioFileUtils {
                 }
             }
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: SecurityException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -168,9 +174,10 @@ object OkioFileUtils {
         srcPath: String,
         destPath: String,
         overwrite: Boolean = true,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(copy(srcPath, destPath, overwrite, onFailure = onFailure)) } }
     }
 
     // ==================== 移动 ====================
@@ -185,36 +192,40 @@ object OkioFileUtils {
      * @param overwrite 是否覆盖
      * @return true 表示移动成功
      */
-    @JvmStatic
-    @JvmOverloads
-    fun move(srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
-        if (!exists(srcPath)) return false
+    private fun moveImpl(failureReporter: FileFailureCallbacks.Reporter, srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
+        if (!exists(srcPath)) return failureReporter.fail(false, "移动失败：源文件不存在：$srcPath")
 
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath)
             if (srcFile.canonicalFile == destFile.canonicalFile) return true
 
-            if (destFile.exists() && !overwrite) return false
-            ensureParentDirectory(destFile)
+            if (destFile.exists() && !overwrite) return failureReporter.fail(false, "移动失败：目标已存在且禁止覆盖：$destPath")
+            ensureParentDirectory(failureReporter, destFile)
+                ?: return failureReporter.fail(false, "移动失败：无法创建目标父目录：${destFile.parent}")
 
             // 先尝试 rename（同一文件系统下极快）
             if (srcFile.renameTo(destFile)) return true
 
             // 跨文件系统则走 copy+delete
-            val success = copy(srcPath, destPath, overwrite)
-            if (success) {
-                srcFile.deleteRecursively()
+            if (!copyImpl(failureReporter, srcPath, destPath, overwrite)) {
+                return failureReporter.fail(false, "移动失败：跨文件系统复制未完成：$srcPath → $destPath")
             }
-            success
+            if (!srcFile.deleteRecursively()) {
+                return failureReporter.fail(false, "移动未完成：目标已复制但源文件未删除：$srcPath")
+            }
+            true
         } catch (e: Exception) {
             // rename 失败，回退到 copy+delete
+            failureReporter.rethrow(e)
             try {
-                if (copy(srcPath, destPath, overwrite)) {
-                    delete(srcPath)
-                    true
-                } else false
+                if (!copyImpl(failureReporter, srcPath, destPath, overwrite)) {
+                    failureReporter.fail(false, "移动失败：回退复制未完成：$srcPath → $destPath")
+                } else if (!deleteImpl(failureReporter, srcPath)) {
+                    failureReporter.fail(false, "移动未完成：目标已复制但源文件未删除：$srcPath")
+                } else true
             } catch (e2: Exception) {
+                failureReporter.rethrow(e2)
                 e2.printStackTrace()
                 false
             }
@@ -225,13 +236,15 @@ object OkioFileUtils {
      * 异步移动
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun moveSuspend(
         srcPath: String,
         destPath: String,
         overwrite: Boolean = true,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(move(srcPath, destPath, overwrite, onFailure = onFailure)) } }
     }
 
     // ==================== 删除 ====================
@@ -242,11 +255,11 @@ object OkioFileUtils {
      * @param path 文件/目录路径
      * @return true 表示删除成功
      */
-    @JvmStatic
-    fun delete(path: String): Boolean {
-        if (!exists(path)) return false
+    private fun deleteImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Boolean {
+        if (!exists(path)) return failureReporter.fail(false, "删除失败：目标不存在：$path")
         return try {
-            File(path).deleteRecursively()
+            if (File(path).deleteRecursively()) true
+            else failureReporter.fail(false, "删除失败：目标或子项无法删除：$path")
         } catch (e: Exception) {
             // 回退到 FileUtils 递归删除
             FileUtils.delete(path)
@@ -257,8 +270,13 @@ object OkioFileUtils {
      * 异步删除
      */
     @JvmStatic
-    suspend fun deleteSuspend(path: String, onResult: (Boolean) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(delete(path)) } }
+    @JvmOverloads
+    suspend fun deleteSuspend(
+        path: String,
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(delete(path, onFailure = onFailure)) } }
     }
 
     /**
@@ -267,12 +285,17 @@ object OkioFileUtils {
      * @param path 目录路径
      * @return true 表示创建成功或已存在
      */
-    @JvmStatic
-    fun createDirectory(path: String): Boolean {
+    private fun createDirectoryImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Boolean {
         return try {
             val dir = File(path)
-            dir.exists() || dir.mkdirs()
+            when {
+                dir.isDirectory -> true
+                dir.exists() -> failureReporter.fail(false, "创建目录失败：目标已有普通文件：$path")
+                dir.mkdirs() -> true
+                else -> failureReporter.fail(false, "创建目录失败：无法创建目标目录：$path")
+            }
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -282,8 +305,13 @@ object OkioFileUtils {
      * 异步创建目录
      */
     @JvmStatic
-    suspend fun createDirectorySuspend(path: String, onResult: (Boolean) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(createDirectory(path)) } }
+    @JvmOverloads
+    suspend fun createDirectorySuspend(
+        path: String,
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(createDirectory(path, onFailure = onFailure)) } }
     }
 
     // ==================== 目录遍历 ====================
@@ -303,6 +331,7 @@ object OkioFileUtils {
         return try {
             dir.walkTopDown().filter { it.isFile }.toList()
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             e.printStackTrace()
             emptyList()
         }
@@ -329,6 +358,7 @@ object OkioFileUtils {
         return try {
             dir.listFiles()?.toList() ?: emptyList()
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             e.printStackTrace()
             emptyList()
         }
@@ -344,12 +374,12 @@ object OkioFileUtils {
      * @param path 路径（用于确定所在分区）
      * @return 可用字节数，失败返回 -1
      */
-    @JvmStatic
-    fun getAvailableSpace(path: String): Long {
+    private fun getAvailableSpaceImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
         return try {
             val stat = StatFs(path)
             stat.availableBytes
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
@@ -360,12 +390,12 @@ object OkioFileUtils {
      * @param path 路径（用于确定所在分区）
      * @return 总字节数，失败返回 -1
      */
-    @JvmStatic
-    fun getTotalSpace(path: String): Long {
+    private fun getTotalSpaceImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
         return try {
             val stat = StatFs(path)
             stat.totalBytes
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
@@ -387,8 +417,10 @@ object OkioFileUtils {
             if (timeoutMs <= 0) FileCoroutines.withIo(block)
             else withTimeoutOrNull(timeoutMs) { FileCoroutines.withIo(block) }
         } catch (e: CancellationException) {
+            FileFailureCallbacks.rethrowCancellation(e)
             throw e
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             e.printStackTrace()
             null
         }
@@ -407,7 +439,7 @@ object OkioFileUtils {
         safeCallback { onResult(result) }
     }
 
-    private fun writeToFileAtomically(
+    private fun writeToFileAtomically(failureReporter: FileFailureCallbacks.Reporter,
         destFile: File,
         overwrite: Boolean,
         writer: (File) -> Unit
@@ -416,23 +448,27 @@ object OkioFileUtils {
         return try {
             val canonicalDest = destFile.canonicalFile
             if (canonicalDest.exists()) {
-                if (!overwrite || canonicalDest.isDirectory) return false
+                if (!overwrite) return failureReporter.fail(false, "OkioFileUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
+                if (canonicalDest.isDirectory) return failureReporter.fail(false, "OkioFileUtils.writeToFileAtomically 失败：目标路径是目录")
             }
-            val parent = ensureParentDirectory(canonicalDest) ?: return false
+            val parent = ensureParentDirectory(failureReporter, canonicalDest) ?: return failureReporter.fail(false, "OkioFileUtils.writeToFileAtomically 失败：无法创建目标父目录")
             tempFile = File.createTempFile(".${canonicalDest.name}.", ".tmp", parent)
             writer(tempFile)
             FileOutputStream(tempFile, true).use { it.fd.sync() }
-            if (canonicalDest.exists() && !overwrite) return false
+            if (canonicalDest.exists() && !overwrite) return failureReporter.fail(false, "OkioFileUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
             Os.rename(tempFile.absolutePath, canonicalDest.absolutePath)
             tempFile = null
             true
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: ErrnoException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: SecurityException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } finally {
@@ -440,17 +476,147 @@ object OkioFileUtils {
         }
     }
 
-    private fun ensureParentDirectory(file: File): File? {
-        val parent = file.parentFile ?: return null
+    private fun ensureParentDirectory(failureReporter: FileFailureCallbacks.Reporter, file: File): File? {
+        val parent = file.parentFile ?: return failureReporter.fail(null, "OkioFileUtils.ensureParentDirectory 失败：无法获取目标文件的父目录")
         if (parent.exists()) return if (parent.isDirectory) parent else null
         return if (parent.mkdirs()) parent else null
     }
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (t: Throwable) {
+            failureReporter.rethrow(t)
             t.printStackTrace()
         }
     }
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** 读取文件大小；失败时通过 onFailure 通知调用方。 */
+    @JvmStatic
+    @JvmOverloads
+    fun getSize(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("OkioFileUtils.getSize", path, onFailure, { it < 0L }, -1L) { failureReporter ->
+            getSizeImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getLastModifiedMillis(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("OkioFileUtils.getLastModifiedMillis", path, onFailure,
+            { it < 0L || (it == 0L && !File(path).exists()) }, -1L) { failureReporter ->
+            getLastModifiedMillisImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getAvailableSpace(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("OkioFileUtils.getAvailableSpace", path, onFailure, { it < 0L }, -1L) { failureReporter ->
+            getAvailableSpaceImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getTotalSpace(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("OkioFileUtils.getTotalSpace", path, onFailure, { it < 0L }, -1L) { failureReporter ->
+            getTotalSpaceImpl(failureReporter, path)
+        }
+
+    /** copy 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copy(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("OkioFileUtils.copy", "$srcPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyImpl(failureReporter, srcPath, destPath, overwrite)
+        }
+
+    /** move 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun move(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("OkioFileUtils.move", "$srcPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            moveImpl(failureReporter, srcPath, destPath, overwrite)
+        }
+
+    /** delete 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun delete(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("OkioFileUtils.delete", "$path", onFailure, { !it }, false) { failureReporter ->
+            deleteImpl(failureReporter, path)
+        }
+
+    /** createDirectory 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun createDirectory(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("OkioFileUtils.createDirectory", "$path", onFailure, { !it }, false) { failureReporter ->
+            createDirectoryImpl(failureReporter, path)
+        }
+
+    // 兼容原有尾随 lambda 调用
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copySuspendLegacyCallback")
+    suspend fun copySuspend(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) = copySuspend(srcPath = srcPath, destPath = destPath, overwrite = overwrite, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("moveSuspendLegacyCallback")
+    suspend fun moveSuspend(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) = moveSuspend(srcPath = srcPath, destPath = destPath, overwrite = overwrite, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("deleteSuspendLegacyCallback")
+    suspend fun deleteSuspend(
+        path: String,
+        onResult: (Boolean) -> Unit
+    ) = deleteSuspend(path = path, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("createDirectorySuspendLegacyCallback")
+    suspend fun createDirectorySuspend(
+        path: String,
+        onResult: (Boolean) -> Unit
+    ) = createDirectorySuspend(path = path, onResult = onResult, onFailure = null)
 }

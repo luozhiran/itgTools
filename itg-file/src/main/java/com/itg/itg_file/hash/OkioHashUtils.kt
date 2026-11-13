@@ -1,4 +1,5 @@
 package com.itg.itg_file.hash
+import com.itg.itg_file.core.FileFailureCallbacks
 
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_file.core.FileCoroutines
@@ -58,14 +59,12 @@ object OkioHashUtils {
      * // buffer 中已有完整数据
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun hashWhileReading(
+    private fun hashWhileReadingImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         digest: MessageDigest,
         onRead: ((buffer: Buffer, bytesRead: Long) -> Unit)? = null
     ): String? {
-        if (!FileUtils.isFile(path)) return null
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "OkioHashUtils.hashWhileReading 失败：源文件不存在或不是普通文件")
 
         return try {
             val source = File(path).source()
@@ -78,12 +77,13 @@ object OkioHashUtils {
                     val read = src.read(buffer, BUFFER_SIZE)
                     if (read == -1L) break
                     bytesRead += read
-                    safeCallback { onRead?.invoke(buffer.clone(), bytesRead) }
+                    safeCallback(failureReporter) { onRead?.invoke(buffer.clone(), bytesRead) }
                     buffer.clear()
                 }
             }
             hashingSource.hash().toHexString()
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -101,9 +101,11 @@ object OkioHashUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val hash = hashWhileReading(path, digest, onRead)
-                safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
+                var failure: Exception? = null
+                val hash = hashWhileReading(path, digest, onRead, onFailure = { failure = it })
+                safeCallback { onResult(hash, failure) }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -128,16 +130,15 @@ object OkioHashUtils {
      * if (ok) println("MD5: $hash")
      * ```
      */
-    @JvmStatic
-    fun hashWhileWriting(
+    private fun hashWhileWritingImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         data: ByteArray,
         digest: MessageDigest
     ): Pair<String?, Boolean>? {
-        if (path.isBlank()) return null
+        if (path.isBlank()) return failureReporter.fail(null, "OkioHashUtils.hashWhileWriting 失败：输入路径或参数为空")
 
         var hash: String? = null
-        val success = writeToFileAtomically(path) { file ->
+        val success = writeToFileAtomically(failureReporter, path) { file ->
             val hashingSink = DigestingSink(file.sink(), freshDigest(digest))
             hashingSink.buffer().use { buffered ->
                 buffered.write(data)
@@ -151,21 +152,24 @@ object OkioHashUtils {
      * 异步写入时哈希
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun hashWhileWritingSuspend(
         path: String,
         data: ByteArray,
         digest: MessageDigest,
-        onResult: (String?, Boolean) -> Unit
+        onResult: (String?, Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val result = hashWhileWriting(path, data, digest)
+                val result = hashWhileWriting(path, data, digest, onFailure)
                 if (result != null) {
                     safeCallback { onResult(result.first, result.second) }
                 } else {
                     safeCallback { onResult(null, false) }
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, false) }
             }
         }
@@ -196,16 +200,14 @@ object OkioHashUtils {
      * if (ok) println("SHA256: $hash")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyAndHash(
+    private fun copyAndHashImpl(failureReporter: FileFailureCallbacks.Reporter,
         srcPath: String,
         destPath: String,
         digest: MessageDigest,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
     ): Pair<String?, Boolean>? {
-        if (!FileUtils.isFile(srcPath)) return null
+        if (!FileUtils.isFile(srcPath)) return failureReporter.fail(null, "OkioHashUtils.copyAndHash 失败：源文件不存在或不是普通文件")
 
         return try {
             val srcFile = File(srcPath)
@@ -219,7 +221,7 @@ object OkioHashUtils {
             var lastReport = 0L
             var hash: String? = null
 
-            val success = writeToFileAtomically(destPath, overwrite) { tempFile ->
+            val success = writeToFileAtomically(failureReporter, destPath, overwrite) { tempFile ->
                 val rawSource = srcFile.source()
                 val hashingSource = DigestingSource(rawSource, freshDigest(digest))
                 val progressSource = object : ForwardingSource(hashingSource) {
@@ -228,7 +230,7 @@ object OkioHashUtils {
                         if (read != -1L) {
                             bytesCopied += read
                             if (onProgress != null && bytesCopied - lastReport >= BUFFER_SIZE) {
-                                safeCallback { onProgress(bytesCopied, totalSize) }
+                                safeCallback(failureReporter) { onProgress(bytesCopied, totalSize) }
                                 lastReport = bytesCopied
                             }
                         }
@@ -242,9 +244,10 @@ object OkioHashUtils {
                 hash = hashingSource.hash().toHexString()
             }
 
-            safeCallback { onProgress?.invoke(bytesCopied, totalSize) }
+            safeCallback(failureReporter) { onProgress?.invoke(bytesCopied, totalSize) }
             Pair(hash, success)
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             Pair(null, false)
         }
@@ -261,17 +264,19 @@ object OkioHashUtils {
         digest: MessageDigest,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
-        onResult: (String?, Boolean) -> Unit
+        onResult: (String?, Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val result = copyAndHash(srcPath, destPath, digest, overwrite, onProgress)
+                val result = copyAndHash(srcPath, destPath, digest, overwrite, onProgress, onFailure)
                 if (result != null) {
                     safeCallback { onResult(result.first, result.second) }
                 } else {
                     safeCallback { onResult(null, false) }
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, false) }
             }
         }
@@ -288,15 +293,13 @@ object OkioHashUtils {
      * @param onProgress 进度回调
      * @return Pair(hash: String?, success: Boolean)
      */
-    @JvmStatic
-    @JvmOverloads
-    fun gzipAndHash(
+    private fun gzipAndHashImpl(failureReporter: FileFailureCallbacks.Reporter,
         srcPath: String,
         destPath: String,
         digest: MessageDigest,
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null
     ): Pair<String?, Boolean>? {
-        if (!FileUtils.isFile(srcPath)) return null
+        if (!FileUtils.isFile(srcPath)) return failureReporter.fail(null, "OkioHashUtils.gzipAndHash 失败：源文件不存在或不是普通文件")
 
         return try {
             val srcFile = File(srcPath)
@@ -307,7 +310,7 @@ object OkioHashUtils {
             var lastReport = 0L
             var hash: String? = null
 
-            val success = writeToFileAtomically(destPath) { tempFile ->
+            val success = writeToFileAtomically(failureReporter, destPath) { tempFile ->
                 val rawSource = srcFile.source()
                 val progressSource = object : ForwardingSource(rawSource) {
                     override fun read(sink: Buffer, byteCount: Long): Long {
@@ -315,7 +318,7 @@ object OkioHashUtils {
                         if (read != -1L) {
                             bytesProcessed += read
                             if (onProgress != null && bytesProcessed - lastReport >= BUFFER_SIZE) {
-                                safeCallback { onProgress(bytesProcessed, totalSize) }
+                                safeCallback(failureReporter) { onProgress(bytesProcessed, totalSize) }
                                 lastReport = bytesProcessed
                             }
                         }
@@ -334,9 +337,10 @@ object OkioHashUtils {
                 hash = hashingSink.hash().toHexString()
             }
 
-            safeCallback { onProgress?.invoke(bytesProcessed, totalSize) }
+            safeCallback(failureReporter) { onProgress?.invoke(bytesProcessed, totalSize) }
             Pair(hash, success)
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             Pair(null, false)
         }
@@ -356,9 +360,7 @@ object OkioHashUtils {
      * @param onProgress 进度回调
      * @return 三元组 (hash: String?, success: Boolean, verified: Boolean)
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyAndVerify(
+    private fun copyAndVerifyImpl(failureReporter: FileFailureCallbacks.Reporter,
         srcPath: String,
         destPath: String,
         digest: MessageDigest,
@@ -366,19 +368,25 @@ object OkioHashUtils {
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
     ): Triple<String?, Boolean, Boolean>? {
         // 第一步: 复制并计算源文件哈希
-        val result = copyAndHash(srcPath, destPath, digest, overwrite, onProgress)
-            ?: return Triple(null, false, false)
+        val result = copyAndHashImpl(failureReporter, srcPath, destPath, digest, overwrite, onProgress)
+            ?: return failureReporter.fail(Triple(null, false, false), "复制并计算源文件哈希失败：$srcPath")
 
         val (srcHash, success) = result
         if (!success || srcHash == null) {
-            return Triple(null, false, false)
+            return failureReporter.fail(Triple(null, false, false), "复制并计算源文件哈希未完成：$srcPath")
         }
 
         // 第二步: 验证目标文件哈希
-        val destHash = hashFile(destPath, digest)
+        val destHash = hashFileImpl(failureReporter, destPath, digest)
         val verified = destHash != null && destHash.equals(srcHash, ignoreCase = true)
 
-        return Triple(srcHash, true, verified)
+        if (!verified) {
+            return failureReporter.fail(
+                Triple(srcHash, true, false),
+                "复制后校验失败：源与目标文件的哈希值不一致：$destPath"
+            )
+        }
+        return Triple(srcHash, true, true)
     }
 
     // ==================== 便捷哈希方法 ====================
@@ -390,9 +398,8 @@ object OkioHashUtils {
      * @param digest 哈希算法
      * @return 十六进制哈希字符串，失败返回 null
      */
-    @JvmStatic
-    fun hashFile(path: String, digest: MessageDigest): String? {
-        if (!FileUtils.isFile(path)) return null
+    private fun hashFileImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, digest: MessageDigest): String? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "OkioHashUtils.hashFile 失败：源文件不存在或不是普通文件")
         return try {
             File(path).source().use { source ->
                 val hashingSource = DigestingSource(source, freshDigest(digest))
@@ -402,6 +409,7 @@ object OkioHashUtils {
                 hashingSource.hash().toHexString()
             }
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -418,9 +426,11 @@ object OkioHashUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val hash = hashFile(path, digest)
-                safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
+                var failure: Exception? = null
+                val hash = hashFile(path, digest, onFailure = { failure = it })
+                safeCallback { onResult(hash, failure) }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -429,14 +439,12 @@ object OkioHashUtils {
     /**
      * 计算文件哈希（带进度）
      */
-    @JvmStatic
-    @JvmOverloads
-    fun hashFileWithProgress(
+    private fun hashFileWithProgressImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         digest: MessageDigest,
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null
     ): String? {
-        if (!FileUtils.isFile(path)) return null
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "OkioHashUtils.hashFileWithProgress 失败：源文件不存在或不是普通文件")
         return try {
             val file = File(path)
             val totalSize = file.length()
@@ -451,7 +459,7 @@ object OkioHashUtils {
                     if (read != -1L) {
                         bytesProcessed += read
                         if (onProgress != null && bytesProcessed - lastReport >= BUFFER_SIZE) {
-                            safeCallback { onProgress(bytesProcessed, totalSize) }
+                            safeCallback(failureReporter) { onProgress(bytesProcessed, totalSize) }
                             lastReport = bytesProcessed
                         }
                     }
@@ -462,9 +470,10 @@ object OkioHashUtils {
             progressSource.buffer().use { buffered ->
                 buffered.drainAll()
             }
-            safeCallback { onProgress?.invoke(bytesProcessed, totalSize) }
+            safeCallback(failureReporter) { onProgress?.invoke(bytesProcessed, totalSize) }
             hashingSource.hash().toHexString()
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -482,9 +491,11 @@ object OkioHashUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val hash = hashFileWithProgress(path, digest, onProgress)
-                safeCallback { onResult(hash, if (hash == null) IOException("Hash failed: $path") else null) }
+                var failure: Exception? = null
+                val hash = hashFileWithProgress(path, digest, onProgress, onFailure = { failure = it })
+                safeCallback { onResult(hash, failure) }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -526,38 +537,42 @@ object OkioHashUtils {
         }
     }
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (t: Throwable) {
+            failureReporter.rethrow(t)
             t.printStackTrace()
         }
     }
 
-    private fun writeToFileAtomically(
+    private fun writeToFileAtomically(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         overwrite: Boolean = true,
         writer: (File) -> Unit
     ): Boolean {
-        if (path.isBlank()) return false
+        if (path.isBlank()) return failureReporter.fail(false, "OkioHashUtils.writeToFileAtomically 失败：输入路径或参数为空")
         var tempFile: File? = null
         return try {
             val destFile = File(path).canonicalFile
             if (destFile.exists()) {
-                if (!overwrite || destFile.isDirectory) return false
+                if (!overwrite) return failureReporter.fail(false, "OkioHashUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
+                if (destFile.isDirectory) return failureReporter.fail(false, "OkioHashUtils.writeToFileAtomically 失败：目标路径是目录")
             }
-            val parent = ensureParentDirectory(destFile) ?: return false
+            val parent = ensureParentDirectory(failureReporter, destFile) ?: return failureReporter.fail(false, "OkioHashUtils.writeToFileAtomically 失败：无法创建目标父目录")
             tempFile = File.createTempFile(".${destFile.name}.", ".tmp", parent)
             writer(tempFile)
             FileOutputStream(tempFile, true).use { it.fd.sync() }
-            if (destFile.exists() && !overwrite) return false
-            replaceFile(tempFile, destFile)
+            if (destFile.exists() && !overwrite) return failureReporter.fail(false, "OkioHashUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
+            replaceFile(failureReporter, tempFile, destFile)
             tempFile = null
             true
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: SecurityException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } finally {
@@ -565,7 +580,7 @@ object OkioHashUtils {
         }
     }
 
-    private fun replaceFile(tempFile: File, destFile: File) {
+    private fun replaceFile(failureReporter: FileFailureCallbacks.Reporter, tempFile: File, destFile: File) {
         if (tempFile.renameTo(destFile)) return
         if (destFile.exists() && !destFile.delete()) {
             throw IOException("Failed to delete destination: ${destFile.absolutePath}")
@@ -575,10 +590,15 @@ object OkioHashUtils {
         }
     }
 
-    private fun ensureParentDirectory(file: File): File? {
-        val parent = file.parentFile ?: return null
-        if (parent.exists()) return if (parent.isDirectory) parent else null
-        return if (parent.mkdirs()) parent else null
+    private fun ensureParentDirectory(failureReporter: FileFailureCallbacks.Reporter, file: File): File? {
+        val parent = file.parentFile
+            ?: return failureReporter.fail(null, "无法获取目标文件的父目录：${file.path}")
+        if (parent.exists()) {
+            return if (parent.isDirectory) parent
+            else failureReporter.fail(null, "父路径不是目录：${parent.path}")
+        }
+        return if (parent.mkdirs() || parent.isDirectory) parent
+        else failureReporter.fail(null, "无法创建父目录：${parent.path}")
     }
 
     private class DigestingSource(
@@ -612,4 +632,174 @@ object OkioHashUtils {
 
         fun hash(): ByteArray = digest.digest()
     }
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** hashWhileReading 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun hashWhileReading(
+        path: String,
+        digest: MessageDigest,
+        onRead: ((buffer: Buffer, bytesRead: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("OkioHashUtils.hashWhileReading", "$path", onFailure, { it == null }, null) { failureReporter ->
+            hashWhileReadingImpl(failureReporter, path, digest, onRead)
+        }
+
+    /** hashWhileWriting 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun hashWhileWriting(
+        path: String,
+        data: ByteArray,
+        digest: MessageDigest,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Pair<String?, Boolean>? =
+        FileFailureCallbacks.run("OkioHashUtils.hashWhileWriting", "$path", onFailure, { it == null || !it.second }, null) { failureReporter ->
+            hashWhileWritingImpl(failureReporter, path, data, digest)
+        }
+
+    /** copyAndHash 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyAndHash(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Pair<String?, Boolean>? =
+        FileFailureCallbacks.run("OkioHashUtils.copyAndHash", "$srcPath → $destPath", onFailure, { it == null || !it.second }, null) { failureReporter ->
+            copyAndHashImpl(failureReporter, srcPath, destPath, digest, overwrite, onProgress)
+        }
+
+    /** gzipAndHash 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun gzipAndHash(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Pair<String?, Boolean>? =
+        FileFailureCallbacks.run("OkioHashUtils.gzipAndHash", "$srcPath", onFailure, { it == null || !it.second }, null) { failureReporter ->
+            gzipAndHashImpl(failureReporter, srcPath, destPath, digest, onProgress)
+        }
+
+    /** copyAndVerify 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyAndVerify(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Triple<String?, Boolean, Boolean>? =
+        FileFailureCallbacks.run("OkioHashUtils.copyAndVerify", "$srcPath → $destPath", onFailure, { it == null || !it.second || !it.third }, null) { failureReporter ->
+            copyAndVerifyImpl(failureReporter, srcPath, destPath, digest, overwrite, onProgress)
+        }
+
+    /** hashFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun hashFile(
+        path: String,
+        digest: MessageDigest,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("OkioHashUtils.hashFile", "$path", onFailure, { it == null }, null) { failureReporter ->
+            hashFileImpl(failureReporter, path, digest)
+        }
+
+    /** hashFileWithProgress 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun hashFileWithProgress(
+        path: String,
+        digest: MessageDigest,
+        onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("OkioHashUtils.hashFileWithProgress", "$path", onFailure, { it == null }, null) { failureReporter ->
+            hashFileWithProgressImpl(failureReporter, path, digest, onProgress)
+        }
+
+    // 兼容原有尾随 lambda 调用
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("hashWhileWritingSuspendLegacyCallback")
+    suspend fun hashWhileWritingSuspend(
+        path: String,
+        data: ByteArray,
+        digest: MessageDigest,
+        onResult: (String?, Boolean) -> Unit
+    ) = hashWhileWritingSuspend(path = path, data = data, digest = digest, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAndHashSuspendLegacyCallback")
+    suspend fun copyAndHashSuspend(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onResult: (String?, Boolean) -> Unit
+    ) = copyAndHashSuspend(srcPath = srcPath, destPath = destPath, digest = digest, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("hashWhileReadingLegacyCallback")
+    fun hashWhileReading(
+        path: String,
+        digest: MessageDigest,
+        onRead: ((buffer: Buffer, bytesRead: Long) -> Unit)? = null
+    ) = hashWhileReading(path = path, digest = digest, onRead = onRead, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAndHashLegacyCallback")
+    fun copyAndHash(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
+    ) = copyAndHash(srcPath = srcPath, destPath = destPath, digest = digest, overwrite = overwrite, onProgress = onProgress, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("gzipAndHashLegacyCallback")
+    fun gzipAndHash(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null
+    ) = gzipAndHash(srcPath = srcPath, destPath = destPath, digest = digest, onProgress = onProgress, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAndVerifyLegacyCallback")
+    fun copyAndVerify(
+        srcPath: String,
+        destPath: String,
+        digest: MessageDigest,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
+    ) = copyAndVerify(srcPath = srcPath, destPath = destPath, digest = digest, overwrite = overwrite, onProgress = onProgress, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("hashFileWithProgressLegacyCallback")
+    fun hashFileWithProgress(
+        path: String,
+        digest: MessageDigest,
+        onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null
+    ) = hashFileWithProgress(path = path, digest = digest, onProgress = onProgress, onFailure = null)
 }

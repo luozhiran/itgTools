@@ -1,4 +1,5 @@
 package com.itg.itg_file.write
+import com.itg.itg_file.core.FileFailureCallbacks
 
 import android.content.Context
 import android.net.Uri
@@ -52,14 +53,12 @@ object FileWriteUtils {
      * FileWriteUtils.writeText("/sdcard/data.json", """{"name": "test"}""")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun writeText(
+    private fun writeTextImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         content: String,
         charset: Charset = StandardCharsets.UTF_8
     ): Boolean {
-        return writeToFileAtomically(path) { tempFile ->
+        return writeToFileAtomically(failureReporter, path) { tempFile ->
             tempFile.writeText(content, charset)
         }
     }
@@ -79,9 +78,10 @@ object FileWriteUtils {
         path: String,
         content: String,
         charset: Charset = StandardCharsets.UTF_8,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(writeText(path, content, charset)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(writeText(path, content, charset, onFailure = onFailure)) } }
     }
 
     /**
@@ -99,20 +99,19 @@ object FileWriteUtils {
      * FileWriteUtils.appendText("/sdcard/log.txt", "[INFO] App started\n")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun appendText(
+    private fun appendTextImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         content: String,
         charset: Charset = StandardCharsets.UTF_8
     ): Boolean {
-        if (path.isBlank()) return false
+        if (path.isBlank()) return failureReporter.fail(false, "FileWriteUtils.appendText 失败：输入路径或参数为空")
         return try {
             val file = File(path)
-            if (!ensureParentDirectory(file)) return false
+            if (!ensureParentDirectory(failureReporter, file)) return failureReporter.fail(false, "FileWriteUtils.appendText 失败：无法创建目标父目录")
             file.appendText(content, charset)
             true
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -127,9 +126,10 @@ object FileWriteUtils {
         path: String,
         content: String,
         charset: Charset = StandardCharsets.UTF_8,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(appendText(path, content, charset)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(appendText(path, content, charset, onFailure = onFailure)) } }
     }
 
     // ==================== 写入字节数组 ====================
@@ -141,9 +141,8 @@ object FileWriteUtils {
      * @param bytes 字节数组
      * @return true 表示写入成功
      */
-    @JvmStatic
-    fun writeBytes(path: String, bytes: ByteArray): Boolean {
-        return writeToFileAtomically(path) { tempFile ->
+    private fun writeBytesImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, bytes: ByteArray): Boolean {
+        return writeToFileAtomically(failureReporter, path) { tempFile ->
             tempFile.writeBytes(bytes)
         }
     }
@@ -152,26 +151,28 @@ object FileWriteUtils {
      * 异步写入字节数组
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun writeBytesSuspend(
         path: String,
         bytes: ByteArray,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(writeBytes(path, bytes)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(writeBytes(path, bytes, onFailure = onFailure)) } }
     }
 
     /**
      * 追加字节数组到文件末尾
      */
-    @JvmStatic
-    fun appendBytes(path: String, bytes: ByteArray): Boolean {
-        if (path.isBlank()) return false
+    private fun appendBytesImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, bytes: ByteArray): Boolean {
+        if (path.isBlank()) return failureReporter.fail(false, "FileWriteUtils.appendBytes 失败：输入路径或参数为空")
         return try {
             val file = File(path)
-            if (!ensureParentDirectory(file)) return false
+            if (!ensureParentDirectory(failureReporter, file)) return failureReporter.fail(false, "FileWriteUtils.appendBytes 失败：无法创建目标父目录")
             file.appendBytes(bytes)
             true
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -191,17 +192,15 @@ object FileWriteUtils {
      *                    estimatedTotal 可能在非文件流场景为 -1
      * @return true 表示写入成功
      */
-    @JvmStatic
-    @JvmOverloads
-    fun writeFromStream(
+    private fun writeFromStreamImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         inputStream: InputStream,
         overwrite: Boolean = true,
         onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null
     ): Boolean {
-        return writeToFileAtomically(path, overwrite) { tempFile ->
+        return writeToFileAtomically(failureReporter, path, overwrite) { tempFile ->
             FileOutputStream(tempFile).use { output ->
-                copyStream(inputStream, output, onProgress)
+                copyStream(failureReporter, inputStream, output, onProgress)
             }
         }
     }
@@ -210,15 +209,17 @@ object FileWriteUtils {
      * 异步从流写入
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun writeFromStreamSuspend(
         path: String,
         inputStream: InputStream,
         overwrite: Boolean = true,
         onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         return FileCoroutines.withIo {
-            safeCallback { onResult(writeFromStream(path, inputStream, overwrite, onProgress)) }
+            safeCallback { onResult(writeFromStream(path, inputStream, overwrite, onProgress, onFailure = onFailure)) }
         }
     }
 
@@ -240,23 +241,23 @@ object FileWriteUtils {
      * val success = FileWriteUtils.writeToUri(context, uri, imageBytes, "image/jpeg")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
     @Suppress("UNUSED_PARAMETER")
-    fun writeToUri(
+    private fun writeToUriImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         uri: Uri,
         bytes: ByteArray,
         mimeType: String? = null
     ): Boolean {
         return try {
-            val outputStream = context.contentResolver.openOutputStream(uri, "wt") ?: return false
+            val outputStream = context.contentResolver.openOutputStream(uri, "wt")
+                ?: return failureReporter.fail(false, "写入 URI 失败：无法打开目标输出流：$uri")
             outputStream.use { output ->
                 output.write(bytes)
                 output.flush()
             }
             true
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -271,22 +272,22 @@ object FileWriteUtils {
      * @param mimeType     MIME 类型
      * @return true 表示写入成功
      */
-    @JvmStatic
-    @JvmOverloads
     @Suppress("UNUSED_PARAMETER")
-    fun writeStreamToUri(
+    private fun writeStreamToUriImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         uri: Uri,
         inputStream: InputStream,
         mimeType: String? = null
     ): Boolean {
         return try {
-            val outputStream = context.contentResolver.openOutputStream(uri, "wt") ?: return false
+            val outputStream = context.contentResolver.openOutputStream(uri, "wt")
+                ?: return failureReporter.fail(false, "写入 URI 失败：无法打开目标输出流：$uri")
             outputStream.use { output ->
-                copyStream(inputStream, output)
+                copyStream(failureReporter, inputStream, output)
             }
             true
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -311,14 +312,12 @@ object FileWriteUtils {
      * FileWriteUtils.writeTextAtomic("/data/config.json", configJson)
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun writeTextAtomic(
+    private fun writeTextAtomicImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         content: String,
         charset: Charset = StandardCharsets.UTF_8
     ): Boolean {
-        return writeToFileAtomically(path) { tempFile ->
+        return writeToFileAtomically(failureReporter, path) { tempFile ->
             tempFile.writeText(content, charset)
         }
     }
@@ -332,9 +331,10 @@ object FileWriteUtils {
         path: String,
         content: String,
         charset: Charset = StandardCharsets.UTF_8,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(writeTextAtomic(path, content, charset)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(writeTextAtomic(path, content, charset, onFailure = onFailure)) } }
     }
 
     /**
@@ -344,9 +344,8 @@ object FileWriteUtils {
      * @param bytes 字节数据
      * @return true 表示写入成功
      */
-    @JvmStatic
-    fun writeBytesAtomic(path: String, bytes: ByteArray): Boolean {
-        return writeToFileAtomically(path) { tempFile ->
+    private fun writeBytesAtomicImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, bytes: ByteArray): Boolean {
+        return writeToFileAtomically(failureReporter, path) { tempFile ->
             tempFile.writeBytes(bytes)
         }
     }
@@ -373,18 +372,16 @@ object FileWriteUtils {
      *     })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun writeBytesInChunks(
+    private fun writeBytesInChunksImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         data: ByteArray,
         chunkSize: Int = 64 * 1024,
         overwrite: Boolean = true,
         onProgress: ((written: Long, total: Long) -> Unit)? = null
     ): Boolean {
-        if (chunkSize <= 0) return false
+        if (chunkSize <= 0) return failureReporter.fail(false, "FileWriteUtils.writeBytesInChunks 失败：分块大小无效")
 
-        return writeToFileAtomically(path, overwrite) { tempFile ->
+        return writeToFileAtomically(failureReporter, path, overwrite) { tempFile ->
             FileOutputStream(tempFile).use { output ->
                 var offset = 0
                 while (offset < data.size) {
@@ -392,7 +389,7 @@ object FileWriteUtils {
                     val size = minOf(chunkSize, remaining)
                     output.write(data, offset, size)
                     offset += size
-                    safeProgress(onProgress, offset.toLong(), data.size.toLong())
+                    safeProgress(failureReporter, onProgress, offset.toLong(), data.size.toLong())
                 }
                 output.flush()
             }
@@ -403,22 +400,24 @@ object FileWriteUtils {
      * 异步分块写入
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun writeBytesInChunksSuspend(
         path: String,
         data: ByteArray,
         chunkSize: Int = 64 * 1024,
         overwrite: Boolean = true,
         onProgress: ((written: Long, total: Long) -> Unit)? = null,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         return FileCoroutines.withIo {
-            safeCallback { onResult(writeBytesInChunks(path, data, chunkSize, overwrite, onProgress)) }
+            safeCallback { onResult(writeBytesInChunks(path, data, chunkSize, overwrite, onProgress, onFailure = onFailure)) }
         }
     }
 
     // ==================== 内部方法 ====================
 
-    private fun copyStream(
+    private fun copyStream(failureReporter: FileFailureCallbacks.Reporter,
         input: InputStream,
         output: OutputStream,
         onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null
@@ -429,32 +428,34 @@ object FileWriteUtils {
         while (input.read(buffer).also { bytesRead = it } != -1) {
             output.write(buffer, 0, bytesRead)
             totalWritten += bytesRead
-            safeProgress(onProgress, totalWritten, -1L)
+            safeProgress(failureReporter, onProgress, totalWritten, -1L)
         }
         output.flush()
     }
 
-    private inline fun writeToFileAtomically(
+    private inline fun writeToFileAtomically(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         overwrite: Boolean = true,
         writer: (File) -> Unit
     ): Boolean {
-        if (path.isBlank()) return false
+        if (path.isBlank()) return failureReporter.fail(false, "FileWriteUtils.writeToFileAtomically 失败：输入路径或参数为空")
 
         val destination = File(path).absoluteFile
         if (destination.exists()) {
-            if (!overwrite || destination.isDirectory) return false
+            if (!overwrite) return failureReporter.fail(false, "FileWriteUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
+            if (destination.isDirectory) return failureReporter.fail(false, "FileWriteUtils.writeToFileAtomically 失败：目标路径是目录")
         }
-        if (!ensureParentDirectory(destination)) return false
+        if (!ensureParentDirectory(failureReporter, destination)) return failureReporter.fail(false, "FileWriteUtils.writeToFileAtomically 失败：无法创建目标父目录")
 
         var tempFile: File? = null
         return try {
-            val parent = destination.parentFile ?: return false
+            val parent = destination.parentFile ?: return failureReporter.fail(false, "FileWriteUtils.writeToFileAtomically 失败：无法获取目标文件的父目录")
             val prefix = (destination.name.ifBlank { "file" }.take(32) + "_").padEnd(3, '_')
             tempFile = File.createTempFile(prefix, ".tmp", parent)
             writer(tempFile)
-            replaceAtomically(tempFile, destination)
+            replaceAtomically(failureReporter, tempFile, destination)
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } finally {
@@ -462,41 +463,262 @@ object FileWriteUtils {
         }
     }
 
-    private fun ensureParentDirectory(file: File): Boolean {
+    private fun ensureParentDirectory(failureReporter: FileFailureCallbacks.Reporter, file: File): Boolean {
         return try {
-            val parent = file.absoluteFile.parentFile ?: return false
+            val parent = file.absoluteFile.parentFile ?: return failureReporter.fail(false, "FileWriteUtils.ensureParentDirectory 失败：无法获取目标文件的父目录")
             parent.isDirectory || parent.mkdirs() || parent.isDirectory
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
     }
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
         }
     }
 
-    private fun safeProgress(
+    private fun safeProgress(failureReporter: FileFailureCallbacks.Reporter,
         callback: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)?,
         bytesWritten: Long,
         estimatedTotal: Long
     ) {
         if (callback == null) return
-        safeCallback { callback(bytesWritten, estimatedTotal) }
+        safeCallback(failureReporter) { callback(bytesWritten, estimatedTotal) }
     }
 
-    private fun replaceAtomically(tempFile: File, destination: File): Boolean {
+    private fun replaceAtomically(failureReporter: FileFailureCallbacks.Reporter, tempFile: File, destination: File): Boolean {
         return try {
             FileOutputStream(tempFile, true).use { it.fd.sync() }
             Os.rename(tempFile.absolutePath, destination.absolutePath)
             true
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
     }
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** writeText 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeText(
+        path: String,
+        content: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeText", "$path", onFailure, { !it }, false) { failureReporter ->
+            writeTextImpl(failureReporter, path, content, charset)
+        }
+
+    /** appendText 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun appendText(
+        path: String,
+        content: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.appendText", "$path", onFailure, { !it }, false) { failureReporter ->
+            appendTextImpl(failureReporter, path, content, charset)
+        }
+
+    /** writeBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeBytes(
+        path: String,
+        bytes: ByteArray,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeBytes", "$path", onFailure, { !it }, false) { failureReporter ->
+            writeBytesImpl(failureReporter, path, bytes)
+        }
+
+    /** appendBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun appendBytes(
+        path: String,
+        bytes: ByteArray,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.appendBytes", "$path", onFailure, { !it }, false) { failureReporter ->
+            appendBytesImpl(failureReporter, path, bytes)
+        }
+
+    /** writeFromStream 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeFromStream(
+        path: String,
+        inputStream: InputStream,
+        overwrite: Boolean = true,
+        onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeFromStream", "$path", onFailure, { !it }, false) { failureReporter ->
+            writeFromStreamImpl(failureReporter, path, inputStream, overwrite, onProgress)
+        }
+
+    /** writeToUri 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeToUri(
+        context: Context,
+        uri: Uri,
+        bytes: ByteArray,
+        mimeType: String? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeToUri", "$context", onFailure, { !it }, false) { failureReporter ->
+            writeToUriImpl(failureReporter, context, uri, bytes, mimeType)
+        }
+
+    /** writeStreamToUri 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeStreamToUri(
+        context: Context,
+        uri: Uri,
+        inputStream: InputStream,
+        mimeType: String? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeStreamToUri", "$inputStream", onFailure, { !it }, false) { failureReporter ->
+            writeStreamToUriImpl(failureReporter, context, uri, inputStream, mimeType)
+        }
+
+    /** writeTextAtomic 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeTextAtomic(
+        path: String,
+        content: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeTextAtomic", "$path", onFailure, { !it }, false) { failureReporter ->
+            writeTextAtomicImpl(failureReporter, path, content, charset)
+        }
+
+    /** writeBytesAtomic 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeBytesAtomic(
+        path: String,
+        bytes: ByteArray,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeBytesAtomic", "$path", onFailure, { !it }, false) { failureReporter ->
+            writeBytesAtomicImpl(failureReporter, path, bytes)
+        }
+
+    /** writeBytesInChunks 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun writeBytesInChunks(
+        path: String,
+        data: ByteArray,
+        chunkSize: Int = 64 * 1024,
+        overwrite: Boolean = true,
+        onProgress: ((written: Long, total: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileWriteUtils.writeBytesInChunks", "$path", onFailure, { !it }, false) { failureReporter ->
+            writeBytesInChunksImpl(failureReporter, path, data, chunkSize, overwrite, onProgress)
+        }
+
+    // 兼容原有尾随 lambda 调用
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeTextSuspendLegacyCallback")
+    suspend fun writeTextSuspend(
+        path: String,
+        content: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onResult: (Boolean) -> Unit
+    ) = writeTextSuspend(path = path, content = content, charset = charset, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("appendTextSuspendLegacyCallback")
+    suspend fun appendTextSuspend(
+        path: String,
+        content: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onResult: (Boolean) -> Unit
+    ) = appendTextSuspend(path = path, content = content, charset = charset, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeBytesSuspendLegacyCallback")
+    suspend fun writeBytesSuspend(
+        path: String,
+        bytes: ByteArray,
+        onResult: (Boolean) -> Unit
+    ) = writeBytesSuspend(path = path, bytes = bytes, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeFromStreamSuspendLegacyCallback")
+    suspend fun writeFromStreamSuspend(
+        path: String,
+        inputStream: InputStream,
+        overwrite: Boolean = true,
+        onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null,
+        onResult: (Boolean) -> Unit
+    ) = writeFromStreamSuspend(path = path, inputStream = inputStream, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeTextAtomicSuspendLegacyCallback")
+    suspend fun writeTextAtomicSuspend(
+        path: String,
+        content: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onResult: (Boolean) -> Unit
+    ) = writeTextAtomicSuspend(path = path, content = content, charset = charset, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeBytesInChunksSuspendLegacyCallback")
+    suspend fun writeBytesInChunksSuspend(
+        path: String,
+        data: ByteArray,
+        chunkSize: Int = 64 * 1024,
+        overwrite: Boolean = true,
+        onProgress: ((written: Long, total: Long) -> Unit)? = null,
+        onResult: (Boolean) -> Unit
+    ) = writeBytesInChunksSuspend(path = path, data = data, chunkSize = chunkSize, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeFromStreamLegacyCallback")
+    fun writeFromStream(
+        path: String,
+        inputStream: InputStream,
+        overwrite: Boolean = true,
+        onProgress: ((bytesWritten: Long, estimatedTotal: Long) -> Unit)? = null
+    ) = writeFromStream(path = path, inputStream = inputStream, overwrite = overwrite, onProgress = onProgress, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("writeBytesInChunksLegacyCallback")
+    fun writeBytesInChunks(
+        path: String,
+        data: ByteArray,
+        chunkSize: Int = 64 * 1024,
+        overwrite: Boolean = true,
+        onProgress: ((written: Long, total: Long) -> Unit)? = null
+    ) = writeBytesInChunks(path = path, data = data, chunkSize = chunkSize, overwrite = overwrite, onProgress = onProgress, onFailure = null)
 }

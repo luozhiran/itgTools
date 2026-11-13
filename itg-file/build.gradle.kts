@@ -31,18 +31,18 @@ android {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.androidx.fragment)
+    api(libs.androidx.fragment)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-    implementation(libs.okio)
+    api(libs.okio)
 }
 
 afterEvaluate {
     publishing {
         repositories {
             maven {
-                url = uri("${buildDir}/repo")
+                url = layout.buildDirectory.dir("repo").get().asFile.toURI()
             }
         }
         publications {
@@ -53,8 +53,8 @@ afterEvaluate {
                 version = "0.1.0"
 
                 pom {
-                    name = "ITG Net"
-                    description = "A lightweight Android networking and download library built on OkHttp."
+                    name = "ITG File"
+                    description = "Android file management, reading, writing, hashing, and cleanup utilities."
                     packaging = "aar"
                 }
             }

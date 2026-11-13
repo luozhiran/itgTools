@@ -6,7 +6,6 @@ import android.os.Environment
 import android.os.StatFs
 import android.system.Os
 import android.webkit.MimeTypeMap
-import com.itg.itg_file.core.FileCoroutines
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -22,6 +21,7 @@ import kotlin.math.absoluteValue
  *
  * 提供文件/目录的创建、删除、重命名、复制、移动、信息获取等核心操作。
  * 同步方法会阻塞调用线程；在协程中使用 FileCoroutines.withIo 将操作切换到 IO 调度器。
+ * 操作方法的 onFailure 位于参数末尾；不需要失败详情时可省略或传入 null。
  *
  * 核心特性:
  * - 文件是否存在 / 是否为空 / 大小 / 类型判断
@@ -105,15 +105,18 @@ object FileUtils {
      * FileUtils.createFile("/sdcard/MyApp/data/config.json")
      * ```
      */
-    @JvmStatic
-    fun createFile(path: String): Boolean {
-        if (path.isBlank()) return false
+    private fun createFileImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Boolean {
+        if (path.isBlank()) return failureReporter.fail(false, "创建文件失败：路径为空")
         return try {
             val file = File(path)
             if (file.exists()) return true
-            if (!ensureParentDirectory(file)) return false
-            file.createNewFile()
+            if (!ensureParentDirectory(failureReporter, file)) {
+                return failureReporter.fail(false, "创建文件失败：无法创建父目录：${file.parent}")
+            }
+            if (file.createNewFile()) true
+            else failureReporter.fail(false, "创建文件失败：无法创建目标文件：$path")
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -127,8 +130,13 @@ object FileUtils {
      * @return Unit
      */
     @JvmStatic
-    suspend fun createFileSuspend(path: String, onResult: (Boolean) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(createFile(path)) } }
+    @JvmOverloads
+    suspend fun createFileSuspend(
+        path: String,
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(createFile(path, onFailure = onFailure)) } }
     }
 
     /**
@@ -137,14 +145,15 @@ object FileUtils {
      * @param path 目录路径
      * @return true 表示创建成功或目录已存在
      */
-    @JvmStatic
-    fun createDirectory(path: String): Boolean {
-        if (path.isBlank()) return false
+    private fun createDirectoryImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Boolean {
+        if (path.isBlank()) return failureReporter.fail(false, "FileUtils.createDirectory 失败：输入路径或参数为空")
         return try {
             val dir = File(path)
             if (dir.exists() && dir.isDirectory) return true
-            dir.mkdirs()
+            if (dir.mkdirs()) true
+            else failureReporter.fail(false, "创建目录失败：目标已被文件占用或父目录不可写：$path")
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -154,8 +163,13 @@ object FileUtils {
      * 创建目录（异步）
      */
     @JvmStatic
-    suspend fun createDirectorySuspend(path: String, onResult: (Boolean) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(createDirectory(path)) } }
+    @JvmOverloads
+    suspend fun createDirectorySuspend(
+        path: String,
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(createDirectory(path, onFailure = onFailure)) } }
     }
 
     /**
@@ -166,9 +180,7 @@ object FileUtils {
      * @param directory 存放目录，默认系统临时目录
      * @return 临时文件，失败返回 null
      */
-    @JvmStatic
-    @JvmOverloads
-    fun createTempFile(
+    private fun createTempFileImpl(failureReporter: FileFailureCallbacks.Reporter,
         prefix: String = "itg_",
         suffix: String = ".tmp",
         directory: File? = null
@@ -176,6 +188,7 @@ object FileUtils {
         return try {
             File.createTempFile(prefix, suffix, directory)
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -194,10 +207,10 @@ object FileUtils {
      * FileUtils.delete("/sdcard/MyApp/cache/")
      * ```
      */
-    @JvmStatic
-    fun delete(path: String?): Boolean {
-        if (!exists(path)) return false
-        return deleteRecursive(File(path!!))
+    private fun deleteImpl(failureReporter: FileFailureCallbacks.Reporter, path: String?): Boolean {
+        if (!exists(path)) return failureReporter.fail(false, "FileUtils.delete 失败：目标路径不存在")
+        if (deleteRecursive(failureReporter, File(path!!))) return true
+        return failureReporter.fail(false, "删除失败：无法删除目标或其子项：$path")
     }
 
     /**
@@ -208,8 +221,13 @@ object FileUtils {
      * @return Unit
      */
     @JvmStatic
-    suspend fun deleteSuspend(path: String?, onResult: (Boolean) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(delete(path)) } }
+    @JvmOverloads
+    suspend fun deleteSuspend(
+        path: String?,
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(delete(path, onFailure = onFailure)) } }
     }
 
     /**
@@ -218,23 +236,30 @@ object FileUtils {
      * @param path 目录路径
      * @return true 表示清空成功
      */
-    @JvmStatic
-    fun clearDirectory(path: String): Boolean {
-        if (!isDirectory(path)) return false
+    private fun clearDirectoryImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Boolean {
+        if (!isDirectory(path)) return failureReporter.fail(false, "FileUtils.clearDirectory 失败：目标不是目录或目录不存在")
         val dir = File(path)
         var success = true
-        dir.listFiles()?.forEach { child ->
-            if (!deleteRecursive(child)) success = false
+        val children = dir.listFiles()
+            ?: return failureReporter.fail(false, "清空目录失败：无法列出目录内容：$path")
+        children.forEach { child ->
+            if (!deleteRecursive(failureReporter, child)) success = false
         }
-        return success
+        if (success) return true
+        return failureReporter.fail(false, "清空目录失败：部分子项无法删除：$path")
     }
 
     /**
      * 清空目录（异步）
      */
     @JvmStatic
-    suspend fun clearDirectorySuspend(path: String, onResult: (Boolean) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(clearDirectory(path)) } }
+    @JvmOverloads
+    suspend fun clearDirectorySuspend(
+        path: String,
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(clearDirectory(path, onFailure = onFailure)) } }
     }
 
     // ==================== 重命名 ====================
@@ -246,20 +271,26 @@ object FileUtils {
      * @param newName 新名称（不含路径）
      * @return 新文件路径，失败返回 null
      */
-    @JvmStatic
-    fun rename(path: String, newName: String): String? {
-        if (!exists(path)) return null
+    private fun renameImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, newName: String): String? {
+        if (!exists(path)) return failureReporter.fail(null, "重命名失败：源文件不存在：$path")
         val file = File(path)
         val newFile = File(file.parent, newName)
-        return if (file.renameTo(newFile)) newFile.absolutePath else null
+        return if (file.renameTo(newFile)) newFile.absolutePath
+        else failureReporter.fail(null, "重命名失败：无法移动到目标名称：${newFile.path}")
     }
 
     /**
      * 重命名文件（异步）
      */
     @JvmStatic
-    suspend fun renameSuspend(path: String, newName: String, onResult: (String?) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(rename(path, newName)) } }
+    @JvmOverloads
+    suspend fun renameSuspend(
+        path: String,
+        newName: String,
+        onResult: (String?) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(rename(path, newName, onFailure = onFailure)) } }
     }
 
     // ==================== 复制 ====================
@@ -272,18 +303,20 @@ object FileUtils {
      * @param overwrite 是否覆盖已存在的目标文件
      * @return true 表示复制成功
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copy(srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
-        if (!isFile(srcPath)) return false
+    private fun copyImpl(failureReporter: FileFailureCallbacks.Reporter, srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
+        if (!isFile(srcPath)) return failureReporter.fail(false, "复制失败：源文件不存在或不是普通文件：$srcPath")
 
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath).absoluteFile
-            if (srcFile.canonicalFile == destFile.canonicalFile) return false
-            if (destFile.exists() && !overwrite) return false
+            if (srcFile.canonicalFile == destFile.canonicalFile) {
+                return failureReporter.fail(false, "复制失败：源文件与目标文件相同：$srcPath")
+            }
+            if (destFile.exists() && !overwrite) {
+                return failureReporter.fail(false, "复制失败：目标文件已存在且禁止覆盖：$destPath")
+            }
 
-            writeToFileAtomically(destFile, overwrite) { tempFile ->
+            writeToFileAtomically(failureReporter, destFile, overwrite) { tempFile ->
                 FileInputStream(srcFile).use { input ->
                     FileOutputStream(tempFile).use { output ->
                         input.channel.use { srcChannel ->
@@ -307,6 +340,7 @@ object FileUtils {
                 }
             }
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -330,24 +364,22 @@ object FileUtils {
      *     })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyWithProgress(
+    private fun copyWithProgressImpl(failureReporter: FileFailureCallbacks.Reporter,
         srcPath: String,
         destPath: String,
         overwrite: Boolean = true,
         onProgress: ((copied: Long, total: Long) -> Unit)? = null
     ): Boolean {
-        if (!isFile(srcPath)) return false
+        if (!isFile(srcPath)) return failureReporter.fail(false, "FileUtils.copyWithProgress 失败：源文件不存在或不是普通文件")
 
         return try {
             val srcFile = File(srcPath)
             val destFile = File(destPath).absoluteFile
-            if (srcFile.canonicalFile == destFile.canonicalFile) return false
-            if (destFile.exists() && !overwrite) return false
+            if (srcFile.canonicalFile == destFile.canonicalFile) return failureReporter.fail(false, "FileUtils.copyWithProgress 失败：源与目标指向同一文件")
+            if (destFile.exists() && !overwrite) return failureReporter.fail(false, "FileUtils.copyWithProgress 失败：目标已存在且禁止覆盖")
             val totalSize = srcFile.length()
 
-            writeToFileAtomically(destFile, overwrite) { tempFile ->
+            writeToFileAtomically(failureReporter, destFile, overwrite) { tempFile ->
                 FileInputStream(srcFile).use { input ->
                     FileOutputStream(tempFile).use { output ->
                         val buffer = ByteArray(COPY_BUFFER_SIZE)
@@ -356,13 +388,14 @@ object FileUtils {
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             bytesCopied += bytesRead
-                            safeCallback { onProgress?.invoke(bytesCopied, totalSize) }
+                            safeCallback(failureReporter) { onProgress?.invoke(bytesCopied, totalSize) }
                         }
                         output.flush()
                     }
                 }
             }
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -378,28 +411,32 @@ object FileUtils {
      * @return Unit
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun copySuspend(
         srcPath: String,
         destPath: String,
         overwrite: Boolean = true,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(copy(srcPath, destPath, overwrite)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(copy(srcPath, destPath, overwrite, onFailure = onFailure)) } }
     }
 
     /**
      * 复制文件（异步，带进度）
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun copyWithProgressSuspend(
         srcPath: String,
         destPath: String,
         overwrite: Boolean = true,
         onProgress: ((copied: Long, total: Long) -> Unit)? = null,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         return FileCoroutines.withIo {
-            safeCallback { onResult(copyWithProgress(srcPath, destPath, overwrite, onProgress)) }
+            safeCallback { onResult(copyWithProgress(srcPath, destPath, overwrite, onProgress, onFailure = onFailure)) }
         }
     }
 
@@ -411,49 +448,54 @@ object FileUtils {
      * @param overwrite 是否覆盖
      * @return true 表示复制成功
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyDirectory(srcDir: String, destDir: String, overwrite: Boolean = true): Boolean {
-        return copyDirectoryInternal(srcDir, destDir, overwrite, mutableSetOf())
+    private fun copyDirectoryImpl(failureReporter: FileFailureCallbacks.Reporter, srcDir: String, destDir: String, overwrite: Boolean = true): Boolean {
+        if (copyDirectoryInternal(failureReporter, srcDir, destDir, overwrite, mutableSetOf())) return true
+        return failureReporter.fail(false, "复制目录失败：请检查源目录和目标目录：$srcDir → $destDir")
     }
 
-    private fun copyDirectoryInternal(
+    private fun copyDirectoryInternal(failureReporter: FileFailureCallbacks.Reporter,
         srcDir: String,
         destDir: String,
         overwrite: Boolean,
         visitedDirectories: MutableSet<String>
     ): Boolean {
-        if (!isDirectory(srcDir)) return false
+        if (!isDirectory(srcDir)) return failureReporter.fail(false, "复制目录失败：源目录不存在：$srcDir")
         return try {
             val src = File(srcDir)
             val dest = File(destDir)
             val srcCanonical = src.canonicalFile
             val destCanonical = dest.canonicalFile
-            if (!visitedDirectories.add(srcCanonical.path)) return false
+            if (!visitedDirectories.add(srcCanonical.path)) {
+                return failureReporter.fail(false, "复制目录失败：检测到重复目录或循环：$srcDir")
+            }
             if (srcCanonical == destCanonical ||
                 destCanonical.path.startsWith(
                     srcCanonical.path.trimEnd(File.separatorChar) + File.separator
                 )
-            ) return false
-            if (!dest.exists() && !dest.mkdirs()) return false
+            ) return failureReporter.fail(false, "复制目录失败：目标位于源目录内：$destDir")
+            if (!dest.exists() && !dest.mkdirs()) {
+                return failureReporter.fail(false, "复制目录失败：无法创建目标目录：$destDir")
+            }
 
             var success = true
-            src.listFiles()?.forEach { child ->
+            val children = src.listFiles() ?: throw IOException("无法列出源目录内容：$srcDir")
+            children.forEach { child ->
                 val childDest = File(dest, child.name)
                 val copied = if (child.isDirectory) {
-                    copyDirectoryInternal(
+                    copyDirectoryInternal(failureReporter,
                         child.absolutePath,
                         childDest.absolutePath,
                         overwrite,
                         visitedDirectories
                     )
                 } else {
-                    copy(child.absolutePath, childDest.absolutePath, overwrite)
+                    copyImpl(failureReporter, child.absolutePath, childDest.absolutePath, overwrite)
                 }
                 if (!copied) success = false
             }
             success
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
@@ -471,34 +513,32 @@ object FileUtils {
      * @param overwrite 是否覆盖
      * @return true 表示移动成功
      */
-    @JvmStatic
-    @JvmOverloads
-    fun move(srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
-        if (!exists(srcPath)) return false
+    private fun moveImpl(failureReporter: FileFailureCallbacks.Reporter, srcPath: String, destPath: String, overwrite: Boolean = true): Boolean {
+        if (!exists(srcPath)) return failureReporter.fail(false, "移动失败：源文件不存在：$srcPath")
 
         try {
             val src = File(srcPath)
             val dest = File(destPath).absoluteFile
             if (src.canonicalFile == dest.canonicalFile) return true
 
-            if (dest.exists() && !overwrite) return false
-            if (!ensureParentDirectory(dest)) return false
+            if (dest.exists() && !overwrite) return failureReporter.fail(false, "移动失败：目标已存在且禁止覆盖：$destPath")
+            if (!ensureParentDirectory(failureReporter, dest)) return failureReporter.fail(false, "移动失败：无法创建父目录：${dest.parent}")
 
             // 先尝试 rename（同一文件系统下极快）
             if (src.renameTo(dest)) return true
 
             // 跨文件系统则走 copy+delete
             val success = if (src.isDirectory) {
-                copyDirectory(srcPath, destPath, overwrite)
+                copyDirectoryImpl(failureReporter, srcPath, destPath, overwrite)
             } else {
-                copy(srcPath, destPath, overwrite)
+                copyImpl(failureReporter, srcPath, destPath, overwrite)
             }
 
-            if (success) {
-                deleteRecursive(src)
-            }
-            return success
+            if (!success) return failureReporter.fail(false, "移动失败：跨文件系统复制未完成：$srcPath → $destPath")
+            if (!deleteRecursive(failureReporter, src)) return failureReporter.fail(false, "移动未完成：目标已复制但源文件未删除：$srcPath")
+            return true
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             return false
         }
@@ -508,13 +548,15 @@ object FileUtils {
      * 移动文件（异步）
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun moveSuspend(
         srcPath: String,
         destPath: String,
         overwrite: Boolean = true,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(move(srcPath, destPath, overwrite)) } }
+        return FileCoroutines.withIo { safeCallback { onResult(move(srcPath, destPath, overwrite, onFailure = onFailure)) } }
     }
 
     // ==================== 文件列表 ====================
@@ -582,6 +624,7 @@ object FileUtils {
             }
             result
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             e.printStackTrace()
             emptyList()
         }
@@ -603,9 +646,8 @@ object FileUtils {
      * @param path 路径
      * @return 字节数，目录返回所有子文件的总和；失败返回 -1
      */
-    @JvmStatic
-    fun getSize(path: String?): Long {
-        if (!exists(path)) return -1L
+    private fun getSizeImpl(failureReporter: FileFailureCallbacks.Reporter, path: String?): Long {
+        if (!exists(path)) return failureReporter.fail(-1L, "读取大小失败：文件不存在：$path")
         val file = File(path!!)
         return if (file.isFile) {
             file.length()
@@ -626,8 +668,13 @@ object FileUtils {
      * @return Unit
      */
     @JvmStatic
-    suspend fun getSizeSuspend(path: String?, onResult: (Long) -> Unit): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(getSize(path)) } }
+    @JvmOverloads
+    suspend fun getSizeSuspend(
+        path: String?,
+        onResult: (Long) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Unit {
+        return FileCoroutines.withIo { safeCallback { onResult(getSize(path, onFailure = onFailure)) } }
     }
 
     /**
@@ -636,9 +683,8 @@ object FileUtils {
      * @param path 路径
      * @return 如 "1.50 MB"，失败返回 "Unknown"
      */
-    @JvmStatic
-    fun getSizeFormatted(path: String?): String {
-        val size = getSize(path)
+    private fun getSizeFormattedImpl(failureReporter: FileFailureCallbacks.Reporter, path: String?): String {
+        val size = getSizeImpl(failureReporter, path)
         if (size < 0) return "Unknown"
         return formatFileSize(size)
     }
@@ -706,6 +752,7 @@ object FileUtils {
         return try {
             context.contentResolver.getType(uri) ?: "application/octet-stream"
         } catch (e: Exception) {
+            FileFailureCallbacks.rethrowCancellation(e)
             "application/octet-stream"
         }
     }
@@ -717,14 +764,13 @@ object FileUtils {
      * @param format 时间格式，默认 "yyyy-MM-dd HH:mm:ss"
      * @return 格式化的时间字符串，失败返回 ""
      */
-    @JvmStatic
-    @JvmOverloads
-    fun getLastModified(path: String, format: String = "yyyy-MM-dd HH:mm:ss"): String {
-        if (!exists(path)) return ""
+    private fun getLastModifiedImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, format: String = "yyyy-MM-dd HH:mm:ss"): String {
+        if (!exists(path)) return failureReporter.fail("", "读取修改时间失败：文件不存在：$path")
         return try {
             val date = Date(File(path).lastModified())
             SimpleDateFormat(format, Locale.getDefault()).format(date)
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             ""
         }
     }
@@ -732,9 +778,9 @@ object FileUtils {
     /**
      * 获取文件最后修改时间戳（毫秒）
      */
-    @JvmStatic
-    fun getLastModifiedMillis(path: String): Long {
-        return if (exists(path)) File(path).lastModified() else -1L
+    private fun getLastModifiedMillisImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
+        if (!exists(path)) return failureReporter.fail(-1L, "读取修改时间失败：文件不存在：$path")
+        return File(path).lastModified()
     }
 
     /**
@@ -766,7 +812,7 @@ object FileUtils {
             "isDirectory" to file.isDirectory,
             "isHidden" to file.isHidden,
             "size" to (if (file.isFile) file.length() else -1L),
-            "sizeFormatted" to formatFileSize(if (file.isFile) file.length() else -1L),
+            "sizeFormatted" to formatFileSize(bytes = if (file.isFile) file.length() else -1L),
             "lastModified" to getLastModified(path),
             "canRead" to file.canRead(),
             "canWrite" to file.canWrite(),
@@ -791,12 +837,12 @@ object FileUtils {
      * @param path 路径（用于确定分区）
      * @return 可用空间字节数，失败返回 -1
      */
-    @JvmStatic
-    fun getAvailableSpace(path: String): Long {
+    private fun getAvailableSpaceImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
         return try {
             val stat = StatFs(path)
             stat.availableBytes
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
@@ -804,12 +850,12 @@ object FileUtils {
     /**
      * 获取指定路径所在分区的总空间（字节）
      */
-    @JvmStatic
-    fun getTotalSpace(path: String): Long {
+    private fun getTotalSpaceImpl(failureReporter: FileFailureCallbacks.Reporter, path: String): Long {
         return try {
             val stat = StatFs(path)
             stat.totalBytes
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
@@ -817,53 +863,65 @@ object FileUtils {
     /**
      * 获取内置存储的可用空间
      */
-    @JvmStatic
-    fun getInternalAvailableSpace(): Long {
-        return getAvailableSpace(Environment.getDataDirectory().absolutePath)
+    private fun getInternalAvailableSpaceImpl(failureReporter: FileFailureCallbacks.Reporter): Long {
+        return getAvailableSpaceImpl(failureReporter, Environment.getDataDirectory().absolutePath)
     }
 
     /**
      * 获取 SD 卡可用空间（无 SD 卡返回 -1）
      */
-    @JvmStatic
-    fun getExternalAvailableSpace(): Long {
+    private fun getExternalAvailableSpaceImpl(failureReporter: FileFailureCallbacks.Reporter): Long {
         return try {
             val external = Environment.getExternalStorageDirectory()
-            getAvailableSpace(external.absolutePath)
+            getAvailableSpaceImpl(failureReporter, external.absolutePath)
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             -1L
         }
     }
 
     // ==================== 内部方法 ====================
 
-    private fun deleteRecursive(file: File): Boolean {
+    private fun deleteRecursive(failureReporter: FileFailureCallbacks.Reporter, file: File): Boolean {
         try {
-            if (file.absoluteFile != file.canonicalFile) return file.delete()
+            if (file.absoluteFile != file.canonicalFile) {
+                if (file.delete()) return true
+                return failureReporter.fail(false, "删除失败：无法删除符号链接：${file.path}")
+            }
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             return false
         }
         if (file.isDirectory) {
-            file.listFiles()?.forEach { child ->
-                if (!deleteRecursive(child)) return false
+            val children = file.listFiles()
+                ?: return failureReporter.fail(false, "删除失败：无法列出目录内容：${file.path}")
+            children.forEach { child ->
+                if (!deleteRecursive(failureReporter, child)) {
+                    return failureReporter.fail(false, "删除失败：子项无法删除：${child.path}")
+                }
             }
         }
-        return file.delete()
+        if (file.delete()) return true
+        return failureReporter.fail(false, "删除失败：目标无法删除：${file.path}")
     }
 
-    private inline fun writeToFileAtomically(
+    private inline fun writeToFileAtomically(failureReporter: FileFailureCallbacks.Reporter,
         destination: File,
         overwrite: Boolean,
         writer: (File) -> Unit
     ): Boolean {
         if (destination.exists()) {
-            if (!overwrite || destination.isDirectory) return false
+            if (!overwrite) return failureReporter.fail(false, "写入失败：目标已存在且禁止覆盖：${destination.path}")
+            if (destination.isDirectory) return failureReporter.fail(false, "写入失败：目标路径是目录：${destination.path}")
         }
-        if (!ensureParentDirectory(destination)) return false
+        if (!ensureParentDirectory(failureReporter, destination)) {
+            return failureReporter.fail(false, "写入失败：无法创建父目录：${destination.parent}")
+        }
 
         var tempFile: File? = null
         return try {
-            val parent = destination.absoluteFile.parentFile ?: return false
+            val parent = destination.absoluteFile.parentFile
+                ?: return failureReporter.fail(false, "写入失败：目标没有父目录：${destination.path}")
             val prefix = (destination.name.ifBlank { "file" }.take(32) + "_").padEnd(3, '_')
             tempFile = File.createTempFile(prefix, ".tmp", parent)
             writer(tempFile)
@@ -871,6 +929,7 @@ object FileUtils {
             Os.rename(tempFile.absolutePath, destination.absolutePath)
             true
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } finally {
@@ -878,23 +937,227 @@ object FileUtils {
         }
     }
 
-    private fun ensureParentDirectory(file: File): Boolean {
+    private fun ensureParentDirectory(failureReporter: FileFailureCallbacks.Reporter, file: File): Boolean {
         return try {
-            val parent = file.absoluteFile.parentFile ?: return false
-            parent.isDirectory || parent.mkdirs() || parent.isDirectory
+            val parent = file.absoluteFile.parentFile
+                ?: return failureReporter.fail(false, "无法确定父目录：${file.path}")
+            if (parent.isDirectory || parent.mkdirs() || parent.isDirectory) true
+            else failureReporter.fail(false, "无法创建父目录：${parent.path}")
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
     }
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
         }
     }
+
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** 读取文件大小；失败时通过 onFailure 通知调用方。 */
+    @JvmStatic
+    @JvmOverloads
+    fun getSize(
+        path: String?,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("FileUtils.getSize", "$path", onFailure, { it < 0L }, -1L) { failureReporter ->
+            getSizeImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getLastModifiedMillis(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("FileUtils.getLastModifiedMillis", path, onFailure, { it < 0L }, -1L) { failureReporter ->
+            getLastModifiedMillisImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getLastModified(
+        path: String,
+        format: String = "yyyy-MM-dd HH:mm:ss",
+        onFailure: ((Exception) -> Unit)? = null
+    ): String =
+        FileFailureCallbacks.run("FileUtils.getLastModified", path, onFailure, { it.isEmpty() && format.isNotEmpty() }, "") { failureReporter ->
+            getLastModifiedImpl(failureReporter, path, format)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getSizeFormatted(
+        path: String?,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String =
+        FileFailureCallbacks.run("FileUtils.getSizeFormatted", "$path", onFailure, { it == "Unknown" }, "Unknown") { failureReporter ->
+            getSizeFormattedImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getAvailableSpace(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("FileUtils.getAvailableSpace", path, onFailure, { it < 0L }, -1L) { failureReporter ->
+            getAvailableSpaceImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getTotalSpace(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("FileUtils.getTotalSpace", path, onFailure, { it < 0L }, -1L) { failureReporter ->
+            getTotalSpaceImpl(failureReporter, path)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getInternalAvailableSpace(onFailure: ((Exception) -> Unit)? = null): Long =
+        FileFailureCallbacks.run("FileUtils.getInternalAvailableSpace", "internal storage", onFailure, { it < 0L }, -1L) { failureReporter ->
+            getInternalAvailableSpaceImpl(failureReporter)
+        }
+
+    @JvmStatic
+    @JvmOverloads
+    fun getExternalAvailableSpace(onFailure: ((Exception) -> Unit)? = null): Long =
+        FileFailureCallbacks.run("FileUtils.getExternalAvailableSpace", "external storage", onFailure, { it < 0L }, -1L) { failureReporter ->
+            getExternalAvailableSpaceImpl(failureReporter)
+        }
+
+    /** createFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun createFile(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.createFile", "$path", onFailure, { !it }, false) { failureReporter ->
+            createFileImpl(failureReporter, path)
+        }
+
+    /** createDirectory 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun createDirectory(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.createDirectory", "$path", onFailure, { !it }, false) { failureReporter ->
+            createDirectoryImpl(failureReporter, path)
+        }
+
+    /** createTempFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun createTempFile(
+        prefix: String = "itg_",
+        suffix: String = ".tmp",
+        directory: File? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): File? =
+        FileFailureCallbacks.run("FileUtils.createTempFile", "$prefix", onFailure, { it == null }, null) { failureReporter ->
+            createTempFileImpl(failureReporter, prefix, suffix, directory)
+        }
+
+    /** delete 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun delete(
+        path: String?,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.delete", "$path", onFailure, { !it }, false) { failureReporter ->
+            deleteImpl(failureReporter, path)
+        }
+
+    /** clearDirectory 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun clearDirectory(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.clearDirectory", "$path", onFailure, { !it }, false) { failureReporter ->
+            clearDirectoryImpl(failureReporter, path)
+        }
+
+    /** rename 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun rename(
+        path: String,
+        newName: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileUtils.rename", "$path", onFailure, { it == null }, null) { failureReporter ->
+            renameImpl(failureReporter, path, newName)
+        }
+
+    /** copy 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copy(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.copy", "$srcPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyImpl(failureReporter, srcPath, destPath, overwrite)
+        }
+
+    /** copyWithProgress 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyWithProgress(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((copied: Long, total: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.copyWithProgress", "$srcPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyWithProgressImpl(failureReporter, srcPath, destPath, overwrite, onProgress)
+        }
+
+    /** copyDirectory 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyDirectory(
+        srcDir: String,
+        destDir: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.copyDirectory", "$destDir", onFailure, { !it }, false) { failureReporter ->
+            copyDirectoryImpl(failureReporter, srcDir, destDir, overwrite)
+        }
+
+    /** move 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun move(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("FileUtils.move", "$srcPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            moveImpl(failureReporter, srcPath, destPath, overwrite)
+        }
 
     private fun formatFileSize(bytes: Long): String {
         if (bytes < 0) return "Unknown"
@@ -906,4 +1169,96 @@ object FileUtils {
             else -> "%.2f GB".format(absBytes / (1024.0 * 1024.0 * 1024.0))
         }
     }
+
+    // 兼容原有尾随 lambda 调用
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("createFileSuspendLegacyCallback")
+    suspend fun createFileSuspend(
+        path: String,
+        onResult: (Boolean) -> Unit
+    ) = createFileSuspend(path = path, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("createDirectorySuspendLegacyCallback")
+    suspend fun createDirectorySuspend(
+        path: String,
+        onResult: (Boolean) -> Unit
+    ) = createDirectorySuspend(path = path, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("deleteSuspendLegacyCallback")
+    suspend fun deleteSuspend(
+        path: String?,
+        onResult: (Boolean) -> Unit
+    ) = deleteSuspend(path = path, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("clearDirectorySuspendLegacyCallback")
+    suspend fun clearDirectorySuspend(
+        path: String,
+        onResult: (Boolean) -> Unit
+    ) = clearDirectorySuspend(path = path, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("renameSuspendLegacyCallback")
+    suspend fun renameSuspend(
+        path: String,
+        newName: String,
+        onResult: (String?) -> Unit
+    ) = renameSuspend(path = path, newName = newName, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copySuspendLegacyCallback")
+    suspend fun copySuspend(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) = copySuspend(srcPath = srcPath, destPath = destPath, overwrite = overwrite, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyWithProgressSuspendLegacyCallback")
+    suspend fun copyWithProgressSuspend(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((copied: Long, total: Long) -> Unit)? = null,
+        onResult: (Boolean) -> Unit
+    ) = copyWithProgressSuspend(srcPath = srcPath, destPath = destPath, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("moveSuspendLegacyCallback")
+    suspend fun moveSuspend(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) = moveSuspend(srcPath = srcPath, destPath = destPath, overwrite = overwrite, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("getSizeSuspendLegacyCallback")
+    suspend fun getSizeSuspend(
+        path: String?,
+        onResult: (Long) -> Unit
+    ) = getSizeSuspend(path = path, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyWithProgressLegacyCallback")
+    fun copyWithProgress(
+        srcPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((copied: Long, total: Long) -> Unit)? = null
+    ) = copyWithProgress(srcPath = srcPath, destPath = destPath, overwrite = overwrite, onProgress = onProgress, onFailure = null)
 }

@@ -1,4 +1,5 @@
 package com.itg.itg_file.hash
+import com.itg.itg_file.core.FileFailureCallbacks
 
 import com.itg.itg_file.core.FileUtils
 import com.itg.itg_file.core.FileCoroutines
@@ -72,10 +73,8 @@ object FileHashUtils {
      * println("SHA256: $sha256")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun hashFile(path: String, algorithm: Algorithm = Algorithm.SHA256): String? {
-        if (!FileUtils.isFile(path)) return null
+    private fun hashFileImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, algorithm: Algorithm = Algorithm.SHA256): String? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileHashUtils.hashFile 失败：源文件不存在或不是普通文件")
         return try {
             val digest = MessageDigest.getInstance(algorithm.jceName)
             FileInputStream(File(path)).use { fis ->
@@ -86,6 +85,7 @@ object FileHashUtils {
             }
             digest.digest().toHexString()
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -116,11 +116,13 @@ object FileHashUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val hash = hashFile(path, algorithm)
+                var failure: Exception? = null
+                val hash = hashFile(path, algorithm, onFailure = { failure = it })
                 safeCallback {
-                    onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                    onResult(hash, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -142,14 +144,12 @@ object FileHashUtils {
      *     })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun hashFileWithProgress(
+    private fun hashFileWithProgressImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         algorithm: Algorithm = Algorithm.SHA256,
         onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null
     ): String? {
-        if (!FileUtils.isFile(path)) return null
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileHashUtils.hashFileWithProgress 失败：源文件不存在或不是普通文件")
 
         return try {
             val file = File(path)
@@ -163,11 +163,12 @@ object FileHashUtils {
                 while (fis.read(buffer).also { bytesRead = it } != -1) {
                     digest.update(buffer, 0, bytesRead)
                     processed += bytesRead
-                    safeCallback { onProgress?.invoke(processed, totalSize) }
+                    safeCallback(failureReporter) { onProgress?.invoke(processed, totalSize) }
                 }
             }
             digest.digest().toHexString()
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -186,11 +187,13 @@ object FileHashUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val hash = hashFileWithProgress(path, algorithm, onProgress)
+                var failure: Exception? = null
+                val hash = hashFileWithProgress(path, algorithm, onProgress, onFailure = { failure = it })
                 safeCallback {
-                    onResult(hash, if (hash == null) IOException("Hash failed: $path") else null)
+                    onResult(hash, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -201,8 +204,7 @@ object FileHashUtils {
     /**
      * 计算文件 MD5 值
      */
-    @JvmStatic
-    fun md5(path: String): String? = hashFile(path, Algorithm.MD5)
+    private fun md5Impl(failureReporter: FileFailureCallbacks.Reporter, path: String): String? = hashFileImpl(failureReporter, path, Algorithm.MD5)
 
     /**
      * 异步计算 MD5
@@ -214,8 +216,7 @@ object FileHashUtils {
     /**
      * 计算文件 SHA-1 值
      */
-    @JvmStatic
-    fun sha1(path: String): String? = hashFile(path, Algorithm.SHA1)
+    private fun sha1Impl(failureReporter: FileFailureCallbacks.Reporter, path: String): String? = hashFileImpl(failureReporter, path, Algorithm.SHA1)
 
     /**
      * 异步计算 SHA-1
@@ -227,8 +228,7 @@ object FileHashUtils {
     /**
      * 计算文件 SHA-256 值
      */
-    @JvmStatic
-    fun sha256(path: String): String? = hashFile(path, Algorithm.SHA256)
+    private fun sha256Impl(failureReporter: FileFailureCallbacks.Reporter, path: String): String? = hashFileImpl(failureReporter, path, Algorithm.SHA256)
 
     /**
      * 异步计算 SHA-256
@@ -240,8 +240,7 @@ object FileHashUtils {
     /**
      * 计算文件 SHA-512 值
      */
-    @JvmStatic
-    fun sha512(path: String): String? = hashFile(path, Algorithm.SHA512)
+    private fun sha512Impl(failureReporter: FileFailureCallbacks.Reporter, path: String): String? = hashFileImpl(failureReporter, path, Algorithm.SHA512)
 
     /**
      * 异步计算 SHA-512
@@ -260,9 +259,8 @@ object FileHashUtils {
      * @param path 文件路径
      * @return CRC32 十六进制字符串，失败返回 null
      */
-    @JvmStatic
-    fun crc32(path: String): String? {
-        if (!FileUtils.isFile(path)) return null
+    private fun crc32Impl(failureReporter: FileFailureCallbacks.Reporter, path: String): String? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileHashUtils.crc32 失败：源文件不存在或不是普通文件")
         return try {
             val crc = CRC32()
             FileInputStream(File(path)).use { fis ->
@@ -273,6 +271,7 @@ object FileHashUtils {
             }
             java.lang.Long.toHexString(crc.value).padStart(8, '0')
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -288,11 +287,13 @@ object FileHashUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val result = crc32(path)
+                var failure: Exception? = null
+                val result = crc32(path, onFailure = { failure = it })
                 safeCallback {
-                    onResult(result, if (result == null) IOException("CRC32 failed: $path") else null)
+                    onResult(result, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -384,10 +385,11 @@ object FileHashUtils {
         expectedHash: String,
         algorithm: Algorithm = Algorithm.SHA256,
         ignoreCase: Boolean = true,
-        onResult: (Boolean, String?) -> Unit
+        onResult: (Boolean, String?) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         return FileCoroutines.withIo {
-            val actual = hashFile(path, algorithm)
+            val actual = hashFile(path, algorithm, onFailure)
             val valid = actual != null && actual.equals(expectedHash, ignoreCase)
             safeCallback { onResult(valid, actual) }
         }
@@ -422,17 +424,23 @@ object FileHashUtils {
         path1: String,
         path2: String,
         algorithm: Algorithm = Algorithm.SHA256,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
-        return FileCoroutines.withIo { safeCallback { onResult(compareFiles(path1, path2, algorithm)) } }
+        return FileCoroutines.withIo {
+            val first = hashFile(path1, algorithm, onFailure)
+            val second = if (first != null) hashFile(path2, algorithm, onFailure) else null
+            safeCallback { onResult(first != null && second != null && first.equals(second, ignoreCase = true)) }
+        }
     }
 
     // ==================== 内部方法 ====================
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
         }
     }
@@ -440,4 +448,117 @@ object FileHashUtils {
     private fun ByteArray.toHexString(): String {
         return joinToString("") { "%02x".format(it) }
     }
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** hashFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun hashFile(
+        path: String,
+        algorithm: Algorithm = Algorithm.SHA256,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.hashFile", "$path", onFailure, { it == null }, null) { failureReporter ->
+            hashFileImpl(failureReporter, path, algorithm)
+        }
+
+    /** hashFileWithProgress 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun hashFileWithProgress(
+        path: String,
+        algorithm: Algorithm = Algorithm.SHA256,
+        onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.hashFileWithProgress", "$path", onFailure, { it == null }, null) { failureReporter ->
+            hashFileWithProgressImpl(failureReporter, path, algorithm, onProgress)
+        }
+
+    /** md5 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun md5(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.md5", "$path", onFailure, { it == null }, null) { failureReporter ->
+            md5Impl(failureReporter, path)
+        }
+
+    /** sha1 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun sha1(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.sha1", "$path", onFailure, { it == null }, null) { failureReporter ->
+            sha1Impl(failureReporter, path)
+        }
+
+    /** sha256 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun sha256(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.sha256", "$path", onFailure, { it == null }, null) { failureReporter ->
+            sha256Impl(failureReporter, path)
+        }
+
+    /** sha512 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun sha512(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.sha512", "$path", onFailure, { it == null }, null) { failureReporter ->
+            sha512Impl(failureReporter, path)
+        }
+
+    /** crc32 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun crc32(
+        path: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileHashUtils.crc32", "$path", onFailure, { it == null }, null) { failureReporter ->
+            crc32Impl(failureReporter, path)
+        }
+
+    // 兼容原有尾随 lambda 调用
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("verifySuspendLegacyCallback")
+    suspend fun verifySuspend(
+        path: String,
+        expectedHash: String,
+        algorithm: Algorithm = Algorithm.SHA256,
+        ignoreCase: Boolean = true,
+        onResult: (Boolean, String?) -> Unit
+    ) = verifySuspend(path = path, expectedHash = expectedHash, algorithm = algorithm, ignoreCase = ignoreCase, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("compareFilesSuspendLegacyCallback")
+    suspend fun compareFilesSuspend(
+        path1: String,
+        path2: String,
+        algorithm: Algorithm = Algorithm.SHA256,
+        onResult: (Boolean) -> Unit
+    ) = compareFilesSuspend(path1 = path1, path2 = path2, algorithm = algorithm, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("hashFileWithProgressLegacyCallback")
+    fun hashFileWithProgress(
+        path: String,
+        algorithm: Algorithm = Algorithm.SHA256,
+        onProgress: ((bytesProcessed: Long, totalBytes: Long) -> Unit)? = null
+    ) = hashFileWithProgress(path = path, algorithm = algorithm, onProgress = onProgress, onFailure = null)
 }

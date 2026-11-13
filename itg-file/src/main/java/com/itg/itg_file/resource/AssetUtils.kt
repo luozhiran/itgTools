@@ -1,4 +1,5 @@
 package com.itg.itg_file.resource
+import com.itg.itg_file.core.FileFailureCallbacks
 
 import android.content.Context
 import android.content.res.Resources
@@ -70,6 +71,7 @@ object AssetUtils {
         return try {
             context.assets.list(path)?.toList() ?: emptyList()
         } catch (e: IOException) {
+            FileFailureCallbacks.rethrowCancellation(e)
             e.printStackTrace()
             emptyList()
         }
@@ -120,7 +122,7 @@ object AssetUtils {
         maxDepth: Int = 10
     ): List<String> {
         val result = mutableListOf<String>()
-        listAssetsRecursiveInternal(context, path, result, 0, maxDepth)
+        listAssetsRecursiveInternal(context = context, path = path, result = result, currentDepth = 0, maxDepth = maxDepth)
         return result
     }
 
@@ -166,6 +168,7 @@ object AssetUtils {
             context.assets.open(assetPath).use { /* 能打开说明存在 */ }
             true
         } catch (e: IOException) {
+            FileFailureCallbacks.rethrowCancellation(e)
             false
         }
     }
@@ -202,11 +205,13 @@ object AssetUtils {
             context.assets.open(assetPath).use { /* 能打开说明是文件 */ }
             false
         } catch (e: IOException) {
+            FileFailureCallbacks.rethrowCancellation(e)
             // 打不开，检查是否可 list
             try {
                 val list = context.assets.list(assetPath)
                 list != null && list.isNotEmpty()
             } catch (e2: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e2)
                 false
             }
         }
@@ -228,9 +233,10 @@ object AssetUtils {
      * println("Logo size: ${FileUtils.getSizeFormatted(null)}") // 格式化显示
      * ```
      */
-    @JvmStatic
-    fun getAssetSize(context: Context, assetPath: String): Long {
-        if (!assetExists(context, assetPath)) return -1L
+    private fun getAssetSizeImpl(failureReporter: FileFailureCallbacks.Reporter, context: Context, assetPath: String): Long {
+        if (!assetExists(context, assetPath)) {
+            return failureReporter.fail(-1L, "读取 assets 大小失败：资源不存在：$assetPath")
+        }
         return try {
             context.assets.open(assetPath).use { stream ->
                 var total = 0L
@@ -242,6 +248,7 @@ object AssetUtils {
                 total
             }
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             -1L
         }
@@ -251,14 +258,16 @@ object AssetUtils {
      * 异步获取 assets 文件大小
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun getAssetSizeSuspend(
         context: Context,
         assetPath: String,
-        onResult: (Long) -> Unit
+        onResult: (Long) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(getAssetSize(appContext, assetPath)) }
+            safeCallback { onResult(getAssetSize(appContext, assetPath, onFailure = onFailure)) }
         }
     }
 
@@ -283,7 +292,7 @@ object AssetUtils {
             "size" to size,
             "sizeFormatted" to FileUtils.getSizeFormatted(null).let {
                 // 使用 FileUtils 的格式化逻辑
-                formatAssetSize(size)
+                formatAssetSize(bytes = size)
             }
         )
     }
@@ -304,15 +313,13 @@ object AssetUtils {
      * val config = Gson().fromJson(json, Config::class.java)
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readAssetText(
+    private fun readAssetTextImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetPath: String,
         charset: Charset = StandardCharsets.UTF_8,
         maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
     ): String? {
-        val bytes = readAssetBytes(context, assetPath, maxBytes) ?: return null
+        val bytes = readAssetBytesImpl(failureReporter, context, assetPath, maxBytes) ?: return failureReporter.fail(null, "AssetUtils.readAssetText 失败：大小或深度超出限制")
         return String(bytes, charset)
     }
 
@@ -336,9 +343,11 @@ object AssetUtils {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
             try {
-                val result = readAssetText(appContext, assetPath, charset)
-                safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
+                var failure: Exception? = null
+                val result = readAssetText(appContext, assetPath, charset, onFailure = { failure = it })
+                safeCallback { onResult(result, failure) }
             } catch (t: Throwable) {
+                FileFailureCallbacks.rethrowCancellation(t)
                 safeCallback { onResult(null, t) }
             }
         }
@@ -353,26 +362,26 @@ object AssetUtils {
      * @param assetPath assets 文件路径
      * @return 字节数组，失败返回 null
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readAssetBytes(
+    private fun readAssetBytesImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetPath: String,
         maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
     ): ByteArray? {
-        if (!assetExists(context, assetPath)) return null
+        if (!assetExists(context, assetPath)) return failureReporter.fail(null, "AssetUtils.readAssetBytes 失败：assets 文件不存在：$assetPath")
         return try {
             context.assets.open(assetPath).use { stream ->
                 if (maxBytes <= 0) {
                     stream.readBytes()
                 } else {
-                    stream.readBytesWithLimit(maxBytes)
+                    stream.readBytesWithLimit(failureReporter, maxBytes)
                 }
             }
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -390,9 +399,11 @@ object AssetUtils {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
             try {
-                val result = readAssetBytes(appContext, assetPath)
-                safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
+                var failure: Exception? = null
+                val result = readAssetBytes(appContext, assetPath, onFailure = { failure = it })
+                safeCallback { onResult(result, failure) }
             } catch (t: Throwable) {
+                FileFailureCallbacks.rethrowCancellation(t)
                 safeCallback { onResult(null, t) }
             }
         }
@@ -412,27 +423,27 @@ object AssetUtils {
      * lines?.forEach { word -> dictionary.add(word.trim()) }
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readAssetLines(
+    private fun readAssetLinesImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetPath: String,
         charset: Charset = StandardCharsets.UTF_8,
         maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
     ): List<String>? {
-        if (!assetExists(context, assetPath)) return null
+        if (!assetExists(context, assetPath)) return failureReporter.fail(null, "AssetUtils.readAssetLines 失败：assets 文件不存在：$assetPath")
         return try {
             context.assets.open(assetPath).use { stream ->
                 if (maxBytes <= 0) {
                     stream.bufferedReader(charset).readLines()
                 } else {
-                    String(stream.readBytesWithLimit(maxBytes), charset).lineSequence().toList()
+                    String(stream.readBytesWithLimit(failureReporter, maxBytes), charset).lineSequence().toList()
                 }
             }
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -452,9 +463,11 @@ object AssetUtils {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
             try {
-                val result = readAssetLines(appContext, assetPath, charset)
-                safeCallback { onResult(result, if (result == null) IOException("Read asset failed: $assetPath") else null) }
+                var failure: Exception? = null
+                val result = readAssetLines(appContext, assetPath, charset, onFailure = { failure = it })
+                safeCallback { onResult(result, failure) }
             } catch (t: Throwable) {
+                FileFailureCallbacks.rethrowCancellation(t)
                 safeCallback { onResult(null, t) }
             }
         }
@@ -478,15 +491,13 @@ object AssetUtils {
      *     })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readAssetLinesStreaming(
+    private fun readAssetLinesStreamingImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetPath: String,
         charset: Charset = StandardCharsets.UTF_8,
         onEachLine: (line: String, index: Int) -> Boolean
     ): Int {
-        if (!assetExists(context, assetPath)) return -1
+        if (!assetExists(context, assetPath)) return failureReporter.fail(-1, "AssetUtils.readAssetLinesStreaming 失败：assets 文件不存在：$assetPath")
         return try {
             var count = 0
             context.assets.open(assetPath).bufferedReader(charset).use { reader ->
@@ -494,15 +505,17 @@ object AssetUtils {
                 while (line != null) {
                     val currentIndex = count
                     count++
-                    if (!safeLineCallback(line, currentIndex, onEachLine)) break
+                    if (!safeLineCallback(failureReporter, line, currentIndex, onEachLine)) break
                     line = reader.readLine()
                 }
             }
             count
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             -1
         } catch (t: Throwable) {
+            failureReporter.rethrow(t)
             t.printStackTrace()
             -1
         }
@@ -523,9 +536,11 @@ object AssetUtils {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
             try {
-                val count = readAssetLinesStreaming(appContext, assetPath, charset, onEachLine)
-                safeCallback { onComplete(count, if (count < 0) IOException("Read asset failed: $assetPath") else null) }
+                var failure: Exception? = null
+                val count = readAssetLinesStreaming(appContext, assetPath, charset, onEachLine, onFailure = { failure = it })
+                safeCallback { onComplete(count, failure) }
             } catch (t: Throwable) {
+                FileFailureCallbacks.rethrowCancellation(t)
                 safeCallback { onComplete(-1, t) }
             }
         }
@@ -550,18 +565,16 @@ object AssetUtils {
      * AssetUtils.copyAssetToFile(context, "templates/app.db", "/sdcard/MyApp/app.db")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyAssetToFile(
+    private fun copyAssetToFileImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetPath: String,
         destPath: String,
         overwrite: Boolean = true
     ): Boolean {
-        if (!assetExists(context, assetPath)) return false
-        if (destPath.isBlank()) return false
+        if (!assetExists(context, assetPath)) return failureReporter.fail(false, "AssetUtils.copyAssetToFile 失败：assets 文件不存在：$assetPath")
+        if (destPath.isBlank()) return failureReporter.fail(false, "AssetUtils.copyAssetToFile 失败：输入路径或参数为空")
 
-        return writeToFileAtomically(destPath, overwrite) { output ->
+        return writeToFileAtomically(failureReporter, destPath, overwrite) { output ->
             context.assets.open(assetPath).use { input ->
                 input.copyTo(output)
             }
@@ -578,11 +591,12 @@ object AssetUtils {
         assetPath: String,
         destPath: String,
         overwrite: Boolean = true,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(copyAssetToFile(appContext, assetPath, destPath, overwrite)) }
+            safeCallback { onResult(copyAssetToFile(appContext, assetPath, destPath, overwrite, onFailure = onFailure)) }
         }
     }
 
@@ -607,28 +621,26 @@ object AssetUtils {
      *     })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyAssetToFileWithProgress(
+    private fun copyAssetToFileWithProgressImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetPath: String,
         destPath: String,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
     ): Boolean {
-        if (!assetExists(context, assetPath)) return false
-        if (destPath.isBlank()) return false
+        if (!assetExists(context, assetPath)) return failureReporter.fail(false, "AssetUtils.copyAssetToFileWithProgress 失败：assets 文件不存在：$assetPath")
+        if (destPath.isBlank()) return failureReporter.fail(false, "AssetUtils.copyAssetToFileWithProgress 失败：输入路径或参数为空")
 
-        return writeToFileAtomically(destPath, overwrite) { output ->
+        return writeToFileAtomically(failureReporter, destPath, overwrite) { output ->
             context.assets.open(assetPath).use { input ->
-                val totalBytes = getAssetSizeFast(context, assetPath)
+                val totalBytes = getAssetSizeFast(failureReporter, context, assetPath)
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 var bytesCopied = 0L
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     bytesCopied += bytesRead
-                    safeCallback { onProgress?.invoke(bytesCopied, totalBytes) }
+                    safeCallback(failureReporter) { onProgress?.invoke(bytesCopied, totalBytes) }
                 }
                 output.flush()
             }
@@ -646,11 +658,12 @@ object AssetUtils {
         destPath: String,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(copyAssetToFileWithProgress(appContext, assetPath, destPath, overwrite, onProgress)) }
+            safeCallback { onResult(copyAssetToFileWithProgress(appContext, assetPath, destPath, overwrite, onProgress, onFailure = onFailure)) }
         }
     }
 
@@ -674,9 +687,7 @@ object AssetUtils {
      * println("Copied $count files")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyAssetDirToFile(
+    private fun copyAssetDirToFileImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         assetDirPath: String,
         destDirPath: String,
@@ -689,19 +700,20 @@ object AssetUtils {
         val destDir = try {
             File(destDirPath).canonicalFile
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
-            return -1
+            return failureReporter.fail(-1, "AssetUtils.copyAssetDirToFile 失败：assets 目录为空")
         }
 
         var successCount = 0
         val total = files.size
         for ((index, file) in files.withIndex()) {
             val relativePath = if (normalizedPath.isEmpty()) file else file.removePrefix("$normalizedPath/")
-            val destFile = safeChildFile(destDir, relativePath) ?: return -1
-            if (copyAssetToFile(context, file, destFile.absolutePath, overwrite)) {
+            val destFile = safeChildFile(failureReporter, destDir, relativePath) ?: return failureReporter.fail(-1, "AssetUtils.copyAssetDirToFile 失败：资源相对路径不安全")
+            if (copyAssetToFileImpl(failureReporter, context, file, destFile.absolutePath, overwrite)) {
                 successCount++
             }
-            safeCallback { onProgress?.invoke(index + 1, total) }
+            safeCallback(failureReporter) { onProgress?.invoke(index + 1, total) }
         }
         return successCount
     }
@@ -717,11 +729,12 @@ object AssetUtils {
         destDirPath: String,
         overwrite: Boolean = true,
         onProgress: ((current: Int, estimatedTotal: Int) -> Unit)? = null,
-        onResult: (Int) -> Unit
+        onResult: (Int) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(copyAssetDirToFile(appContext, assetDirPath, destDirPath, overwrite, onProgress)) }
+            safeCallback { onResult(copyAssetDirToFile(appContext, assetDirPath, destDirPath, overwrite, onProgress, onFailure = onFailure)) }
         }
     }
 
@@ -741,17 +754,16 @@ object AssetUtils {
      * text?.let { showLicenseDialog(it) }
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readRawText(
+    private fun readRawTextImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         resId: Int,
         charset: Charset = StandardCharsets.UTF_8
     ): String? {
-        val bytes = readRawBytes(context, resId) ?: return null
+        val bytes = readRawBytesImpl(failureReporter, context, resId) ?: return failureReporter.fail(null, "AssetUtils.readRawText 失败：读取 raw 字节失败")
         return try {
             String(bytes, charset)
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -771,9 +783,11 @@ object AssetUtils {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
             try {
-                val result = readRawText(appContext, resId, charset)
-                safeCallback { onResult(result, if (result == null) IOException("Read raw failed: $resId") else null) }
+                var failure: Exception? = null
+                val result = readRawText(appContext, resId, charset, onFailure = { failure = it })
+                safeCallback { onResult(result, failure) }
             } catch (t: Throwable) {
+                FileFailureCallbacks.rethrowCancellation(t)
                 safeCallback { onResult(null, t) }
             }
         }
@@ -793,9 +807,7 @@ object AssetUtils {
      * soundPool.load(rawBytes)
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readRawBytes(
+    private fun readRawBytesImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         resId: Int,
         maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
@@ -805,16 +817,19 @@ object AssetUtils {
                 if (maxBytes <= 0) {
                     stream.readBytes()
                 } else {
-                    stream.readBytesWithLimit(maxBytes)
+                    stream.readBytesWithLimit(failureReporter, maxBytes)
                 }
             }
         } catch (e: Resources.NotFoundException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -834,9 +849,11 @@ object AssetUtils {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
             try {
-                val result = readRawBytes(appContext, resId, maxBytes)
-                safeCallback { onResult(result, if (result == null) IOException("Read raw failed: $resId") else null) }
+                var failure: Exception? = null
+                val result = readRawBytes(appContext, resId, maxBytes, onFailure = { failure = it })
+                safeCallback { onResult(result, failure) }
             } catch (t: Throwable) {
+                FileFailureCallbacks.rethrowCancellation(t)
                 safeCallback { onResult(null, t) }
             }
         }
@@ -851,8 +868,7 @@ object AssetUtils {
      * @param resId   R.raw.xxx 资源 ID
      * @return 字节数，失败返回 -1
      */
-    @JvmStatic
-    fun getRawSize(context: Context, resId: Int): Long {
+    private fun getRawSizeImpl(failureReporter: FileFailureCallbacks.Reporter, context: Context, resId: Int): Long {
         return try {
             context.resources.openRawResource(resId).use { stream ->
                 var total = 0L
@@ -864,9 +880,11 @@ object AssetUtils {
                 total
             }
         } catch (e: Resources.NotFoundException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             -1L
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             -1L
         }
@@ -876,14 +894,16 @@ object AssetUtils {
      * 异步获取 raw 资源大小
      */
     @JvmStatic
+    @JvmOverloads
     suspend fun getRawSizeSuspend(
         context: Context,
         resId: Int,
-        onResult: (Long) -> Unit
+        onResult: (Long) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(getRawSize(appContext, resId)) }
+            safeCallback { onResult(getRawSize(appContext, resId, onFailure = onFailure)) }
         }
     }
 
@@ -907,17 +927,15 @@ object AssetUtils {
      *     "/sdcard/MyApp/default_avatar.png")
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyRawToFile(
+    private fun copyRawToFileImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         resId: Int,
         destPath: String,
         overwrite: Boolean = true
     ): Boolean {
-        if (destPath.isBlank()) return false
+        if (destPath.isBlank()) return failureReporter.fail(false, "AssetUtils.copyRawToFile 失败：输入路径或参数为空")
 
-        return writeToFileAtomically(destPath, overwrite) { output ->
+        return writeToFileAtomically(failureReporter, destPath, overwrite) { output ->
             context.resources.openRawResource(resId).use { input ->
                 input.copyTo(output)
             }
@@ -934,11 +952,12 @@ object AssetUtils {
         resId: Int,
         destPath: String,
         overwrite: Boolean = true,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(copyRawToFile(appContext, resId, destPath, overwrite)) }
+            safeCallback { onResult(copyRawToFile(appContext, resId, destPath, overwrite, onFailure = onFailure)) }
         }
     }
 
@@ -952,27 +971,25 @@ object AssetUtils {
      * @param onProgress  进度回调 (bytesCopied, totalBytes)
      * @return true 表示复制成功
      */
-    @JvmStatic
-    @JvmOverloads
-    fun copyRawToFileWithProgress(
+    private fun copyRawToFileWithProgressImpl(failureReporter: FileFailureCallbacks.Reporter,
         context: Context,
         resId: Int,
         destPath: String,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
     ): Boolean {
-        if (destPath.isBlank()) return false
+        if (destPath.isBlank()) return failureReporter.fail(false, "AssetUtils.copyRawToFileWithProgress 失败：输入路径或参数为空")
 
-        return writeToFileAtomically(destPath, overwrite) { output ->
+        return writeToFileAtomically(failureReporter, destPath, overwrite) { output ->
             context.resources.openRawResource(resId).use { input ->
-                val totalBytes = getRawSizeFast(context, resId)
+                val totalBytes = getRawSizeFast(failureReporter, context, resId)
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 var bytesCopied = 0L
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     bytesCopied += bytesRead
-                    safeCallback { onProgress?.invoke(bytesCopied, totalBytes) }
+                    safeCallback(failureReporter) { onProgress?.invoke(bytesCopied, totalBytes) }
                 }
                 output.flush()
             }
@@ -990,11 +1007,12 @@ object AssetUtils {
         destPath: String,
         overwrite: Boolean = true,
         onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null
     ): Unit {
         val appContext = context.applicationContext ?: context
         return FileCoroutines.withIo {
-            safeCallback { onResult(copyRawToFileWithProgress(appContext, resId, destPath, overwrite, onProgress)) }
+            safeCallback { onResult(copyRawToFileWithProgress(appContext, resId, destPath, overwrite, onProgress, onFailure = onFailure)) }
         }
     }
 
@@ -1033,24 +1051,25 @@ object AssetUtils {
         }
     }
 
-    private fun writeToFileAtomically(
+    private fun writeToFileAtomically(failureReporter: FileFailureCallbacks.Reporter,
         destPath: String,
         overwrite: Boolean,
         writer: (OutputStream) -> Unit
     ): Boolean {
-        if (destPath.isBlank()) return false
+        if (destPath.isBlank()) return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：输入路径或参数为空")
         var tempFile: File? = null
         return try {
             val destFile = File(destPath).canonicalFile
             if (destFile.exists()) {
-                if (!overwrite || destFile.isDirectory) return false
+                if (!overwrite) return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
+                if (destFile.isDirectory) return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：目标路径是目录")
             }
 
-            val parent = destFile.parentFile ?: return false
+            val parent = destFile.parentFile ?: return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：无法获取目标文件的父目录")
             if (parent.exists()) {
-                if (!parent.isDirectory) return false
+                if (!parent.isDirectory) return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：父路径不是目录：${parent.path}")
             } else if (!parent.mkdirs()) {
-                return false
+                return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：无法创建父目录：${parent.path}")
             }
 
             tempFile = File.createTempFile(".${destFile.name}.", ".tmp", parent)
@@ -1059,20 +1078,24 @@ object AssetUtils {
                 output.fd.sync()
             }
 
-            if (destFile.exists() && !overwrite) return false
+            if (destFile.exists() && !overwrite) return failureReporter.fail(false, "AssetUtils.writeToFileAtomically 失败：目标已存在且禁止覆盖")
             Os.rename(tempFile.absolutePath, destFile.absolutePath)
             tempFile = null
             true
         } catch (e: Resources.NotFoundException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: ErrnoException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } catch (e: SecurityException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         } finally {
@@ -1080,57 +1103,62 @@ object AssetUtils {
         }
     }
 
-    private fun safeChildFile(parent: File, relativePath: String): File? {
+    private fun safeChildFile(failureReporter: FileFailureCallbacks.Reporter, parent: File, relativePath: String): File? {
         return try {
             val child = File(parent, relativePath).canonicalFile
             val parentPath = parent.canonicalPath.trimEnd(File.separatorChar) + File.separator
             if (child.path == parent.canonicalPath || child.path.startsWith(parentPath)) child else null
         } catch (e: IOException) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
     }
 
-    private fun getAssetSizeFast(context: Context, assetPath: String): Long {
+    private fun getAssetSizeFast(failureReporter: FileFailureCallbacks.Reporter, context: Context, assetPath: String): Long {
         return try {
             context.assets.openFd(assetPath).use { descriptor -> descriptor.length }
         } catch (e: IOException) {
+            // 压缩的 assets 无法使用 openFd；未知大小时仍可流式复制。
             UNKNOWN_SIZE
         }
     }
 
-    private fun getRawSizeFast(context: Context, resId: Int): Long {
+    private fun getRawSizeFast(failureReporter: FileFailureCallbacks.Reporter, context: Context, resId: Int): Long {
         return try {
             context.resources.openRawResourceFd(resId).use { descriptor -> descriptor.length }
         } catch (e: Resources.NotFoundException) {
             UNKNOWN_SIZE
         } catch (e: IOException) {
+            // 压缩资源没有文件描述符；复制时以实际流读取结果为准。
             UNKNOWN_SIZE
         }
     }
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (t: Throwable) {
+            failureReporter.rethrow(t)
             t.printStackTrace()
         }
     }
 
-    private inline fun safeLineCallback(
+    private fun safeLineCallback(failureReporter: FileFailureCallbacks.Reporter,
         line: String,
         index: Int,
         callback: (line: String, index: Int) -> Boolean
     ): Boolean {
         return try {
-            callback(line, index)
+            failureReporter.invokeUserCallback { callback(line, index) }
         } catch (t: Throwable) {
+            failureReporter.rethrow(t)
             t.printStackTrace()
             false
         }
     }
 
-    private fun InputStream.readBytesWithLimit(maxBytes: Int): ByteArray {
+    private fun InputStream.readBytesWithLimit(failureReporter: FileFailureCallbacks.Reporter, maxBytes: Int): ByteArray {
         require(maxBytes >= 0) { "maxBytes must be non-negative" }
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -1158,4 +1186,312 @@ object AssetUtils {
             else -> "%.2f GB".format(absBytes / (1024.0 * 1024.0 * 1024.0))
         }
     }
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** getAssetSize 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun getAssetSize(
+        context: Context,
+        assetPath: String,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("AssetUtils.getAssetSize", "$assetPath", onFailure, { it < 0L }, -1L) { failureReporter ->
+            getAssetSizeImpl(failureReporter, context, assetPath)
+        }
+
+    /** readAssetText 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readAssetText(
+        context: Context,
+        assetPath: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("AssetUtils.readAssetText", "$assetPath", onFailure, { it == null }, null) { failureReporter ->
+            readAssetTextImpl(failureReporter, context, assetPath, charset, maxBytes)
+        }
+
+    /** readAssetBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readAssetBytes(
+        context: Context,
+        assetPath: String,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("AssetUtils.readAssetBytes", "$assetPath", onFailure, { it == null }, null) { failureReporter ->
+            readAssetBytesImpl(failureReporter, context, assetPath, maxBytes)
+        }
+
+    /** readAssetLines 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readAssetLines(
+        context: Context,
+        assetPath: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): List<String>? =
+        FileFailureCallbacks.run("AssetUtils.readAssetLines", "$assetPath", onFailure, { it == null }, null) { failureReporter ->
+            readAssetLinesImpl(failureReporter, context, assetPath, charset, maxBytes)
+        }
+
+    /** readAssetLinesStreaming 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readAssetLinesStreaming(
+        context: Context,
+        assetPath: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onEachLine: (line: String, index: Int) -> Boolean,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Int =
+        FileFailureCallbacks.run("AssetUtils.readAssetLinesStreaming", "$assetPath", onFailure, { it < 0 }, -1) { failureReporter ->
+            readAssetLinesStreamingImpl(failureReporter, context, assetPath, charset, onEachLine)
+        }
+
+    /** copyAssetToFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyAssetToFile(
+        context: Context,
+        assetPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("AssetUtils.copyAssetToFile", "$assetPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyAssetToFileImpl(failureReporter, context, assetPath, destPath, overwrite)
+        }
+
+    /** copyAssetToFileWithProgress 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyAssetToFileWithProgress(
+        context: Context,
+        assetPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("AssetUtils.copyAssetToFileWithProgress", "$assetPath → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyAssetToFileWithProgressImpl(failureReporter, context, assetPath, destPath, overwrite, onProgress)
+        }
+
+    /** copyAssetDirToFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyAssetDirToFile(
+        context: Context,
+        assetDirPath: String,
+        destDirPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((current: Int, estimatedTotal: Int) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Int {
+        var expectedCount = 0
+        return FileFailureCallbacks.run(
+            "AssetUtils.copyAssetDirToFile", "$assetDirPath → $destDirPath", onFailure,
+            { it < 0 || it < expectedCount }, -1
+        ) { failureReporter ->
+            copyAssetDirToFileImpl(failureReporter, context, assetDirPath, destDirPath, overwrite) { current, total ->
+                expectedCount = total
+                onProgress?.invoke(current, total)
+            }
+        }
+    }
+
+    /** readRawText 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readRawText(
+        context: Context,
+        resId: Int,
+        charset: Charset = StandardCharsets.UTF_8,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("AssetUtils.readRawText", "$resId", onFailure, { it == null }, null) { failureReporter ->
+            readRawTextImpl(failureReporter, context, resId, charset)
+        }
+
+    /** readRawBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readRawBytes(
+        context: Context,
+        resId: Int,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("AssetUtils.readRawBytes", "$resId", onFailure, { it == null }, null) { failureReporter ->
+            readRawBytesImpl(failureReporter, context, resId, maxBytes)
+        }
+
+    /** getRawSize 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun getRawSize(
+        context: Context,
+        resId: Int,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("AssetUtils.getRawSize", "$resId", onFailure, { it < 0L }, -1L) { failureReporter ->
+            getRawSizeImpl(failureReporter, context, resId)
+        }
+
+    /** copyRawToFile 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyRawToFile(
+        context: Context,
+        resId: Int,
+        destPath: String,
+        overwrite: Boolean = true,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("AssetUtils.copyRawToFile", "$resId → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyRawToFileImpl(failureReporter, context, resId, destPath, overwrite)
+        }
+
+    /** copyRawToFileWithProgress 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun copyRawToFileWithProgress(
+        context: Context,
+        resId: Int,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Boolean =
+        FileFailureCallbacks.run("AssetUtils.copyRawToFileWithProgress", "$resId → $destPath", onFailure, { !it }, false) { failureReporter ->
+            copyRawToFileWithProgressImpl(failureReporter, context, resId, destPath, overwrite, onProgress)
+        }
+
+    // 兼容原有尾随 lambda 调用
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("getAssetSizeSuspendLegacyCallback")
+    suspend fun getAssetSizeSuspend(
+        context: Context,
+        assetPath: String,
+        onResult: (Long) -> Unit
+    ) = getAssetSizeSuspend(context = context, assetPath = assetPath, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAssetToFileSuspendLegacyCallback")
+    suspend fun copyAssetToFileSuspend(
+        context: Context,
+        assetPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) = copyAssetToFileSuspend(context = context, assetPath = assetPath, destPath = destPath, overwrite = overwrite, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAssetToFileWithProgressSuspendLegacyCallback")
+    suspend fun copyAssetToFileWithProgressSuspend(
+        context: Context,
+        assetPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onResult: (Boolean) -> Unit
+    ) = copyAssetToFileWithProgressSuspend(context = context, assetPath = assetPath, destPath = destPath, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAssetDirToFileSuspendLegacyCallback")
+    suspend fun copyAssetDirToFileSuspend(
+        context: Context,
+        assetDirPath: String,
+        destDirPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((current: Int, estimatedTotal: Int) -> Unit)? = null,
+        onResult: (Int) -> Unit
+    ) = copyAssetDirToFileSuspend(context = context, assetDirPath = assetDirPath, destDirPath = destDirPath, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("getRawSizeSuspendLegacyCallback")
+    suspend fun getRawSizeSuspend(
+        context: Context,
+        resId: Int,
+        onResult: (Long) -> Unit
+    ) = getRawSizeSuspend(context = context, resId = resId, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyRawToFileSuspendLegacyCallback")
+    suspend fun copyRawToFileSuspend(
+        context: Context,
+        resId: Int,
+        destPath: String,
+        overwrite: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) = copyRawToFileSuspend(context = context, resId = resId, destPath = destPath, overwrite = overwrite, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyRawToFileWithProgressSuspendLegacyCallback")
+    suspend fun copyRawToFileWithProgressSuspend(
+        context: Context,
+        resId: Int,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null,
+        onResult: (Boolean) -> Unit
+    ) = copyRawToFileWithProgressSuspend(context = context, resId = resId, destPath = destPath, overwrite = overwrite, onProgress = onProgress, onResult = onResult, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("readAssetLinesStreamingLegacyCallback")
+    fun readAssetLinesStreaming(
+        context: Context,
+        assetPath: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onEachLine: (line: String, index: Int) -> Boolean
+    ) = readAssetLinesStreaming(context = context, assetPath = assetPath, charset = charset, onEachLine = onEachLine, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAssetToFileWithProgressLegacyCallback")
+    fun copyAssetToFileWithProgress(
+        context: Context,
+        assetPath: String,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
+    ) = copyAssetToFileWithProgress(context = context, assetPath = assetPath, destPath = destPath, overwrite = overwrite, onProgress = onProgress, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyAssetDirToFileLegacyCallback")
+    fun copyAssetDirToFile(
+        context: Context,
+        assetDirPath: String,
+        destDirPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((current: Int, estimatedTotal: Int) -> Unit)? = null
+    ) = copyAssetDirToFile(context = context, assetDirPath = assetDirPath, destDirPath = destDirPath, overwrite = overwrite, onProgress = onProgress, onFailure = null)
+
+    /** 保留原有 Kotlin 尾随 lambda 调用方式。 */
+    @JvmStatic
+    @JvmName("copyRawToFileWithProgressLegacyCallback")
+    fun copyRawToFileWithProgress(
+        context: Context,
+        resId: Int,
+        destPath: String,
+        overwrite: Boolean = true,
+        onProgress: ((bytesCopied: Long, totalBytes: Long) -> Unit)? = null
+    ) = copyRawToFileWithProgress(context = context, resId = resId, destPath = destPath, overwrite = overwrite, onProgress = onProgress, onFailure = null)
 }

@@ -1,4 +1,5 @@
 package com.itg.itg_file.read
+import com.itg.itg_file.core.FileFailureCallbacks
 
 import android.net.Uri
 import com.itg.itg_file.core.FileUtils
@@ -54,21 +55,21 @@ object FileReadUtils {
      * val gbkContent = FileReadUtils.readText("/sdcard/legacy.txt", Charset.forName("GBK"))
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readText(
+    private fun readTextImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
         maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
     ): String? {
-        if (!FileUtils.isFile(path)) return null
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileReadUtils.readText 失败：源文件不存在或不是普通文件")
         return try {
-            if (!canReadIntoMemory(path, maxBytes)) return null
+            if (!canReadIntoMemory(failureReporter, path, maxBytes)) return failureReporter.fail(null, "FileReadUtils.readText 失败：大小或深度超出限制")
             File(path).readText(charset)
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -99,13 +100,13 @@ object FileReadUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val result = readText(path, charset)
+                var failure: Exception? = null
+                val result = readText(path, charset, onFailure = { failure = it })
                 safeCallback {
-                    onResult(result, if (result == null && FileUtils.exists(path)) {
-                        IOException("Failed to read file: $path")
-                    } else null)
+                    onResult(result, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -121,19 +122,19 @@ object FileReadUtils {
      *
      * 注意: 大文件 (>50MB) 请使用 [readChunks] 避免 OOM。
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readBytes(path: String, maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES): ByteArray? {
-        if (!FileUtils.isFile(path)) return null
+    private fun readBytesImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES): ByteArray? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileReadUtils.readBytes 失败：源文件不存在或不是普通文件")
         return try {
-            if (!canReadIntoMemory(path, maxBytes)) return null
+            if (!canReadIntoMemory(failureReporter, path, maxBytes)) return failureReporter.fail(null, "FileReadUtils.readBytes 失败：大小或深度超出限制")
             FileInputStream(File(path)).use { input ->
-                if (maxBytes <= 0) input.readBytes() else input.readBytesWithLimit(maxBytes)
+                if (maxBytes <= 0) input.readBytes() else input.readBytesWithLimit(failureReporter, maxBytes)
             }
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -149,13 +150,13 @@ object FileReadUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val result = readBytes(path)
+                var failure: Exception? = null
+                val result = readBytes(path, onFailure = { failure = it })
                 safeCallback {
-                    onResult(result, if (result == null && FileUtils.exists(path)) {
-                        IOException("Failed to read file: $path")
-                    } else null)
+                    onResult(result, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -176,21 +177,21 @@ object FileReadUtils {
      * lines?.forEachIndexed { index, line -> println("Line $index: $line") }
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readLines(
+    private fun readLinesImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
         maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES
     ): List<String>? {
-        if (!FileUtils.isFile(path)) return null
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileReadUtils.readLines 失败：源文件不存在或不是普通文件")
         return try {
-            if (!canReadIntoMemory(path, maxBytes)) return null
+            if (!canReadIntoMemory(failureReporter, path, maxBytes)) return failureReporter.fail(null, "FileReadUtils.readLines 失败：大小或深度超出限制")
             File(path).readLines(charset)
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -208,11 +209,13 @@ object FileReadUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val result = readLines(path, charset)
+                var failure: Exception? = null
+                val result = readLines(path, charset, onFailure = { failure = it })
                 safeCallback {
-                    onResult(result, if (result == null) IOException("Failed to read: $path") else null)
+                    onResult(result, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onResult(null, e) }
             }
         }
@@ -235,14 +238,12 @@ object FileReadUtils {
      * })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readLinesStreaming(
+    private fun readLinesStreamingImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         charset: Charset = StandardCharsets.UTF_8,
         onEachLine: (line: String, index: Int) -> Boolean
     ): Int {
-        if (!FileUtils.isFile(path)) return -1
+        if (!FileUtils.isFile(path)) return failureReporter.fail(-1, "FileReadUtils.readLinesStreaming 失败：源文件不存在或不是普通文件")
         return try {
             var count = 0
             File(path).bufferedReader(charset).use { reader ->
@@ -250,12 +251,13 @@ object FileReadUtils {
                 while (line != null) {
                     val currentIndex = count
                     count++
-                    if (!safeLineCallback(onEachLine, line, currentIndex)) break
+                    if (!safeLineCallback(failureReporter, onEachLine, line, currentIndex)) break
                     line = reader.readLine()
                 }
             }
             count
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             -1
         }
@@ -280,11 +282,13 @@ object FileReadUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val count = readLinesStreaming(path, charset, onEachLine)
+                var failure: Exception? = null
+                val count = readLinesStreaming(path, charset, onEachLine, onFailure = { failure = it })
                 safeCallback {
-                    onComplete(count, if (count < 0) IOException("Failed to read: $path") else null)
+                    onComplete(count, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onComplete(-1, e) }
             }
         }
@@ -300,17 +304,17 @@ object FileReadUtils {
      * @param maxBytes 最大读取字节数（防止读取超大文件），默认 10MB
      * @return 字节数组，失败返回 null
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readBytes(context: android.content.Context, uri: Uri, maxBytes: Int = 10 * 1024 * 1024): ByteArray? {
+    private fun readBytesImpl(failureReporter: FileFailureCallbacks.Reporter, context: android.content.Context, uri: Uri, maxBytes: Int = 10 * 1024 * 1024): ByteArray? {
         return try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
-                stream.readBytesWithLimit(maxBytes)
+                stream.readBytesWithLimit(failureReporter, maxBytes)
             }
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -325,19 +329,19 @@ object FileReadUtils {
      * @param maxBytes    最大字节数限制（0 表示无限制）
      * @return 字节数组，失败返回 null
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readBytes(inputStream: InputStream, maxBytes: Int = 0): ByteArray? {
+    private fun readBytesImpl(failureReporter: FileFailureCallbacks.Reporter, inputStream: InputStream, maxBytes: Int = 0): ByteArray? {
         return try {
             if (maxBytes <= 0) {
                 inputStream.readBytes()
             } else {
-                inputStream.readBytesWithLimit(maxBytes)
+                inputStream.readBytesWithLimit(failureReporter, maxBytes)
             }
         } catch (e: OutOfMemoryError) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -351,14 +355,12 @@ object FileReadUtils {
      * @param maxBytes    最大字节限制
      * @return 字符串，失败返回 null
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readText(
+    private fun readTextImpl(failureReporter: FileFailureCallbacks.Reporter,
         inputStream: InputStream,
         charset: Charset = StandardCharsets.UTF_8,
         maxBytes: Int = 0
     ): String? {
-        val bytes = readBytes(inputStream, maxBytes) ?: return null
+        val bytes = readBytesImpl(failureReporter, inputStream, maxBytes) ?: return failureReporter.fail(null, "FileReadUtils.readText 失败：大小或深度超出限制")
         return String(bytes, charset)
     }
 
@@ -377,23 +379,21 @@ object FileReadUtils {
      *
      * 使用示例:
      * ```kotlin
-     * FileReadUtils.readChunks("/sdcard/large.bin", chunkSize = 1024 * 1024) { chunk, index, total ->
+     * FileReadUtils.readChunks("/sdcard/large.bin", chunkSize = 1024 * 1024, onChunk = { chunk, index, total ->
      *     uploadChunk(chunk, index)
      *     val progress = (index + 1) * 100 / total
      *     updateProgress(progress)
      *     true  // 继续
-     * }
+     * })
      * ```
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readChunks(
+    private fun readChunksImpl(failureReporter: FileFailureCallbacks.Reporter,
         path: String,
         chunkSize: Int = 64 * 1024,
         onChunk: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean
     ): Long {
-        if (chunkSize <= 0) return -1L
-        if (!FileUtils.isFile(path)) return -1L
+        if (chunkSize <= 0) return failureReporter.fail(-1L, "FileReadUtils.readChunks 失败：分块大小无效")
+        if (!FileUtils.isFile(path)) return failureReporter.fail(-1L, "FileReadUtils.readChunks 失败：源文件不存在或不是普通文件")
 
         return try {
             val file = File(path)
@@ -409,12 +409,13 @@ object FileReadUtils {
                 while (fis.read(buffer).also { bytesRead = it } != -1) {
                     val chunk = buffer.copyOf(bytesRead)
                     totalRead += bytesRead
-                    if (!safeChunkCallback(onChunk, chunk, chunkIndex, totalChunks)) break
+                    if (!safeChunkCallback(failureReporter, onChunk, chunk, chunkIndex, totalChunks)) break
                     chunkIndex++
                 }
             }
             totalRead
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             -1L
         }
@@ -433,11 +434,13 @@ object FileReadUtils {
     ): Unit {
         return FileCoroutines.withIo {
             try {
-                val total = readChunks(path, chunkSize, onChunk)
+                var failure: Exception? = null
+                val total = readChunks(path, chunkSize, onChunk, onFailure = { failure = it })
                 safeCallback {
-                    onComplete(total, if (total < 0) IOException("Failed to read: $path") else null)
+                    onComplete(total, failure)
                 }
             } catch (e: Exception) {
+                FileFailureCallbacks.rethrowCancellation(e)
                 safeCallback { onComplete(-1L, e) }
             }
         }
@@ -460,9 +463,9 @@ object FileReadUtils {
      * val header = FileReadUtils.readHeadBytes("/sdcard/file.bin", 4)
      * ```
      */
-    @JvmStatic
-    fun readHeadBytes(path: String, numBytes: Int): ByteArray? {
-        if (!FileUtils.isFile(path) || numBytes <= 0) return null
+    private fun readHeadBytesImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, numBytes: Int): ByteArray? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "读取文件头失败：源文件不存在：$path")
+        if (numBytes <= 0) return failureReporter.fail(null, "读取文件头失败：字节数必须大于 0")
         return try {
             RandomAccessFile(path, "r").use { raf ->
                 val bytes = ByteArray(minOf(numBytes.toLong(), raf.length()).toInt())
@@ -470,6 +473,7 @@ object FileReadUtils {
                 bytes
             }
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -484,9 +488,9 @@ object FileReadUtils {
      * @param numBytes 读取字节数
      * @return 字节数组，失败返回 null
      */
-    @JvmStatic
-    fun readTailBytes(path: String, numBytes: Int): ByteArray? {
-        if (!FileUtils.isFile(path) || numBytes <= 0) return null
+    private fun readTailBytesImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, numBytes: Int): ByteArray? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "读取文件尾失败：源文件不存在：$path")
+        if (numBytes <= 0) return failureReporter.fail(null, "读取文件尾失败：字节数必须大于 0")
         return try {
             val file = File(path)
             val fileSize = file.length()
@@ -498,6 +502,7 @@ object FileReadUtils {
             }
             bytes
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -512,10 +517,8 @@ object FileReadUtils {
      * @param numLines 行数
      * @return 最后 N 行内容，失败返回 null
      */
-    @JvmStatic
-    @JvmOverloads
-    fun readTailLines(path: String, numLines: Int = 10): List<String>? {
-        if (!FileUtils.isFile(path)) return null
+    private fun readTailLinesImpl(failureReporter: FileFailureCallbacks.Reporter, path: String, numLines: Int = 10): List<String>? {
+        if (!FileUtils.isFile(path)) return failureReporter.fail(null, "FileReadUtils.readTailLines 失败：源文件不存在或不是普通文件")
         if (numLines <= 0) return emptyList()
         return try {
             val lines = ArrayDeque<String>(numLines)
@@ -529,6 +532,7 @@ object FileReadUtils {
             }
             lines.toList()
         } catch (e: Exception) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             null
         }
@@ -536,7 +540,7 @@ object FileReadUtils {
 
     // ==================== 内部方法 ====================
 
-    private fun InputStream.readBytesWithLimit(maxBytes: Int): ByteArray {
+    private fun InputStream.readBytesWithLimit(failureReporter: FileFailureCallbacks.Reporter, maxBytes: Int): ByteArray {
         require(maxBytes >= 0) { "maxBytes must be non-negative" }
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -554,47 +558,208 @@ object FileReadUtils {
         return output.toByteArray()
     }
 
-    private fun canReadIntoMemory(path: String, maxBytes: Int): Boolean {
+    private fun canReadIntoMemory(failureReporter: FileFailureCallbacks.Reporter, path: String, maxBytes: Int): Boolean {
         if (maxBytes <= 0) return true
         return try {
             File(path).length() <= maxBytes
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            failureReporter.rethrow(error)
             false
         }
     }
 
-    private inline fun safeCallback(callback: () -> Unit) {
+    private fun safeCallback(failureReporter: FileFailureCallbacks.Reporter = FileFailureCallbacks.Reporter.NONE, callback: () -> Unit) {
         try {
-            callback()
+            failureReporter.invokeUserCallback(callback)
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
         }
     }
 
-    private fun safeLineCallback(
+    private fun safeLineCallback(failureReporter: FileFailureCallbacks.Reporter,
         callback: (line: String, index: Int) -> Boolean,
         line: String,
         index: Int
     ): Boolean {
         return try {
-            callback(line, index)
+            failureReporter.invokeUserCallback { callback(line, index) }
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
     }
 
-    private fun safeChunkCallback(
+    private fun safeChunkCallback(failureReporter: FileFailureCallbacks.Reporter,
         callback: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean,
         chunk: ByteArray,
         chunkIndex: Int,
         totalChunks: Int
     ): Boolean {
         return try {
-            callback(chunk, chunkIndex, totalChunks)
+            failureReporter.invokeUserCallback { callback(chunk, chunkIndex, totalChunks) }
         } catch (e: Throwable) {
+            failureReporter.rethrow(e)
             e.printStackTrace()
             false
         }
     }
+    // ==================== 公开操作入口：onFailure 为可选末位参数 ====================
+
+    /** readText 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readText(
+        path: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileReadUtils.readText", "$path", onFailure, { it == null }, null) { failureReporter ->
+            readTextImpl(failureReporter, path, charset, maxBytes)
+        }
+
+    /** readBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readBytes(
+        path: String,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("FileReadUtils.readBytes", "$path", onFailure, { it == null }, null) { failureReporter ->
+            readBytesImpl(failureReporter, path, maxBytes)
+        }
+
+    /** readLines 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readLines(
+        path: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = DEFAULT_MAX_IN_MEMORY_BYTES,
+        onFailure: ((Exception) -> Unit)? = null
+    ): List<String>? =
+        FileFailureCallbacks.run("FileReadUtils.readLines", "$path", onFailure, { it == null }, null) { failureReporter ->
+            readLinesImpl(failureReporter, path, charset, maxBytes)
+        }
+
+    /** readLinesStreaming 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readLinesStreaming(
+        path: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onEachLine: (line: String, index: Int) -> Boolean,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Int =
+        FileFailureCallbacks.run("FileReadUtils.readLinesStreaming", "$path", onFailure, { it < 0 }, -1) { failureReporter ->
+            readLinesStreamingImpl(failureReporter, path, charset, onEachLine)
+        }
+
+    /** 保留 Kotlin 尾随 lambda 的调用方式。 */
+    @JvmStatic
+    @JvmName("readLinesStreamingWithLineCallback")
+    fun readLinesStreaming(
+        path: String,
+        charset: Charset = StandardCharsets.UTF_8,
+        onEachLine: (line: String, index: Int) -> Boolean
+    ): Int = readLinesStreaming(path, charset, onEachLine, null)
+
+    /** readBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readBytes(
+        context: android.content.Context,
+        uri: Uri,
+        maxBytes: Int = 10 * 1024 * 1024,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("FileReadUtils.readBytes", "$context", onFailure, { it == null }, null) { failureReporter ->
+            readBytesImpl(failureReporter, context, uri, maxBytes)
+        }
+
+    /** readBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readBytes(
+        inputStream: InputStream,
+        maxBytes: Int = 0,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("FileReadUtils.readBytes", "$inputStream", onFailure, { it == null }, null) { failureReporter ->
+            readBytesImpl(failureReporter, inputStream, maxBytes)
+        }
+
+    /** readText 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readText(
+        inputStream: InputStream,
+        charset: Charset = StandardCharsets.UTF_8,
+        maxBytes: Int = 0,
+        onFailure: ((Exception) -> Unit)? = null
+    ): String? =
+        FileFailureCallbacks.run("FileReadUtils.readText", "$inputStream", onFailure, { it == null }, null) { failureReporter ->
+            readTextImpl(failureReporter, inputStream, charset, maxBytes)
+        }
+
+    /** readChunks 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readChunks(
+        path: String,
+        chunkSize: Int = 64 * 1024,
+        onChunk: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean,
+        onFailure: ((Exception) -> Unit)? = null
+    ): Long =
+        FileFailureCallbacks.run("FileReadUtils.readChunks", "$path", onFailure, { it < 0L }, -1L) { failureReporter ->
+            readChunksImpl(failureReporter, path, chunkSize, onChunk)
+        }
+
+    /** 保留 Kotlin 尾随 lambda 的调用方式。 */
+    @JvmStatic
+    @JvmName("readChunksWithChunkCallback")
+    fun readChunks(
+        path: String,
+        chunkSize: Int = 64 * 1024,
+        onChunk: (chunk: ByteArray, chunkIndex: Int, totalChunks: Int) -> Boolean
+    ): Long = readChunks(path, chunkSize, onChunk, null)
+
+    /** readHeadBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readHeadBytes(
+        path: String,
+        numBytes: Int,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("FileReadUtils.readHeadBytes", "$path", onFailure, { it == null }, null) { failureReporter ->
+            readHeadBytesImpl(failureReporter, path, numBytes)
+        }
+
+    /** readTailBytes 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readTailBytes(
+        path: String,
+        numBytes: Int,
+        onFailure: ((Exception) -> Unit)? = null
+    ): ByteArray? =
+        FileFailureCallbacks.run("FileReadUtils.readTailBytes", "$path", onFailure, { it == null }, null) { failureReporter ->
+            readTailBytesImpl(failureReporter, path, numBytes)
+        }
+
+    /** readTailLines 失败时通过 onFailure 通知调用方；回调在当前线程执行。 */
+    @JvmStatic
+    @JvmOverloads
+    fun readTailLines(
+        path: String,
+        numLines: Int = 10,
+        onFailure: ((Exception) -> Unit)? = null
+    ): List<String>? =
+        FileFailureCallbacks.run("FileReadUtils.readTailLines", "$path", onFailure, { it == null }, null) { failureReporter ->
+            readTailLinesImpl(failureReporter, path, numLines)
+        }
 }

@@ -10,8 +10,22 @@ import java.io.IOException
  */
 object CleanupExecutor {
 
+    /** 执行清理；[onFailure] 为 null 时只通过返回结果判断是否成功。 */
     @JvmStatic
-    fun execute(rule: CleanupRule): CleanupResult {
+    @JvmOverloads
+    fun execute(rule: CleanupRule, onFailure: ((CleanupResult) -> Unit)? = null): CleanupResult {
+        val result = executeInternal(rule)
+        if (!result.success && onFailure != null) {
+            try {
+                onFailure(result)
+            } catch (callbackError: Exception) {
+                callbackError.printStackTrace()
+            }
+        }
+        return result
+    }
+
+    private fun executeInternal(rule: CleanupRule): CleanupResult {
         val target = runCatching { validateTarget(rule.path) }.getOrElse { error ->
             return failure(rule, false, error.message ?: "清理路径无效", error)
         }

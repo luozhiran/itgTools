@@ -7,13 +7,14 @@
 | 使用场景 | 推荐 API | 适用条件/支持范围 | 什么情况下使用 | 为什么可以用 |
 | --- | --- | --- | --- | --- |
 | [在 ViewModel 或页面中执行文件操作](./docs/05-coroutine-usage.md) | `FileCoroutines.withIo { 同步文件方法() }` | 已有 `viewModelScope`、`lifecycleScope` 或其他 `CoroutineScope` | 文件操作不能阻塞主线程，且任务应随调用方取消 | `runInterruptible` 在 IO 调度器执行，并保留调用方的取消关系 |
+| [文件操作失败时通知页面](./docs/08-failure-callbacks.md) | 操作方法的可空 `onFailure` 参数 | 读写、复制、删除、资源读取或哈希失败 | 页面需要显示失败信息 | 回调收到具体校验步骤或底层异常，返回值保持原语义 |
 | [在线程或线程池中执行文件操作](./docs/06-thread-usage.md) | 同步文件方法 + 调用方的 `ExecutorService` 或 `TaskExecutor` | Java 调用方或已有线程池 | 需要 `Future`、Java 互操作或复用现有线程池 | 同步方法在调用线程执行，调度和关闭由调用方负责 |
 | [创建、复制、移动、删除文件](./docs/01-core-operations.md) | `FileUtils` | 本地文件路径 | 管理缓存、导出文件、移动目录 | 封装 `File`/NIO 操作，提供可直接调用的同步方法 |
 | [读取文本、字节、行和分块](./docs/02-read-write-hash.md) | `FileReadUtils` | 小文件可一次性读，大文件用流式/分块 | 读取配置、日志、二进制片段 | 提供 maxBytes 限制和 streaming/chunk API |
 | [写入文本、字节和原子写](./docs/02-read-write-hash.md) | `FileWriteUtils` | 目标目录可写 | 写缓存、配置、导出数据 | 支持追加、覆盖、流式写入和安全写入模式 |
 | [把 ZIP 压缩包解压到新目录](./docs/07-zip-extraction.md) | `ZipUtils.extractSuspend` / `extract` | 本地 ZIP 路径；目标目录尚不存在 | 导入离线资源包或下载后的 ZIP | 协程中可异步执行；先解压并校验到同目录临时目录，成功后才发布目标目录 |
 | [计算文件 hash](./docs/02-read-write-hash.md) | `FileHashUtils` / `OkioHashUtils` | 文件存在且可读 | 校验下载包、缓存一致性 | 支持 MD5、SHA、CRC 等常见摘要 |
-| [读取 assets 或复制资源](./docs/03-assets-okio.md) | `AssetUtils` / `OkioAssetUtils` | Android `Context` | 内置配置、模板、离线资源 | 使用 `assets.open`，可复制到文件并报告进度 |
+| [读取 assets 或复制资源](./docs/03-assets-okio.md) | `AssetUtils` / `OkioAssetUtils` / `File.copyFromAsset` / `File.copyFromRaw` | Android `Context` | 内置配置、模板、离线资源 | 可直接向目标 `File` 复制 assets 或 raw 资源，并报告进度 |
 | [使用 Okio 版本 API](./docs/03-assets-okio.md) | `OkioFileUtils`、`OkioReadUtils`、`OkioWriteUtils` | 已引入 Okio | 需要 `ByteString`、`Buffer` 或 Okio source/sink | Okio API 更适合流式和二进制处理 |
 | [清理缓存和过期文件](./docs/04-cleanup-api.md) | `FileCleanupManager`、`CleanupExecutor` | 清理目录明确 | 按大小、时间、后缀清理缓存 | 使用清理模型和执行器集中表达规则 |
 | [查看 API 速查](./docs/04-cleanup-api.md) | API 表 | 所有使用者 | 查方法分类和安全边界 | 汇总源码公开工具类 |
@@ -29,6 +30,7 @@
 | [05. 协程调用](./docs/05-coroutine-usage.md) | ViewModel、页面作用域、超时和取消 |
 | [06. 线程调用](./docs/06-thread-usage.md) | ExecutorService、TaskExecutor、取消和资源归属 |
 | [07. ZIP 解压](./docs/07-zip-extraction.md) | 解压、协程调用、安全限制和失败处理 |
+| [08. 失败回调](./docs/08-failure-callbacks.md) | 操作失败通知、协程线程和正常查询结果的区分 |
 
 ## 依赖
 
