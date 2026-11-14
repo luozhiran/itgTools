@@ -17,6 +17,8 @@ ksp = "2.1.10-1.0.29"
 kotlin = "2.1.10"
 robolectric = "4.12.2"
 coroutines = "1.9.0"
+matrix = "2.1.0"
+json = "20180813"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +39,9 @@ therouter-apt = { module = "cn.therouter:apt", version.ref = "therouter" }
 ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+matrix-android-lib = { module = "com.tencent.matrix:matrix-android-lib", version.ref = "matrix" }
+matrix-trace-canary = { module = "com.tencent.matrix:matrix-trace-canary", version.ref = "matrix" }
+json = { module = "org.json:json", version.ref = "json" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

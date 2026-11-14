@@ -1,4 +1,5 @@
 pluginManagement {
+    includeBuild("monitor/MatrixTraceCanary/gradle-plugin")
     resolutionStrategy {
         eachPlugin {
             if (requested.id.id == "cn.therouter") {
