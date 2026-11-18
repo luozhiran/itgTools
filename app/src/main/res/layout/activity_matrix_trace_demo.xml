@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Matrix 性能监控示例"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Application 中统一安装监控；下方按钮故意制造问题。事件也会输出到 Logcat 的 MatrixTraceDemo 标签。"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="启动耗时"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="强制停止应用后重新打开，查看 process_start_to_first_frame；按 Home 键再返回，查看 foreground_start_to_first_frame。"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="界面流畅性与掉帧"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/animationStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="点击按钮运行 15 秒动画，观察 FPS 事件。"
+            android:textSize="14sp" />
+
+        <FrameLayout
+            android:id="@+id/animationTrack"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:layout_marginTop="8dp"
+            android:background="#E8EAF0">
+
+            <View
+                android:id="@+id/animationDot"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="#3366CC" />
+        </FrameLayout>
+
+        <Button
+            android:id="@+id/runFpsDemo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="运行掉帧动画（15 秒）" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="慢方法与主线程卡顿"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="慢方法由构建期插件插桩，默认阈值 700 ms；长阻塞还会触发 Matrix 的卡顿监控。"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/runSlowMethod"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="运行慢方法（约 900 ms）" />
+
+        <Button
+            android:id="@+id/runBlock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="制造主线程卡顿（约 2.5 秒）" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="ANR"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="仅在测试设备点击：主线程阻塞 6 秒，系统可能弹出 ANR。运行中观察疑似 ANR；若进程因系统 ANR 退出，Android 11+ 可在下次启动读取历史记录。"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/runAnr"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模拟疑似 ANR（约 6 秒）" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="页面切换耗时"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Activity 跳转会自动计时；同 Activity 内容切换用 beginPageTransition / finish 手动标记。"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/openTargetPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="打开目标 Activity" />
+
+        <TextView
+            android:id="@+id/innerPageLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="当前内容：监控首页"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/switchInnerPage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="切换同 Activity 内容" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="最近监控事件（最多 30 条）"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/eventLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="13sp"
+            android:textIsSelectable="true" />
+    </LinearLayout>
+</ScrollView>

@@ -58,6 +58,10 @@ transition.finish()
 
 手动事件的 `measurement` 为 `manual_mark_to_visible`，不会等待 Activity 首帧。避免对同一次 Activity 跳转同时使用自动和手动计时。
 
+## 仓库示例
+
+本仓库的 `app` 模块提供可运行示例：`DemoApplication` 初始化监控并记录事件；首页进入“Matrix 性能监控示例”后，可逐项触发掉帧、慢方法、卡顿、疑似 ANR、Activity 跳转及同 Activity 内容切换。启动耗时需强制停止应用后重新打开，或从后台返回。示例事件显示在页面底部，并写入 Logcat 的 `MatrixTraceDemo` 标签。ANR 按钮会故意阻塞主线程 6 秒，仅适合测试设备。
+
 ## 宿主已经使用 Matrix
 
 Matrix 是进程级单例。宿主应在调用 `Matrix.init` 之前，将 `MatrixTraceCanary.createPlugin(config)` 返回的插件加入现有 `Matrix.Builder`；在现有 `PluginListener.onReportIssue` 中用 `MatrixTraceEvent.fromIssue(issue)` 转换事件，并在初始化后启动该插件。慢方法监听还需调用 `MatrixTraceCanary.configureSlowMethods(config, listener)`，启动、页面切换和历史 ANR 监听需在 `Application.onCreate()` 中调用 `MatrixTraceCanary.configureActivityTiming(application, config, listener)`。便捷的 `install()` 方法会拒绝接入已初始化的 Matrix 实例。

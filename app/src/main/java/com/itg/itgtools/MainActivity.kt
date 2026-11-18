@@ -5,6 +5,7 @@ import android.os.Bundle
 import com.itg.itg_base.AutoBindingBaseActivity
 import com.itg.itgtools.pages.itgdialog.DialogQueueDemoActivity
 import com.itg.itgtools.pages.itgui.ItgUiExamplesActivity
+import com.itg.itgtools.pages.matrixtrace.MatrixTraceDemoActivity
 import com.itg.itgtools.databinding.ActivityMainBinding
 import com.itg.itgtools.route.RoutePath
 import com.therouter.router.Route
@@ -18,6 +19,9 @@ class MainActivity : AutoBindingBaseActivity<ActivityMainBinding, MainModel>() {
         }
         binding.openDialogQueueDemo.setOnClickListener {
             startActivity(Intent(this, DialogQueueDemoActivity::class.java))
+        }
+        binding.openMatrixTraceDemo.setOnClickListener {
+            startActivity(Intent(this, MatrixTraceDemoActivity::class.java))
         }
     }
 }

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     id("therouter")
     id("com.google.devtools.ksp")
+    id("com.itg.matrix-slow-method")
 }
 
 android {
@@ -39,6 +40,9 @@ android {
         dataBinding = true
         viewBinding = true
     }
+    packaging {
+        jniLibs.excludes.add("**/libtrace-canary.so")
+    }
     sourceSets {
         getByName("debug").kotlin.directories.add(
             "build/generated/ksp/debug/kotlin"
@@ -65,4 +69,5 @@ dependencies {
     ksp(project(":itg-ksp-compiler"))
     implementation(project(":itg-ksp-annotations"))
     implementation(project(":itg-ksp-runtime"))
+    implementation(project(":monitor:MatrixTraceCanary"))
 }
