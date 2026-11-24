@@ -2,6 +2,7 @@ package com.itg.componse
 
 import android.app.Activity
 import androidx.annotation.StringRes
+import com.itg.componse.activitys.ComposeListDemoActivity
 
 internal data class ComposeDemoEntry(
     @field:StringRes val titleRes: Int,
