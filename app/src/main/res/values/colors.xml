@@ -2,4 +2,13 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="home_background">#F4F7FB</color>
+    <color name="home_card_background">#FFFFFFFF</color>
+    <color name="home_card_stroke">#E4EAF1</color>
+    <color name="home_card_ripple">#D6E8F8</color>
+    <color name="home_text_primary">#182B43</color>
+    <color name="home_text_secondary">#65758A</color>
+    <color name="home_accent">#28699F</color>
+    <color name="home_icon_background">#EAF3FA</color>
+    <color name="home_hero_description">#DCE9F7</color>
 </resources>

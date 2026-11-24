@@ -4,4 +4,5 @@ plugins {
     alias(libs.plugins.android.library) apply false
     alias(libs.plugins.therouter.classpath) apply false
     alias(libs.plugins.ksp.classpath) apply false
+    alias(libs.plugins.kotlin.compose) apply false
 }
