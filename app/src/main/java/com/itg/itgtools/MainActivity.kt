@@ -3,6 +3,7 @@ package com.itg.itgtools
 import android.content.Intent
 import android.os.Bundle
 import androidx.recyclerview.widget.ConcatAdapter
+import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.itg.itg_base.AutoBindingBaseActivity
 import com.itg.itgtools.pages.itgdialog.DialogQueueDemoActivity
@@ -21,6 +22,12 @@ class MainActivity : AutoBindingBaseActivity<ActivityMainBinding, MainModel>() {
             startActivity(Intent(this, item.destination))
         }
         binding.main.layoutManager = LinearLayoutManager(this)
+        binding.main.itemAnimator = DefaultItemAnimator().apply {
+            addDuration = 220L
+            removeDuration = 180L
+            moveDuration = 200L
+            changeDuration = 180L
+        }
         binding.main.adapter = ConcatAdapter(HomeHeaderAdapter(), exploreAdapter)
 
         exploreAdapter.submitList(
