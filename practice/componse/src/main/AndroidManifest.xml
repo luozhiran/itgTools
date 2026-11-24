@@ -7,6 +7,11 @@
             android:exported="false"
             android:label="@string/title_activity_componse_home"
             android:theme="@style/Theme.ItgTools" />
+        <activity
+            android:name=".ComposeListDemoActivity"
+            android:exported="false"
+            android:label="@string/compose_list_demo_title"
+            android:theme="@style/Theme.ItgTools" />
     </application>
 
 </manifest>

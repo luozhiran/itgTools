@@ -1,3 +1,13 @@
 <resources>
-    <string name="title_activity_componse_home">ComponseHomeActivity</string>
+    <string name="title_activity_componse_home">Compose 示例</string>
+    <string name="compose_home_title">Compose 示例</string>
+    <string name="compose_home_description">选择一个页面，体验不同的 Compose 实现。</string>
+    <string name="compose_open_demo">查看示例 ›</string>
+    <string name="compose_back">返回</string>
+    <string name="compose_list_demo_title">LazyColumn 列表示例</string>
+    <string name="compose_list_demo_description">可滚动列表、稳定键与选中状态</string>
+    <string name="compose_list_demo_hint">点击任意条目查看选中效果。列表包含 50 条数据。</string>
+    <string name="compose_list_item_title">示例条目 %1$d</string>
+    <string name="compose_list_item_description">点击选中此条目</string>
+    <string name="compose_list_item_selected">已选中</string>
 </resources>
