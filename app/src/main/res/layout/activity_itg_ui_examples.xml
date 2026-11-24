@@ -1,40 +1,213 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android">
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:background="@color/home_background"
+        android:fillViewport="true"
+        android:overScrollMode="never"
+        tools:context=".pages.itgui.ItgUiExamplesActivity">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:paddingStart="20dp"
+            android:paddingTop="28dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="32dp">
 
-            <TextView
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="itg-ui 可运行示例"
-                android:textSize="26sp"
-                android:textStyle="bold" />
+                app:cardBackgroundColor="@color/home_card_background"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/home_card_stroke"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_height="wrap_content"
+                    android:layout_width="match_parent"
+                    android:orientation="vertical"
+                    android:padding="24dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/home_icon_background"
+                            android:gravity="center"
+                            android:text="@string/ui_examples_monogram"
+                            android:textColor="@color/home_accent"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="14dp"
+                            android:text="@string/ui_examples_eyebrow"
+                            android:textColor="@color/home_accent"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="22dp"
+                        android:text="@string/ui_examples_title"
+                        android:textColor="@color/home_text_primary"
+                        android:textSize="28sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/ui_examples_description"
+                        android:textColor="@color/home_text_secondary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="22dp"
+                        android:background="@drawable/home_icon_background"
+                        android:paddingStart="12dp"
+                        android:paddingTop="7dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="7dp"
+                        android:text="@string/ui_examples_badge"
+                        android:textColor="@color/home_accent"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="覆盖 Tab、样式、角标、嵌套、动态重绑、手动 Ability、Recycler 以及 KSP 生成式注册。"
-                android:textSize="14sp" />
+                style="@style/ItgToolsUiExampleSectionTitle"
+                android:layout_marginTop="32dp"
+                android:text="@string/ui_examples_tab_section" />
 
-            <Button android:id="@+id/basicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="基础 Tab / 懒加载 / 角标" />
-            <Button android:id="@+id/styledTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="滚动 Tab / 完整样式" />
-            <Button android:id="@+id/advancedStyles" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="高级样式 / Drawable 指示器" />
-            <Button android:id="@+id/bottomTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="底部导航式 Tab" />
-            <Button android:id="@+id/customTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="完全自定义 Tab View" />
-            <Button android:id="@+id/nestedTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="嵌套 TabHostFragment" />
-            <Button android:id="@+id/dynamicTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="动态 Tab / unbind + bind" />
-            <Button android:id="@+id/manualTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="手动 Ability / 自定义 ID" />
-            <Button android:id="@+id/recycler" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Recycler 多 Item / 自动绑定 / Payload" />
-            <Button android:id="@+id/kspRecycler" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="KSP Recycler / 注解生成" />
-            <Button android:id="@+id/kspTabs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="KSP Tabs / 注解生成" />
+            <TextView
+                style="@style/ItgToolsUiExampleSectionDescription"
+                android:text="@string/ui_examples_tab_section_description" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/basicTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_basic_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/styledTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_styled_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/advancedStyles"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_advanced_styles" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/bottomTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_bottom_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/customTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_custom_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/nestedTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_nested_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/dynamicTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_dynamic_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/manualTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_manual_tabs" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                style="@style/ItgToolsUiExampleSectionTitle"
+                android:layout_marginTop="32dp"
+                android:text="@string/ui_examples_recycler_section" />
+
+            <TextView
+                style="@style/ItgToolsUiExampleSectionDescription"
+                android:text="@string/ui_examples_recycler_section_description" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/recycler"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_recycler" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/kspRecycler"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_ksp_recycler" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                style="@style/ItgToolsUiExampleSectionTitle"
+                android:layout_marginTop="32dp"
+                android:text="@string/ui_examples_ksp_section" />
+
+            <TextView
+                style="@style/ItgToolsUiExampleSectionDescription"
+                android:text="@string/ui_examples_ksp_section_description" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/kspTabs"
+                style="@style/Widget.ItgTools.UiExampleCard">
+                <TextView
+                    style="@style/ItgToolsUiExampleCardTitle"
+                    android:text="@string/ui_examples_ksp_tabs" />
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
     </ScrollView>
 </layout>
