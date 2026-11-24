@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/exploreCard"
+    style="@style/Widget.ItgTools.HomeCard"
+    android:layout_marginStart="20dp"
+    android:layout_marginTop="12dp"
+    android:layout_marginEnd="20dp">
+
+    <LinearLayout style="@style/ItgToolsHomeCardContent">
+        <TextView
+            android:id="@+id/number"
+            style="@style/ItgToolsHomeCardNumber" />
+
+        <LinearLayout style="@style/ItgToolsHomeCardTextGroup">
+            <TextView
+                android:id="@+id/title"
+                style="@style/ItgToolsHomeCardTitle" />
+            <TextView
+                android:id="@+id/description"
+                style="@style/ItgToolsHomeCardDescription" />
+        </LinearLayout>
+
+        <TextView style="@style/ItgToolsHomeCardArrow" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

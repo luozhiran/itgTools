@@ -2,6 +2,8 @@ package com.itg.itgtools
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.recyclerview.widget.ConcatAdapter
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.itg.itg_base.AutoBindingBaseActivity
 import com.itg.itgtools.pages.itgdialog.DialogQueueDemoActivity
 import com.itg.itgtools.pages.itgui.ItgUiExamplesActivity
@@ -14,14 +16,19 @@ import com.therouter.router.Route
 class MainActivity : AutoBindingBaseActivity<ActivityMainBinding, MainModel>() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding.openItgUiExamples.setOnClickListener {
-            startActivity(Intent(this, ItgUiExamplesActivity::class.java))
+
+        val exploreAdapter = HomeExploreAdapter { item ->
+            startActivity(Intent(this, item.destination))
         }
-        binding.openDialogQueueDemo.setOnClickListener {
-            startActivity(Intent(this, DialogQueueDemoActivity::class.java))
-        }
-        binding.openMatrixTraceDemo.setOnClickListener {
-            startActivity(Intent(this, MatrixTraceDemoActivity::class.java))
-        }
+        binding.main.layoutManager = LinearLayoutManager(this)
+        binding.main.adapter = ConcatAdapter(HomeHeaderAdapter(), exploreAdapter)
+
+        exploreAdapter.submitList(
+            listOf(
+                ExploreItem(R.string.home_ui_title, R.string.home_ui_description, ItgUiExamplesActivity::class.java),
+                ExploreItem(R.string.home_dialog_title, R.string.home_dialog_description, DialogQueueDemoActivity::class.java),
+                ExploreItem(R.string.home_matrix_title, R.string.home_matrix_description, MatrixTraceDemoActivity::class.java),
+            ),
+        )
     }
 }
