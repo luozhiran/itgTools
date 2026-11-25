@@ -10,4 +10,11 @@
     <string name="compose_list_item_title">示例条目 %1$d</string>
     <string name="compose_list_item_description">点击选中此条目</string>
     <string name="compose_list_item_selected">已选中</string>
+
+
+    <string name="compose_list_remember_title">在重组（recompose）期间保存状态</string>
+    <string name="compose_list_remember_description">remember:在重组（recompose）期间保存状态；页面销毁 / 离开、配置变更（旋转）会丢失\n rememberSaveable：重组 + 配置变更（屏幕旋转、暗黑切换）都能保存；进程被杀依然丢失
+
+></string>
+
 </resources>
