@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.itg.itg_auxiliary.L
@@ -30,10 +31,11 @@ class ComposeRememberActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()//布局会顶到屏幕最边缘，内容会被状态栏、导航栏、软键盘挡住
         setContent {
-            Row(modifier = Modifier
+            Column(modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)) {
                 RememberScene1()
+                RememberScene2()
             }
         }
     }
@@ -49,7 +51,7 @@ class ComposeRememberActivity : ComponentActivity() {
         var abc = 9
         var count by remember { mutableIntStateOf(0) }
         L.e("Hello","-------------------${count}    ${abc}")
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column() {
             Button(onClick = {
                 count++
                 abc++
@@ -58,4 +60,24 @@ class ComposeRememberActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * 验证 `rememberSaveable` 保存的计数在重组及屏幕旋转等 Activity 重建后仍可恢复。
+     * 点击按钮可增加 `count`；普通局部变量 `abc` 会在每次重组时重新初始化为 9。
+     */
+    @Composable
+    fun RememberScene2() {
+        var abc = 9
+        var count by rememberSaveable { mutableIntStateOf(0) }
+        L.e("Hello","-------------------${count}    ${abc}")
+        Column() {
+            Button(onClick = {
+                count++
+                abc++
+            }) {
+                Text("count=${count}")
+            }
+        }
+    }
+
 }
