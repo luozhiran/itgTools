@@ -33,9 +33,9 @@ class L {
             }
             val border = "────────────────────"
             val content = buildString {
-                // 标准堆栈帧格式可让 Android Studio Logcat 点击后跳转到调用处。
+                // Logcat 可识别文件名和行号；只显示方法名以缩短调用位置。
                 if (caller != null && caller.fileName != null && caller.lineNumber > 0) {
-                    appendLine("\tat $caller")
+                    appendLine("${caller.methodName}(${caller.fileName}:${caller.lineNumber})")
                 }
                 appendLine("┌$border $tag")
                 messages.forEach { message ->

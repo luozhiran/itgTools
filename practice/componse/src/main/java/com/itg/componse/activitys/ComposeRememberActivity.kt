@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.itg.itg_auxiliary.L
 
 class ComposeRememberActivity : ComponentActivity() {
 
@@ -47,7 +48,7 @@ class ComposeRememberActivity : ComponentActivity() {
     fun RememberScene1() {
         var abc = 9
         var count by remember { mutableIntStateOf(0) }
-        Log.e("Hello","-------------------${count}    ${abc}")
+        L.e("Hello","-------------------${count}    ${abc}")
         Column(modifier = Modifier.fillMaxSize()) {
             Button(onClick = {
                 count++
