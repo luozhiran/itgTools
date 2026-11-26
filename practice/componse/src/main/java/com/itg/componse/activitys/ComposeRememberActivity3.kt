@@ -17,10 +17,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 
@@ -61,17 +60,33 @@ public class ComposeRememberActivity3 : AppCompatActivity() {
      *
      * - `scrollToItem(index, offset)`：直接跳到指定 item（无动画）
      * - `animateScrollToItem(index, offset)`：平滑滚动到 item（带动画）
+     *
+     *
+     * rememberCoroutineScope()
+     * 在 **@Composable 里面拿到一个协程作用域，这个作用域和当前 Composable 的生命周期绑定；
+     * Composable 退出（从 UI 树上移除），scope 自动 cancel**。
+     * 核心特性
+     * 1. **生命周期绑定到这个 Composable**
+     *      当这个 Composable 被移除组合（页面退出、if 条件不成立、被折叠），scope 里面所有正在跑的协程自动取消，避免泄漏。
+     *
+     * 2. **调度器默认是 `Dispatchers.Main.immediate`**
+     *      适合 UI 相关任务：滚动、弹窗、动画、点击触发的异步。
+     *
+     * 3. **它是 remember 缓存的**
+     *      重组不会重新生成新的 Scope，同一个 Composable 多次重组拿到的是同一个 scope。
+     *
      */
     @Composable
     fun RememberScene2() {
         val listState = rememberLazyListState()
+        val coroutineScope = rememberCoroutineScope()
         LazyColumn(state = listState) {
             items(100) { Text("item $it") }
         }
         // 回到顶部按钮
         Button(onClick = {
-            // 需要协程，用LaunchedEffect或者rememberCoroutineScope
-            CoroutineScope(Dispatchers.Main).launch {
+            coroutineScope.launch {
+                // animateScrollToItem需要在协程中使用，因为 animateScrollToItem是suspend方法
                 listState.animateScrollToItem(0)
             }
         }) {
