@@ -2,12 +2,23 @@ package com.itg.componse.activitys
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -17,8 +28,17 @@ public class ComposeRememberActivity3 : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
-            RememberScene2()
+            Column(modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.systemBars)) {
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+                    RememberScene2()
+                }
+
+            }
+
         }
     }
 
@@ -43,7 +63,7 @@ public class ComposeRememberActivity3 : AppCompatActivity() {
      * - `animateScrollToItem(index, offset)`：平滑滚动到 item（带动画）
      */
     @Composable
-    fun RememberScene2(){
+    fun RememberScene2() {
         val listState = rememberLazyListState()
         LazyColumn(state = listState) {
             items(100) { Text("item $it") }
@@ -58,7 +78,6 @@ public class ComposeRememberActivity3 : AppCompatActivity() {
             Text("回到顶部")
         }
     }
-
 
 
 }
