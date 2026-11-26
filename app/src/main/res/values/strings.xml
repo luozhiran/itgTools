@@ -37,4 +37,7 @@
     <string name="ui_examples_recycler">Recycler · 多 Item 与 Payload</string>
     <string name="ui_examples_ksp_recycler">KSP Recycler · 注解生成</string>
     <string name="ui_examples_ksp_tabs">KSP Tabs · 注解生成</string>
+    <string name="flow_tile">Flow页面实例</string>
+    <string name="flow_title_description">体验Flow</string>
+
 </resources>
