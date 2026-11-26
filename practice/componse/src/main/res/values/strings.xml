@@ -20,4 +20,11 @@
 
     <string name="compose_lazy_list_title">LazyColumn 列表滚动状态</string>
     <string name="compose_lazy_list_description">通过 rememberLazyListState 管理 100 条数据的滚动位置，并点击按钮平滑回到顶部。</string>
+    <string name="compose_lazy_list_intro_title">滑动列表，观察状态变化</string>
+    <string name="compose_lazy_list_intro_description">列表会记住滚动位置；滑过第 3 项后，可一键平滑返回顶部。</string>
+    <string name="compose_lazy_list_position">当前第 %1$d / %2$d 项</string>
+    <string name="compose_lazy_list_scroll_hint">向上滑动，查看实时位置与回顶按钮</string>
+    <string name="compose_lazy_list_item">列表条目 %1$d</string>
+    <string name="compose_lazy_list_item_hint">LazyColumn 滚动状态示例</string>
+    <string name="compose_lazy_list_back_to_top">回到顶部</string>
 </resources>
