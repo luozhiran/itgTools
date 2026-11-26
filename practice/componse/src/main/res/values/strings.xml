@@ -13,8 +13,9 @@
 
 
     <string name="compose_list_remember_title">在重组（recompose）期间保存状态</string>
-    <string name="compose_list_remember_description">remember:在重组（recompose）期间保存状态；页面销毁 / 离开、配置变更（旋转）会丢失\n rememberSaveable：重组 + 配置变更（屏幕旋转、暗黑切换）都能保存；进程被杀依然丢失
+    <string name="compose_list_remember_description">对比 remember 的重组保留、rememberSaveable 的旋转恢复与 ViewModel 共享状态，并演示 snapshotFlow 监听和 StateFlow 收集。</string>
 
-></string>
+    <string name="compose_list_remember_title2">Compose重组特殊版</string>
+    <string name="compose_list_remember_description2"> </string>
 
 </resources>
