@@ -5,6 +5,8 @@ import androidx.annotation.StringRes
 import com.itg.componse.activitys.ComposeListDemoActivity
 import com.itg.componse.activitys.ComposeRememberActivity
 import com.itg.componse.activitys.ComposeRememberActivity2
+import com.itg.componse.activitys.ComposeRememberActivity3
+import kotlin.jvm.java
 
 internal data class ComposeDemoEntry(
     @field:StringRes val titleRes: Int,
@@ -28,6 +30,11 @@ internal object ComposeDemoRegistry {
             titleRes = R.string.compose_list_remember_title2,
             descriptionRes = R.string.compose_list_remember_description2,
             activityClass = ComposeRememberActivity2::class.java,
+        ),
+        ComposeDemoEntry(
+            titleRes = R.string.compose_lazy_list_title,
+            descriptionRes = R.string.compose_lazy_list_description,
+            activityClass = ComposeRememberActivity3::class.java,
         ),
     )
 }

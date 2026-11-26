@@ -18,4 +18,6 @@
     <string name="compose_list_remember_title2">Compose 重组与状态监听进阶</string>
     <string name="compose_list_remember_description2">通过计数实验了解 SideEffect、derivedStateOf、Snapshot 快照监听、自定义状态委托与 LiveData 桥接。</string>
 
+    <string name="compose_lazy_list_title">LazyColumn 列表滚动状态</string>
+    <string name="compose_lazy_list_description">通过 rememberLazyListState 管理 100 条数据的滚动位置，并点击按钮平滑回到顶部。</string>
 </resources>

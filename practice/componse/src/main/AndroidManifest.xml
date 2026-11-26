@@ -20,6 +20,9 @@
         <activity android:name=".activitys.ComposeRememberActivity2"
             android:label="@string/compose_list_remember_title2"
             android:theme="@style/Theme.ItgTools" />
+        <activity android:name=".activitys.ComposeRememberActivity3"
+            android:label="@string/compose_lazy_list_title"
+            android:theme="@style/Theme.ItgTools"/>
     </application>
 
 </manifest>
