@@ -1,5 +1,6 @@
 package com.itg.componse.activitys
 
+import android.app.Application
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -24,10 +25,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import com.itg.itg_auxiliary.L
 
-class RememberViewModel : ViewModel()
+class RememberViewModel(application: Application) : AndroidViewModel(application) {
+    var count by mutableIntStateOf(0)
+}
 
 class ComposeRememberActivity : ComponentActivity() {
 
@@ -42,6 +46,7 @@ class ComposeRememberActivity : ComponentActivity() {
                 .windowInsetsPadding(WindowInsets.systemBars)) {
                 RememberScene1()
                 RememberScene2()
+                RememberScene3()
             }
         }
     }
@@ -56,7 +61,7 @@ class ComposeRememberActivity : ComponentActivity() {
     fun RememberScene1() {
         var abc = 9
         var count by remember { mutableIntStateOf(0) }
-        L.e("Hello","-------------------${count}    ${abc}")
+        L.e("Hello","RememberScene1-------------------${count}    ${abc}")
         Column() {
             Button(onClick = {
                 count++
@@ -74,9 +79,8 @@ class ComposeRememberActivity : ComponentActivity() {
     @Composable
     fun RememberScene2() {
         var abc = 9
-        val vm = md
         var count by rememberSaveable { mutableIntStateOf(0) }
-        L.e("Hello","-------------------${count}    ${abc}")
+        L.e("Hello","RememberScene2-------------------${count}    ${abc}")
         Column() {
             Button(onClick = {
                 count++
@@ -86,5 +90,23 @@ class ComposeRememberActivity : ComponentActivity() {
             }
         }
     }
+
+    @Composable
+    fun RememberScene3() {
+        var abc = 9
+         val newMd: RememberViewModel by viewModels()
+        L.e("Hello","--------RememberScene3-----------${newMd.count}  ${md.count}   ${abc}")
+        Column() {
+            Button(onClick = {
+                newMd.count++
+                abc++
+            }) {
+                Text("count=${newMd.count}")
+            }
+        }
+    }
+
+
+
 
 }
