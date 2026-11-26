@@ -52,59 +52,63 @@ class ComposeRememberActivity3 : ComponentActivity() {
     }
 }
 
-/**
- *  rememberLazyListState
- *  **创建并记住一个 LazyListState，专门给 LazyColumn / LazyRow 使用，
- *  用来读取、控制列表滚动，并且自带 rememberSaveable，旋转 / 配置变更后滚动位置不会丢
- *
- *  LazyListState 能干什么（拿到 state 之后）
- *
- *  1. 读滚动信息（读取这些属性会触发重组）
- *
- * - `firstVisibleItemIndex`：当前第一个可见 item 下标
- * - `firstVisibleItemScrollOffset`：第一个 item 内部偏移 px
- * - `layoutInfo`：完整布局信息（可见 item 集合、总 item 数等）
- * - `canScrollForward` / `canScrollBackward`：能不能继续往下 / 往上滑
- *
- *  2. 代码控制滚动（协程挂起函数，要在协程里调用）
- *
- * - `scrollToItem(index, offset)`：直接跳到指定 item（无动画）
- * - `animateScrollToItem(index, offset)`：平滑滚动到 item（带动画）
- *
- *
- * rememberCoroutineScope()
- * 在 **@Composable 里面拿到一个协程作用域，这个作用域和当前 Composable 的生命周期绑定；
- * Composable 退出（从 UI 树上移除），scope 自动 cancel**。
- * 核心特性
- * 1. **生命周期绑定到这个 Composable**
- *      当这个 Composable 被移除组合（页面退出、if 条件不成立、被折叠），scope 里面所有正在跑的协程自动取消，避免泄漏。
- *
- * 2. **调度器默认是 `Dispatchers.Main.immediate`**
- *      适合 UI 相关任务：滚动、弹窗、动画、点击触发的异步。
- *
- * 3. **它是 remember 缓存的**
- *      重组不会重新生成新的 Scope，同一个 Composable 多次重组拿到的是同一个 scope。
- *
- * LaunchedEffect()
- *  在 Composable 里安全启动一个协程副作用；依靠 key 控制协程什么时候重启、什么时候自动取消。
- *  核心规则
- *  1. **首次进入组合**：执行一次，启动协程跑 `block`
- * 2. **任意一个 key 发生变化**：
- *    - 先把上一次正在跑的协程 cancel
- *    - 再重新执行 block，开新协程
- * 3. **Composable 从 UI 树上移除（页面消失、if 隐藏）**：自动 cancel 当前协程，不会泄漏
- * 4. **单纯重组、key 没变**：啥也不干，协程继续跑
- *      和 `rememberCoroutineScope` 对比一句话：
- *          - LaunchedEffect：**自动触发协程**（key 变 / 进入页面就跑）
- *          - rememberCoroutineScope：**手动 launch**（点击、手势回调里自己调用）
- */
 @Composable
 private fun LazyListScreen(onBack: () -> Unit) {
+    /**
+     *  rememberLazyListState
+     *  **创建并记住一个 LazyListState，专门给 LazyColumn / LazyRow 使用，
+     *  用来读取、控制列表滚动，并且自带 rememberSaveable，旋转 / 配置变更后滚动位置不会丢
+     *
+     *  LazyListState 能干什么（拿到 state 之后）
+     *
+     *  1. 读滚动信息（读取这些属性会触发重组）
+     *
+     * - `firstVisibleItemIndex`：当前第一个可见 item 下标
+     * - `firstVisibleItemScrollOffset`：第一个 item 内部偏移 px
+     * - `layoutInfo`：完整布局信息（可见 item 集合、总 item 数等）
+     * - `canScrollForward` / `canScrollBackward`：能不能继续往下 / 往上滑
+     *
+     *  2. 代码控制滚动（协程挂起函数，要在协程里调用）
+     *
+     * - `scrollToItem(index, offset)`：直接跳到指定 item（无动画）
+     * - `animateScrollToItem(index, offset)`：平滑滚动到 item（带动画）
+     *
+     *
+     */
     val listState = rememberLazyListState()
+    /**
+     * rememberCoroutineScope()
+     * 在 **@Composable 里面拿到一个协程作用域，这个作用域和当前 Composable 的生命周期绑定；
+     * Composable 退出（从 UI 树上移除），scope 自动 cancel**。
+     * 核心特性
+     * 1. **生命周期绑定到这个 Composable**
+     *      当这个 Composable 被移除组合（页面退出、if 条件不成立、被折叠），scope 里面所有正在跑的协程自动取消，避免泄漏。
+     *
+     * 2. **调度器默认是 `Dispatchers.Main.immediate`**
+     *      适合 UI 相关任务：滚动、弹窗、动画、点击触发的异步。
+     *
+     * 3. **它是 remember 缓存的**
+     *      重组不会重新生成新的 Scope，同一个 Composable 多次重组拿到的是同一个 scope。
+     *
+     */
     val scope = rememberCoroutineScope()
     val firstVisibleIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
     val showBackToTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
 
+    /**
+     * LaunchedEffect()
+     *  在 Composable 里安全启动一个协程副作用；依靠 key 控制协程什么时候重启、什么时候自动取消。
+     *  核心规则
+     *  1. **首次进入组合**：执行一次，启动协程跑 `block`
+     * 2. **任意一个 key 发生变化**：
+     *    - 先把上一次正在跑的协程 cancel
+     *    - 再重新执行 block，开新协程
+     * 3. **Composable 从 UI 树上移除（页面消失、if 隐藏）**：自动 cancel 当前协程，不会泄漏
+     * 4. **单纯重组、key 没变**：啥也不干，协程继续跑
+     *      和 `rememberCoroutineScope` 对比一句话：
+     *          - LaunchedEffect：**自动触发协程**（key 变 / 进入页面就跑）
+     *          - rememberCoroutineScope：**手动 launch**（点击、手势回调里自己调用）
+     */
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
             L.e("当前首个可见：$index")
