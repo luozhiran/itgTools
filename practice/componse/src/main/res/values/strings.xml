@@ -15,7 +15,7 @@
     <string name="compose_list_remember_title">在重组（recompose）期间保存状态</string>
     <string name="compose_list_remember_description">对比 remember 的重组保留、rememberSaveable 的旋转恢复与 ViewModel 共享状态，并演示 snapshotFlow 监听和 StateFlow 收集。</string>
 
-    <string name="compose_list_remember_title2">Compose重组特殊版</string>
-    <string name="compose_list_remember_description2"> </string>
+    <string name="compose_list_remember_title2">Compose 重组与状态监听进阶</string>
+    <string name="compose_list_remember_description2">通过计数实验了解 SideEffect、derivedStateOf、Snapshot 快照监听、自定义状态委托与 LiveData 桥接。</string>
 
 </resources>
