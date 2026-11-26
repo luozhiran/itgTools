@@ -2,41 +2,47 @@ package com.itg.componse.activitys
 
 import android.app.Application
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.itg.componse.ui.theme.ItgToolsTheme
 import com.itg.itg_auxiliary.L
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /** 提供计数状态，演示自定义 setter、snapshotFlow 和 StateFlow。 */
 class RememberViewModel(application: Application) : AndroidViewModel(application) {
@@ -113,14 +119,47 @@ class ComposeRememberActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()//布局会顶到屏幕最边缘，内容会被状态栏、导航栏、软键盘挡住
         setContent {
-            Column(modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars)) {
-                RememberScene1()
-                RememberScene2()
-                RememberScene3()
-                RememberScene4()
-                RememberScene5()
+            ItgToolsTheme {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    topBar = {
+                        Surface(shadowElevation = 2.dp, modifier = Modifier.statusBarsPadding()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TextButton(onClick = ::finish) { Text("返回") }
+                                Text(
+                                    text = "Compose 状态实验",
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    style = MaterialTheme.typography.titleLarge,
+                                )
+                            }
+                        }
+                    },
+                ) { innerPadding ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp, vertical = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = "点击按钮观察计数，再旋转屏幕，对比不同状态的保留方式。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        RememberScene1()
+                        RememberScene2()
+                        RememberScene3()
+                        RememberScene4()
+                        RememberScene5()
+                    }
+                }
             }
         }
     }
@@ -136,14 +175,17 @@ class ComposeRememberActivity : ComponentActivity() {
         var abc = 9
         var count by remember { mutableIntStateOf(0) }
         L.e("Hello","RememberScene1-------------------${count}    ${abc}")
-        Column() {
-            Button(onClick = {
+        StateDemoCard(
+            number = "01",
+            title = "remember · 重组保留",
+            description = "点击后计数持续增加；旋转屏幕后重新从 0 开始。",
+            count = count,
+            detail = "普通局部变量 abc：$abc（重组后恢复为 9）",
+            onIncrement = {
                 count++
                 abc++
-            }) {
-                Text("count=${count}")
-            }
-        }
+            },
+        )
     }
 
     /**
@@ -155,14 +197,17 @@ class ComposeRememberActivity : ComponentActivity() {
         var abc = 9
         var count by rememberSaveable { mutableIntStateOf(0) }
         L.e("Hello","RememberScene2-------------------${count}    ${abc}")
-        Column() {
-            Button(onClick = {
+        StateDemoCard(
+            number = "02",
+            title = "rememberSaveable · 旋转恢复",
+            description = "点击后旋转屏幕，计数仍会恢复到旋转前的值。",
+            count = count,
+            detail = "普通局部变量 abc：$abc（重组后恢复为 9）",
+            onIncrement = {
                 count++
                 abc++
-            }) {
-                Text("count=${count}")
-            }
-        }
+            },
+        )
     }
 
     /**
@@ -172,16 +217,19 @@ class ComposeRememberActivity : ComponentActivity() {
     @Composable
     fun RememberScene3() {
         var abc = 9
-         val newMd: RememberViewModel by viewModels()
+        val newMd: RememberViewModel by viewModels()
         L.e("Hello","--------RememberScene3-----------${newMd.count}  ${md.count}   ${abc}")
-        Column() {
-            Button(onClick = {
+        StateDemoCard(
+            number = "03",
+            title = "ViewModel · 同一实例",
+            description = "两个 viewModels() 委托共享 Activity 中的同一份计数。",
+            count = newMd.count,
+            detail = "另一个委托 md.count：${md.count} · 普通变量 abc：$abc",
+            onIncrement = {
                 newMd.count++
                 abc++
-            }) {
-                Text("count=${newMd.count}")
-            }
-        }
+            },
+        )
     }
 
 
@@ -191,13 +239,16 @@ class ComposeRememberActivity : ComponentActivity() {
      */
     @Composable
     fun RememberScene4() {
-        Column() {
-            Button(onClick = {
+        StateDemoCard(
+            number = "04",
+            title = "snapshotFlow · 监听变化",
+            description = "点击后界面更新；在 Logcat 搜索 snapshotFlowCount 查看监听日志。",
+            count = md.snapshotFlowCount,
+            detail = "同一个值既驱动重组，也被 snapshotFlow 观察。",
+            onIncrement = {
                 md.snapshotFlowCount++
-            }) {
-                Text("count=${md.snapshotFlowCount}")
-            }
-        }
+            },
+        )
     }
 
     /**
@@ -205,18 +256,82 @@ class ComposeRememberActivity : ComponentActivity() {
      * `collectAsState()` 在组件处于组合期间收集 Flow，不会因 Activity 进入后台而自动暂停。
      * `collectAsStateWithLifecycle()` 结合 Lifecycle 收集，默认在 STARTED 时开始，
      * 低于 STARTED（如进入 STOPPED）时停止，回到 STARTED 后重新收集最新值。
-     * 当前按钮文本使用前者的结果；后者的结果保存在 `count`，目前未用于显示。
+     * 卡片同时显示两种收集结果，主计数使用生命周期感知的结果。
      */
     @Composable
     fun RememberScene5() {
-        val count = md.mutableStateFlowCount.collectAsStateWithLifecycle()
-        Column() {
-            Button(onClick = {
-                md.increase()
-            }) {
-                Text("count=${md.mutableStateFlowCount.collectAsState().value}")
-            }
-        }
+        val count by md.mutableStateFlowCount.collectAsStateWithLifecycle()
+        val composeCount by md.mutableStateFlowCount.collectAsState()
+        StateDemoCard(
+            number = "05",
+            title = "StateFlow · 两种收集方式",
+            description = "两种 API 都把计数转成 Compose 状态，后台收集时机不同。",
+            count = count,
+            detail = "collectAsState：$composeCount · 生命周期感知：$count",
+            onIncrement = md::increase,
+        )
     }
 
+}
+
+@Composable
+private fun StateDemoCard(
+    number: String,
+    title: String,
+    description: String,
+    count: Int,
+    detail: String,
+    onIncrement: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = number,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = title,
+                    modifier = Modifier.padding(start = 12.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text(
+                        text = "当前计数",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = count.toString(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Button(onClick = onIncrement) { Text("计数 +1") }
+            }
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
