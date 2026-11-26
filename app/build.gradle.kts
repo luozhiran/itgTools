@@ -66,6 +66,7 @@ dependencies {
     implementation(project(":outter"))
     implementation(project(":itg-dialog"))
     implementation(project(":practice:componse"))
+    implementation(project(":practice:flow"))
     implementation(libs.therouter.router)
     ksp(libs.therouter.apt)
     ksp(project(":itg-ksp-compiler"))
