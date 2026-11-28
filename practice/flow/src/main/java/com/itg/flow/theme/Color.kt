@@ -1,4 +1,4 @@
-package com.itg.flow.activity.ui.theme
+package com.itg.flow.f.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

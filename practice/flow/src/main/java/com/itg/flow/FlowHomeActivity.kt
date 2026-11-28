@@ -1,14 +1,20 @@
-package com.itg.flow.activity
+package com.itg.flow
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -18,8 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.itg.flow.R
-import com.itg.flow.activity.ui.theme.ItgToolsTheme
+import com.itg.flow.f.ui.theme.ItgToolsTheme
 
 class FlowHomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,7 +32,9 @@ class FlowHomeActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ItgToolsTheme {
-                HomeScreen()
+                HomeScreen(){ demo ->
+                    startActivity(Intent(this, demo.activityClass))
+                }
             }
         }
     }
@@ -35,14 +42,16 @@ class FlowHomeActivity : ComponentActivity() {
 
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onDemoClick: (FlowDemoEntry) -> Unit) {
     /**
      * Scaffold 是页面骨架容器，**提供固定槽位：topBar、bottomBar、floatingActionButton、snackbarHost**，
      * 自动帮你处理状态栏、导航栏 inset，并且给 content 返回 `innerPadding`，防止内容被 topBar /bottomBar 盖住
      *
      */
     Scaffold(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
         topBar = {
             /**
              * **Surface 是 Material 的基础容器，用来承载内容、控制背景色、形状、阴影、点击水波纹，是 Material 体系的基础块**。
@@ -70,6 +79,49 @@ fun HomeScreen() {
         }
     ) { innerPadding ->
 
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+
+            item {
+                Text(
+                    text = stringResource(R.string.flow_home_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            items(FlowDemoRegistry.entries, key={it.activityClass.name}){demo ->
+                Card(
+                    onClick = { onDemoClick(demo) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            text = stringResource(demo.titleRes),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = stringResource(demo.descriptionRes),
+                            modifier = Modifier.padding(top = 6.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.compose_open_demo),
+                            modifier = Modifier.padding(top = 14.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
+        }
 
     }
 }
@@ -79,6 +131,6 @@ fun HomeScreen() {
 @Composable
 fun GreetingPreview() {
     ItgToolsTheme {
-        HomeScreen()
+        HomeScreen(onDemoClick = {})
     }
 }

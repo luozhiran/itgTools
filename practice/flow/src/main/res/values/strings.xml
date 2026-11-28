@@ -1,3 +1,7 @@
 <resources>
     <string name="title_activity_flow_home">FlowHomeActivity</string>
+    <string name="flow_home_description">选择一个页面，体验不同的 Flow 实现。</string>
+    <string name="flow_d">xxx</string>
+    <string name="flow_des">xxxxxx</string>
+    <string name="compose_open_demo">查看示例 ›</string>
 </resources>

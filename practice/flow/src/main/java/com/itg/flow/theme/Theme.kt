@@ -1,6 +1,5 @@
-package com.itg.flow.activity.ui.theme
+package com.itg.flow.f.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

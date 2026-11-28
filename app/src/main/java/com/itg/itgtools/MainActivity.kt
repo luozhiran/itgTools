@@ -12,7 +12,7 @@ import com.itg.itgtools.pages.matrixtrace.MatrixTraceDemoActivity
 import com.itg.itgtools.databinding.ActivityMainBinding
 import com.itg.itgtools.route.RoutePath
 import com.itg.componse.ComponseHomeActivity
-import com.itg.flow.activity.FlowHomeActivity
+import com.itg.flow.f.FlowHomeActivity
 import com.therouter.router.Route
 
 @Route(path = RoutePath.MAIN_HOME_ACTIVITY)

@@ -3,11 +3,14 @@
 
     <application>
         <activity
-            android:name=".activity.FlowHomeActivity"
+            android:name=".FlowHomeActivity"
             android:exported="false"
             android:label="@string/title_activity_flow_home"
             android:theme="@style/Theme.ItgTools"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".SimpleFlowActivity"
+            android:theme="@style/Theme.ItgTools" />
     </application>
 
 </manifest>
